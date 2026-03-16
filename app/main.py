@@ -564,7 +564,11 @@ if is_module_enabled("people"):
         prefix="/api/v1",
         dependencies=[Depends(require_tenant_auth)],
     )
-    _include_api_router(people_hr_router, dependencies=[Depends(require_tenant_auth)])
+    app.include_router(
+        people_hr_router,
+        prefix="/api/v1",
+        dependencies=[Depends(require_tenant_auth)],
+    )
     app.include_router(people_web_router)
     app.include_router(payroll_alias_web_router)
     # Careers portal (tied to people/recruitment)
