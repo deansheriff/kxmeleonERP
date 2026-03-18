@@ -1669,7 +1669,9 @@ class SelfServiceWebService:
         employee_id = self._get_employee_id(db, org_id, person_id)
 
         if not items:
-            raise HTTPException(status_code=400, detail="At least one expense item is required")
+            raise HTTPException(
+                status_code=400, detail="At least one expense item is required"
+            )
 
         resolved_receipt_urls: list[str] = []
         if receipt_url and str(receipt_url).strip():
@@ -1745,7 +1747,9 @@ class SelfServiceWebService:
                     "description": str(item["description"]).strip(),
                     "claimed_amount": amount,
                     "receipt_url": resolved_receipt_url,
-                    "receipt_number": receipt_number.strip() if receipt_number else None,
+                    "receipt_number": receipt_number.strip()
+                    if receipt_number
+                    else None,
                 }
             )
 

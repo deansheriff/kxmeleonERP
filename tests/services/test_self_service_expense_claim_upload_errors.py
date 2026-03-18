@@ -57,13 +57,17 @@ def test_self_service_expense_claim_create_redirects_on_invalid_receipt_content_
             claim_date=date(2026, 2, 17),
             purpose="Test",
             expense_date=date(2026, 2, 17),
-            category_id="00000000-0000-0000-0000-000000000010",
-            description="Test",
-            claimed_amount="12.34",
+            items=[
+                {
+                    "category_id": "00000000-0000-0000-0000-000000000010",
+                    "description": "Test",
+                    "claimed_amount": "12.34",
+                }
+            ],
             recipient_bank_code="001",
             recipient_account_number="1234567890",
             requested_approver_id="00000000-0000-0000-0000-000000000020",
-            receipt_file=upload,
+            receipt_files=[upload],
         )
 
     assert response.status_code == 303
@@ -116,9 +120,13 @@ def test_self_service_expense_claim_create_cleans_up_partial_uploads():
             claim_date=date(2026, 2, 17),
             purpose="Test",
             expense_date=date(2026, 2, 17),
-            category_id="00000000-0000-0000-0000-000000000010",
-            description="Test",
-            claimed_amount="12.34",
+            items=[
+                {
+                    "category_id": "00000000-0000-0000-0000-000000000010",
+                    "description": "Test",
+                    "claimed_amount": "12.34",
+                }
+            ],
             recipient_bank_code="001",
             recipient_account_number="1234567890",
             requested_approver_id="00000000-0000-0000-0000-000000000020",

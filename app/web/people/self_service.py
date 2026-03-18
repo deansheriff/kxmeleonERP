@@ -504,7 +504,9 @@ async def create_expense_claim(
                     claimed_amount,
                 ]
             ):
-                raise HTTPException(status_code=400, detail="Missing required item fields")
+                raise HTTPException(
+                    status_code=400, detail="Missing required item fields"
+                )
 
             try:
                 amount = Decimal(claimed_amount)
@@ -567,7 +569,9 @@ async def create_expense_claim(
         raise HTTPException(status_code=400, detail="Invalid claim date") from exc
 
     try:
-        expense_date = date.fromisoformat(expense_date_str) if expense_date_str else None
+        expense_date = (
+            date.fromisoformat(expense_date_str) if expense_date_str else None
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid expense date") from exc
 
