@@ -46,6 +46,34 @@ def _safe_form_text(value: object | None, default: str = "") -> str:
 class ExpenseLimitWebService:
     """Service layer for expense limit web routes."""
 
+    @staticmethod
+    def _get_approver_scope_id(form, scope_type: str) -> str:
+        """Resolve approver scope target from employee typeahead or scoped select."""
+        if scope_type == "EMPLOYEE":
+            if hasattr(form, "getlist"):
+                values = [
+                    _safe_form_text(value)
+                    for value in form.getlist("scope_id")
+                    if _safe_form_text(value)
+                ]
+                if values:
+                    return values[0]
+            return _safe_form_text(form.get("scope_id"))
+
+        scope_option_id = _safe_form_text(form.get("scope_option_id"))
+        if scope_option_id:
+            return scope_option_id
+
+        if hasattr(form, "getlist"):
+            values = [
+                _safe_form_text(value)
+                for value in form.getlist("scope_id")
+                if _safe_form_text(value)
+            ]
+            if values:
+                return values[-1]
+        return _safe_form_text(form.get("scope_id"))
+
     def limit_rules_list_response(
         self,
         request: Request,
@@ -162,7 +190,7 @@ class ExpenseLimitWebService:
         rule_name = _safe_form_text(form.get("rule_name"))
         description = _safe_form_text(form.get("description"))
         scope_type = _safe_form_text(form.get("scope_type"))
-        scope_id = _safe_form_text(form.get("scope_id"))
+        scope_id = self._get_approver_scope_id(form, scope_type)
         period_type = _safe_form_text(form.get("period_type"))
         limit_amount = _safe_form_text(form.get("limit_amount"))
         action_type = _safe_form_text(form.get("action_type"))
@@ -648,7 +676,7 @@ class ExpenseLimitWebService:
             form = await request.form()
 
         scope_type = _safe_form_text(form.get("scope_type"))
-        scope_id = _safe_form_text(form.get("scope_id"))
+        scope_id = self._get_approver_scope_id(form, scope_type)
         max_approval_amount = _safe_form_text(form.get("max_approval_amount"))
         weekly_approval_budget = _safe_form_text(form.get("weekly_approval_budget"))
         # Legacy monthly field intentionally disabled.
