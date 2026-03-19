@@ -2745,7 +2745,7 @@ class BankingWebService:
                     BankStatementLine.statement_id,
                     func.count().label("total"),
                     func.count()
-                    .where(BankStatementLine.is_matched.is_(True))
+                    .filter(BankStatementLine.is_matched.is_(True))
                     .label("matched"),
                 )
                 .where(BankStatementLine.statement_id.in_(stmt_ids))
