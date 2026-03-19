@@ -16,7 +16,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.finance.core_org.organization import Organization
@@ -294,7 +294,11 @@ class PAYEExportService:
 
         writer.writerow([(organization_name or "Company").upper()])
         writer.writerow([])
-        writer.writerow([f"PAY-AS-YOU-EARN COMPUTATION FOR {self._format_period_label(year, month)}"])
+        writer.writerow(
+            [
+                f"PAY-AS-YOU-EARN COMPUTATION FOR {self._format_period_label(year, month)}"
+            ]
+        )
         writer.writerow(
             [
                 "S/N",
@@ -358,12 +362,7 @@ class PAYEExportService:
             medical = earnings.get("medical", Decimal("0"))
             entertainment = earnings.get("entertainment", Decimal("0"))
             other = slip.gross_pay - (
-                basic
-                + housing
-                + transport
-                + utility
-                + medical
-                + entertainment
+                basic + housing + transport + utility + medical + entertainment
             )
 
             # Get deductions by component code
@@ -472,12 +471,8 @@ class PAYEExportService:
     @staticmethod
     def _is_permanent_staff(employee) -> bool:
         employment_type = getattr(employee, "employment_type", None)
-        type_code = (
-            str(getattr(employment_type, "type_code", "") or "").strip().lower()
-        )
-        type_name = (
-            str(getattr(employment_type, "type_name", "") or "").strip().lower()
-        )
+        type_code = str(getattr(employment_type, "type_code", "") or "").strip().lower()
+        type_name = str(getattr(employment_type, "type_name", "") or "").strip().lower()
         permanent_codes = {"permanent", "full_time", "full-time", "fulltime"}
         permanent_names = {"permanent", "full time", "full-time", "fulltime"}
         return type_code in permanent_codes or type_name in permanent_names

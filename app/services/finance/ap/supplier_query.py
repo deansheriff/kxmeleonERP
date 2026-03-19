@@ -9,11 +9,11 @@ from datetime import date
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
+from app.models.finance.ap.supplier import Supplier
 from app.models.finance.ap.supplier_invoice import (
     SupplierInvoice,
     SupplierInvoiceStatus,
 )
-from app.models.finance.ap.supplier import Supplier
 from app.services.common import coerce_uuid
 
 
