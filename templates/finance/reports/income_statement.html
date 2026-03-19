@@ -1,7 +1,7 @@
 {% extends "finance/base_finance.html" %}
 
 {% from "components/macros.html" import compact_filters, empty_state, icon_svg, period_shortcuts %}
-{% block page_title %}Statement of profit or loss{% endblock %}
+{% block page_title %}Statement of profit or loss{% if is_cash_basis %} (Cash Basis){% endif %}{% endblock %}
 
 {% block breadcrumbs %}
 <nav class="text-sm text-slate-500 mt-1" aria-label="Breadcrumb">
@@ -14,11 +14,11 @@
 {% endblock %}
 
 {% block header_actions %}
-<a href="/finance/reports/income-statement/export?start_date={{ start_date_iso }}&end_date={{ end_date_iso }}" class="btn btn-secondary h-9 px-3">
+<a href="/finance/reports/income-statement/export?start_date={{ start_date_iso }}&end_date={{ end_date_iso }}&basis={{ basis if basis else 'accrual' }}" class="btn btn-secondary h-9 px-3">
     {{ icon_svg("download", "h-4 w-4 mr-1.5") }}
     Export CSV
 </a>
-<a href="/finance/reports/income-statement/export?format=pdf&start_date={{ start_date_iso }}&end_date={{ end_date_iso }}" class="btn btn-secondary h-9 px-3">
+<a href="/finance/reports/income-statement/export?format=pdf&start_date={{ start_date_iso }}&end_date={{ end_date_iso }}&basis={{ basis if basis else 'accrual' }}" class="btn btn-secondary h-9 px-3">
     {{ icon_svg("download", "h-4 w-4 mr-1.5") }}
     Export PDF
 </a>
@@ -40,7 +40,22 @@
         auto_submit=false,
         show_apply_button=true
     ) %}
-    {{ period_shortcuts(mode="range") }}
+    <input type="hidden" name="basis" value="{{ basis if basis else 'accrual' }}">
+    <div class="flex items-center gap-3">
+        {{ period_shortcuts(mode="range") }}
+        <!-- Accounting Basis Toggle -->
+        <div class="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden ml-auto"
+             x-data='{ basis: "{{ basis if basis else "accrual" }}" }'>
+            <a href="/finance/reports/income-statement?start_date={{ start_date_iso }}&end_date={{ end_date_iso }}&basis=accrual"
+               class="px-3 py-1.5 text-sm font-medium transition-colors duration-150 {% if not is_cash_basis %}bg-teal-600 text-white{% else %}bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700{% endif %}">
+                Accrual
+            </a>
+            <a href="/finance/reports/income-statement?start_date={{ start_date_iso }}&end_date={{ end_date_iso }}&basis=cash"
+               class="px-3 py-1.5 text-sm font-medium border-l border-slate-200 dark:border-slate-700 transition-colors duration-150 {% if is_cash_basis %}bg-teal-600 text-white{% else %}bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700{% endif %}">
+                Cash
+            </a>
+        </div>
+    </div>
     {% endcall %}
 
     <div id="results-container">
@@ -52,6 +67,9 @@
         <div class="text-center mb-8 print:mb-4">
             <p class="text-slate-500 dark:text-slate-400">For the period {{ start_date }} to {{ end_date }}</p>
             <p class="text-sm text-slate-400 dark:text-slate-500">{{ period_name }}</p>
+            {% if is_cash_basis %}
+            <span class="inline-block mt-2 px-2.5 py-0.5 rounded-md text-xs font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">Cash Basis</span>
+            {% endif %}
         </div>
 
         {% if income_statement_lines %}

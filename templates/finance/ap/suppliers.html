@@ -40,7 +40,8 @@
     ) %}
         {{ filter_select_field("status", "Status", status, [
             {"value": "active", "label": "Active"},
-            {"value": "inactive", "label": "Inactive"}
+            {"value": "inactive", "label": "Inactive"},
+            {"value": "overdue", "label": "Overdue Invoices"}
         ], filter_attrs) }}
     {% endcall %}
 

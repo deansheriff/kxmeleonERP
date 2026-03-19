@@ -89,6 +89,7 @@ class HRWebService:
         date_of_leaving_to: str | None = None,
         filters_json: str | None = None,
         page: int = 1,
+        limit: int = DEFAULT_PAGE_SIZE,
         success: str | None = None,
         error: str | None = None,
     ) -> HTMLResponse:
@@ -96,6 +97,7 @@ class HRWebService:
         org_id = coerce_uuid(auth.organization_id)
         svc = EmployeeService(db, org_id)
         org_svc = OrganizationService(db, org_id)
+        page_size = limit if limit in {25, 50, 100, 200} else DEFAULT_PAGE_SIZE
 
         # Parse status filter
         status_filter = None
@@ -115,7 +117,7 @@ class HRWebService:
             date_of_leaving_from=self._parse_date(date_of_leaving_from or ""),
             date_of_leaving_to=self._parse_date(date_of_leaving_to or ""),
         )
-        pagination = PaginationParams.from_page(page, DEFAULT_PAGE_SIZE)
+        pagination = PaginationParams.from_page(page, page_size)
         try:
             advanced_expression = parse_employee_filter_payload_json(filters_json)
         except ValueError as exc:
@@ -1555,13 +1557,15 @@ class HRWebService:
         db: Session,
         search: str | None = None,
         page: int = 1,
+        limit: int = DEFAULT_PAGE_SIZE,
     ) -> HTMLResponse:
         """Render designation list page."""
         org_id = coerce_uuid(auth.organization_id)
         svc = OrganizationService(db, org_id)
+        page_size = limit if limit in {25, 50, 100, 200} else DEFAULT_PAGE_SIZE
 
         filters = DesignationFilters(search=search)
-        pagination = PaginationParams.from_page(page, DEFAULT_PAGE_SIZE)
+        pagination = PaginationParams.from_page(page, page_size)
         result = svc.list_designations(filters, pagination)
 
         context = {

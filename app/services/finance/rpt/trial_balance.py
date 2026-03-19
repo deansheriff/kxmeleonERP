@@ -16,6 +16,7 @@ from app.models.finance.gl.journal_entry import JournalEntry, JournalStatus
 from app.models.finance.gl.journal_entry_line import JournalEntryLine
 from app.services.common import coerce_uuid
 from app.services.finance.rpt.common import (
+    _apply_cash_basis_filter,
     _build_csv,
     _format_currency,
     _format_date,
@@ -28,6 +29,7 @@ def trial_balance_context(
     db: Session,
     organization_id: str,
     as_of_date: str | None = None,
+    basis: str = "accrual",
 ) -> dict[str, Any]:
     """Get context for trial balance report."""
     org_id = coerce_uuid(organization_id)
@@ -62,7 +64,7 @@ def trial_balance_context(
     revenue: list[dict[str, Any]] = []
     expenses: list[dict[str, Any]] = []
 
-    rows = db.execute(
+    stmt = (
         select(
             Account.account_code,
             Account.account_name,
@@ -86,7 +88,13 @@ def trial_balance_context(
             JournalEntry.status == JournalStatus.POSTED,
             JournalEntry.posting_date <= ref_date,
         )
-        .group_by(
+    )
+
+    if basis == "cash":
+        stmt = _apply_cash_basis_filter(stmt, db, org_id)
+
+    rows = db.execute(
+        stmt.group_by(
             Account.account_code,
             Account.account_name,
             AccountCategory.ifrs_category,
@@ -140,6 +148,7 @@ def trial_balance_context(
         else:
             balances.append(entry)
 
+    is_cash_basis = basis == "cash"
     return {
         "as_of_date": _format_date(ref_date),
         "as_of_date_iso": _iso_date(ref_date),
@@ -153,6 +162,8 @@ def trial_balance_context(
         "total_debit": _format_currency(total_debit),
         "total_credit": _format_currency(total_credit),
         "is_balanced": round(total_debit, 2) == round(total_credit, 2),
+        "basis": basis,
+        "is_cash_basis": is_cash_basis,
     }
 
 
@@ -160,9 +171,10 @@ def export_trial_balance_csv(
     organization_id: str,
     db: Session,
     as_of_date: str | None = None,
+    basis: str = "accrual",
 ) -> str:
     """Export trial balance as CSV."""
-    ctx = trial_balance_context(db, organization_id, as_of_date)
+    ctx = trial_balance_context(db, organization_id, as_of_date, basis=basis)
     headers = ["Category", "Account Code", "Account Name", "Debit", "Credit"]
     rows: list[list[str]] = []
     for section_name, section_key in [

@@ -26,6 +26,7 @@ def income_statement_context(
     organization_id: str,
     start_date: str | None = None,
     end_date: str | None = None,
+    basis: str = "accrual",
 ) -> dict[str, Any]:
     """Get context for income statement report."""
     org_id = coerce_uuid(organization_id)
@@ -51,6 +52,7 @@ def income_statement_context(
         organization_id=organization_id,
         start_date=from_date,
         end_date=to_date,
+        basis=basis,
     )
 
     def cat_amount(code: str) -> Decimal:
@@ -102,6 +104,7 @@ def income_statement_context(
         },
     ]
 
+    is_cash_basis = basis == "cash"
     return {
         "start_date": _format_date(from_date),
         "start_date_iso": _iso_date(from_date),
@@ -114,6 +117,8 @@ def income_statement_context(
         "net_income": _format_currency(profit_for_period),
         "net_income_raw": float(profit_for_period),
         "is_profit": profit_for_period >= 0,
+        "basis": basis,
+        "is_cash_basis": is_cash_basis,
     }
 
 
@@ -122,9 +127,10 @@ def export_income_statement_csv(
     db: Session,
     start_date: str | None = None,
     end_date: str | None = None,
+    basis: str = "accrual",
 ) -> str:
     """Export income statement as CSV."""
-    ctx = income_statement_context(db, organization_id, start_date, end_date)
+    ctx = income_statement_context(db, organization_id, start_date, end_date, basis=basis)
     headers = ["Line Item", "Amount"]
     rows = [
         [item["name"], str(item["amount_raw"])]

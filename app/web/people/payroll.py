@@ -743,11 +743,12 @@ def email_status(
 @router.get("/runs/{entry_id}/export/paye")
 def export_paye(
     entry_id: str,
+    paye_format: str = Query(default="lirs"),
     auth: WebAuthContext = Depends(require_hr_access),
     db: Session = Depends(get_db),
 ):
     """Export PAYE (income tax) data for a payroll run."""
-    return payroll_web_service.export_paye_response(auth, db, entry_id)
+    return payroll_web_service.export_paye_response(auth, db, entry_id, paye_format)
 
 
 @router.get("/runs/{entry_id}/export/pension")

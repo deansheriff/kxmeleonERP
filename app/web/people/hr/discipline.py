@@ -82,9 +82,9 @@ def new_case_form(
 
 @router.get("/employees/search")
 def discipline_employee_search(
-    q: str = Query(..., min_length=1),
-    limit: int = Query(default=8, ge=1, le=20),
-    auth: WebAuthContext = Depends(require_discipline_cases_read),
+    q: str = Query(..., min_length=2),
+    limit: int = Query(default=10, ge=1, le=20),
+    auth: WebAuthContext = Depends(require_discipline_cases_create),
     db: Session = Depends(get_db),
 ):
     """Search active employees for discipline typeahead."""

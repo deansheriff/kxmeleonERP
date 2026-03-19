@@ -178,7 +178,20 @@ class MaterialRequestWebService:
         ).all()
         type_count_dict = {t.value: c for t, c in type_counts}
 
-        active_filters = build_active_filters(params={"status": status})
+        active_filters = build_active_filters(
+            params={
+                "status": status,
+                "request_type": request_type,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+            labels={
+                "status": "Status",
+                "request_type": "Request Type",
+                "start_date": "From",
+                "end_date": "To",
+            },
+        )
         return {
             "requests": items,
             "filter_status": status,

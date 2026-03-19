@@ -2241,8 +2241,10 @@ class ARWebService:
         search: str | None,
         status: str | None,
         page: int,
+        limit: int = 50,
         sort: str | None = None,
         sort_dir: str | None = None,
+        parent_customer_id: str | None = None,
     ) -> HTMLResponse:
         context = base_context(request, auth, "Customers", "ar")
         context.update(
@@ -2252,6 +2254,7 @@ class ARWebService:
                 search=search,
                 status=status,
                 page=page,
+                limit=limit,
                 sort=sort,
                 sort_dir=sort_dir,
             )

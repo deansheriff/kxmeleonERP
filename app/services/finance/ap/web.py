@@ -479,6 +479,7 @@ class APWebService:
         organization_id: str,
         search: str | None,
         status: str | None,
+        overdue: str | None,
         page: int,
         limit: int = 50,
         sort: str | None = None,
@@ -508,6 +509,25 @@ class APWebService:
             )
             conditions.append(search_filter)
             stmt = stmt.where(search_filter)
+        if overdue == "true":
+            open_statuses = [
+                SupplierInvoiceStatus.POSTED,
+                SupplierInvoiceStatus.PARTIALLY_PAID,
+            ]
+            supplier_ids_with_overdue_open_invoices = (
+                select(SupplierInvoice.supplier_id)
+                .where(
+                    SupplierInvoice.organization_id == org_id,
+                    SupplierInvoice.status.in_(open_statuses),
+                    SupplierInvoice.due_date < date.today(),
+                )
+                .distinct()
+            )
+            overdue_filter = Supplier.supplier_id.in_(
+                supplier_ids_with_overdue_open_invoices
+            )
+            conditions.append(overdue_filter)
+            stmt = stmt.where(overdue_filter)
 
         total_count = (
             db.scalar(select(func.count(Supplier.supplier_id)).where(*conditions)) or 0
@@ -516,7 +536,7 @@ class APWebService:
             "legal_name": Supplier.legal_name,
             "trading_name": Supplier.trading_name,
             "supplier_code": Supplier.supplier_code,
-            "status": Supplier.status,
+            "status": Supplier.is_active,
         }
         stmt = apply_sort(
             stmt,
@@ -611,12 +631,15 @@ class APWebService:
         )
 
         active_filters = build_active_filters(
-            params={"status": status},
+            params={"status": status, "overdue": overdue},
+            labels={"status": "Status", "overdue": "Overdue"},
+            options={"overdue": {"true": "Has overdue invoices"}},
         )
         return {
             "suppliers": suppliers_view,
             "search": search,
             "status": status,
+            "overdue": overdue,
             "sort": sort,
             "sort_dir": sort_dir,
             "page": page,
@@ -2558,6 +2581,7 @@ class APWebService:
         db: Session,
         search: str | None,
         status: str | None,
+        overdue: str | None,
         page: int,
         limit: int,
         sort: str | None = None,
@@ -2570,6 +2594,7 @@ class APWebService:
                 str(auth.organization_id),
                 search=search,
                 status=status,
+                overdue=overdue,
                 page=page,
                 limit=limit,
                 sort=sort,

@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from calendar import monthrange
 from datetime import date, timedelta
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import Request
@@ -1245,9 +1246,10 @@ class RunWebService:
         auth: WebAuthContext,
         db: Session,
         entry_id: str,
+        paye_format: str = "lirs",
     ) -> RedirectResponse | StreamingResponse:
         """Export PAYE (income tax) data for a payroll run."""
-        return self._export_statutory(auth, db, entry_id, "paye")
+        return self._export_statutory(auth, db, entry_id, "paye", paye_format)
 
     def export_pension_response(
         self,
@@ -1273,6 +1275,7 @@ class RunWebService:
         db: Session,
         entry_id: str,
         export_type: str,
+        export_format: str | None = None,
     ) -> RedirectResponse | StreamingResponse:
         """Common handler for statutory exports (PAYE, Pension, NHF)."""
         import io
@@ -1306,6 +1309,7 @@ class RunWebService:
         content: bytes
         filename: str
         content_type: str
+        selected_format = (export_format or "").strip().lower()
 
         try:
             if export_type == "paye":
@@ -1313,8 +1317,20 @@ class RunWebService:
                     PAYEExportService,
                 )
 
+                if selected_format not in {"", "lirs", "fctirs"}:
+                    return RedirectResponse(
+                        url=f"/people/payroll/runs/{entry_id}?error={quote('Unknown PAYE export format')}",
+                        status_code=303,
+                    )
+                paye_fmt: Literal["lirs", "fctirs"] = (
+                    "fctirs" if selected_format == "fctirs" else "lirs"
+                )
                 paye_r = PAYEExportService(db).generate_export(
-                    org_id, year, month, entry_id=e_id
+                    org_id,
+                    year,
+                    month,
+                    paye_format=paye_fmt,
+                    entry_id=e_id,
                 )
                 content = paye_r.content
                 filename = paye_r.filename

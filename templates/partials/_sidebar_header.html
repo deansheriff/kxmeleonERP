@@ -2,7 +2,7 @@
 {# Shared sidebar header for module shells (non-admin) #}
 <div class="flex h-16 items-center border-b border-slate-200 dark:border-slate-800"
      :class="sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-4'">
-    <a href="{{ brand_href }}" class="flex min-w-0 flex-1 items-center gap-3" x-show="!sidebarCollapsed" x-cloak>
+    <a href="/" class="flex min-w-0 flex-1 items-center gap-3" x-show="!sidebarCollapsed" x-cloak aria-label="{{ brand_name }}">
         {% if brand_logo_url %}
             {% if brand_logo_dark_url %}
             {# Light/dark logo pair #}
@@ -36,8 +36,7 @@
         </div>
         {% endif %}
         <div class="min-w-0">
-            <p class="truncate text-sm font-semibold text-slate-900 dark:text-white" title="{{ brand_name }}">{{ brand_name }}</p>
-            <span class="mt-0.5 hidden sm:inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide {{ module_pill_class }}">{{ module_label }}</span>
+            <span class="hidden sm:inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide {{ module_pill_class }}">{{ module_label }}</span>
         </div>
     </a>
     <button @click="closeSidebar()" x-show="!isDesktop" x-cloak

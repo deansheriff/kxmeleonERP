@@ -97,6 +97,9 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -108,6 +111,16 @@ async def get_async_db():
             yield db
         finally:
             await db.close()
+
+
+def _rollback_session_safely(db: Session | None) -> None:
+    """Rollback a session if a swallowed exception may have aborted it."""
+    if db is None:
+        return
+    try:
+        db.rollback()
+    except Exception:
+        logger.debug("Failed to rollback session after swallowed exception")
 
 
 def _brand_mark(name: str) -> str:
@@ -647,6 +660,7 @@ def base_context(
                     for n in raw_notifications
                 ]
             except Exception:
+                _rollback_session_safely(effective_db)
                 # Don't fail page load if notifications fail
                 notifications = []
 
@@ -829,6 +843,7 @@ def base_context(
                     get_currency_context(effective_db, str(auth.organization_id))
                 )
             except Exception:
+                _rollback_session_safely(effective_db)
                 logger.exception("Ignored exception")
         return context
     finally:
@@ -1071,6 +1086,7 @@ def _refresh_cookie_name(db: Session | None) -> str:
     try:
         name = AuthFlow.refresh_cookie_settings(db).get("key")
     except Exception:
+        _rollback_session_safely(db)
         name = None
     return name or "refresh_token"
 

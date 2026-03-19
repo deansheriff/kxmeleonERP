@@ -642,7 +642,11 @@ if is_module_enabled("fleet"):
 # Fixed Assets module
 # ---------------------------------------------------------------------------
 if is_module_enabled("fixed_assets"):
-    _include_api_router(fa_api_router, dependencies=[Depends(require_tenant_auth)])
+    app.include_router(
+        fa_api_router,
+        prefix="/api/v1",
+        dependencies=[Depends(require_tenant_auth)],
+    )
     app.include_router(fixed_assets_web_router)
 
 # ---------------------------------------------------------------------------

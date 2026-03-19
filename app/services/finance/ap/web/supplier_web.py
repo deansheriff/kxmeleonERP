@@ -26,6 +26,7 @@ from app.models.finance.common.attachment import AttachmentCategory
 from app.models.finance.gl.account_category import IFRSCategory
 from app.services.audit_info import get_audit_service
 from app.services.common import coerce_uuid
+from app.services.common_filters import build_active_filters
 from app.services.finance.ap.supplier import SupplierInput, supplier_service
 from app.services.finance.ap.web.base import (
     calculate_supplier_balance_trends,
@@ -192,6 +193,7 @@ class SupplierWebService:
         organization_id: str,
         search: str | None,
         status: str | None,
+        overdue: str | None,
         page: int,
         limit: int = 50,
         sort: str | None = None,
@@ -207,13 +209,15 @@ class SupplierWebService:
         )
         offset = (page - 1) * limit
         org_id = coerce_uuid(organization_id)
+        effective_status = "overdue" if overdue == "true" and not status else status
         from app.services.finance.ap.supplier_query import build_supplier_query
 
         base_stmt = build_supplier_query(
             db=db,
             organization_id=organization_id,
             search=search,
-            status=status,
+            status=effective_status,
+            overdue=overdue,
         )
 
         total_count = (
@@ -326,11 +330,17 @@ class SupplierWebService:
         )
 
         logger.debug("list_suppliers_context: found %d suppliers", total_count)
+        active_filters = build_active_filters(
+            params={
+                "status": effective_status,
+            }
+        )
 
         return {
             "suppliers": suppliers_view,
             "search": search,
-            "status": status,
+            "status": effective_status,
+            "overdue": overdue,
             "sort": sort,
             "sort_dir": sort_dir,
             "page": page,
@@ -339,6 +349,7 @@ class SupplierWebService:
             "offset": offset,
             "total_count": total_count,
             "total_pages": total_pages,
+            "active_filters": active_filters,
             # Stats for header cards
             "total_suppliers": total_suppliers,
             "active_count": active_count,
@@ -619,6 +630,7 @@ class SupplierWebService:
         db: Session,
         search: str | None,
         status: str | None,
+        overdue: str | None,
         page: int,
         limit: int = 50,
         sort: str | None = None,
@@ -632,6 +644,7 @@ class SupplierWebService:
                 str(auth.organization_id),
                 search=search,
                 status=status,
+                overdue=overdue,
                 page=page,
                 limit=limit,
                 sort=sort,

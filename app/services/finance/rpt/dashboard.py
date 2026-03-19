@@ -378,6 +378,12 @@ def dashboard_context(
             "icon": "activity",
         },
         {
+            "name": "Cash Flow (IAS 7)",
+            "description": "Indirect method with operating, investing, financing",
+            "url": "/finance/reports/cash-flow/ias7",
+            "icon": "activity",
+        },
+        {
             "name": "Changes in Equity",
             "description": "Equity roll-forward for the period",
             "url": "/finance/reports/changes-in-equity",

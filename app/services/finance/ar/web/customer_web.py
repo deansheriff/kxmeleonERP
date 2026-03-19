@@ -50,6 +50,16 @@ logger = logging.getLogger(__name__)
 class CustomerWebService:
     """Web service methods for AR customers."""
 
+    def ar_home_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> HTMLResponse:
+        """Render the AR landing page."""
+        context = base_context(request, auth, "Accounts Receivable", "ar")
+        return templates.TemplateResponse(request, "finance/ar/index.html", context)
+
     @staticmethod
     def build_customer_input(
         db: Session, form_data: dict, organization_id: UUID
@@ -556,6 +566,7 @@ class CustomerWebService:
         sort: str | None = None,
         sort_dir: str | None = None,
         parent_customer_id: str | None = None,
+        limit: int = 50,
     ) -> HTMLResponse:
         """Render customer list page."""
         context = base_context(request, auth, "Customers", "ar")
@@ -566,6 +577,7 @@ class CustomerWebService:
                 search=search,
                 status=status,
                 page=page,
+                limit=limit,
                 sort=sort,
                 sort_dir=sort_dir,
                 parent_customer_id=parent_customer_id,

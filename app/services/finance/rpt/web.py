@@ -31,6 +31,10 @@ from app.services.finance.rpt.general_ledger import (
     export_general_ledger_csv,
     general_ledger_context,
 )
+from app.services.finance.rpt.ias7_cash_flow import (
+    export_ias7_cash_flow_csv,
+    ias7_cash_flow_context,
+)
 from app.services.finance.rpt.income_statement import (
     export_income_statement_csv,
     income_statement_context,
@@ -101,16 +105,20 @@ class ReportsWebService:
         auth: WebAuthContext,
         as_of_date: str | None,
         db: Session,
+        basis: str = "accrual",
     ) -> HTMLResponse:
         from app.services.common_filters import build_active_filters
         from app.web.deps import base_context
 
-        context = base_context(request, auth, "Trial Balance", "reports")
+        is_cash = basis == "cash"
+        title = "Trial Balance (Cash Basis)" if is_cash else "Trial Balance"
+        context = base_context(request, auth, title, "reports")
         context.update(
             trial_balance_context(
                 db,
                 str(auth.organization_id),
                 as_of_date=as_of_date,
+                basis=basis,
             )
         )
         context["active_filters"] = build_active_filters(
@@ -128,17 +136,25 @@ class ReportsWebService:
         start_date: str | None,
         end_date: str | None,
         db: Session,
+        basis: str = "accrual",
     ) -> HTMLResponse:
         from app.services.common_filters import build_active_filters
         from app.web.deps import base_context
 
-        context = base_context(request, auth, "Statement of Profit or Loss", "reports")
+        is_cash = basis == "cash"
+        title = (
+            "Statement of Profit or Loss (Cash Basis)"
+            if is_cash
+            else "Statement of Profit or Loss"
+        )
+        context = base_context(request, auth, title, "reports")
         context.update(
             income_statement_context(
                 db,
                 str(auth.organization_id),
                 start_date=start_date,
                 end_date=end_date,
+                basis=basis,
             )
         )
         context["active_filters"] = build_active_filters(
@@ -393,6 +409,36 @@ class ReportsWebService:
             request, "finance/reports/cash_flow.html", context
         )
 
+    def ias7_cash_flow_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        start_date: str | None,
+        end_date: str | None,
+        db: Session,
+    ) -> HTMLResponse:
+        from app.services.common_filters import build_active_filters
+        from app.web.deps import base_context
+
+        context = base_context(
+            request, auth, "Statement of Cash Flows (IAS 7)", "reports"
+        )
+        context.update(
+            ias7_cash_flow_context(
+                db,
+                str(auth.organization_id),
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+        context["active_filters"] = build_active_filters(
+            params={"start_date": start_date, "end_date": end_date},
+            labels={"start_date": "From", "end_date": "To"},
+        )
+        return templates.TemplateResponse(
+            request, "finance/reports/ias7_cash_flow.html", context
+        )
+
     def changes_in_equity_response(
         self,
         request: Request,
@@ -553,9 +599,10 @@ class ReportsWebService:
         organization_id: str,
         db: Session,
         as_of_date: str | None = None,
+        basis: str = "accrual",
     ) -> str:
         """Export trial balance as CSV."""
-        return export_trial_balance_csv(organization_id, db, as_of_date)
+        return export_trial_balance_csv(organization_id, db, as_of_date, basis=basis)
 
     def export_income_statement_csv(
         self,
@@ -563,9 +610,12 @@ class ReportsWebService:
         db: Session,
         start_date: str | None = None,
         end_date: str | None = None,
+        basis: str = "accrual",
     ) -> str:
         """Export income statement as CSV."""
-        return export_income_statement_csv(organization_id, db, start_date, end_date)
+        return export_income_statement_csv(
+            organization_id, db, start_date, end_date, basis=basis
+        )
 
     def export_balance_sheet_csv(
         self,
@@ -598,6 +648,16 @@ class ReportsWebService:
     ) -> str:
         """Export management accounts as CSV."""
         return export_management_accounts_csv(organization_id, db, start_date, end_date)
+
+    def export_ias7_cash_flow_csv(
+        self,
+        organization_id: str,
+        db: Session,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> str:
+        """Export IAS 7 cash flow statement as CSV."""
+        return export_ias7_cash_flow_csv(organization_id, db, start_date, end_date)
 
     def export_vendor_payout_breakdown_csv(
         self,
@@ -637,9 +697,12 @@ class ReportsWebService:
         organization_id: str,
         db: Session,
         as_of_date: str | None = None,
+        basis: str = "accrual",
     ) -> bytes:
         """Export trial balance as PDF."""
-        ctx = trial_balance_context(db, organization_id, as_of_date=as_of_date)
+        ctx = trial_balance_context(
+            db, organization_id, as_of_date=as_of_date, basis=basis
+        )
         return self._render_pdf("trial_balance", organization_id, db, ctx)
 
     def export_income_statement_pdf(
@@ -648,10 +711,11 @@ class ReportsWebService:
         db: Session,
         start_date: str | None = None,
         end_date: str | None = None,
+        basis: str = "accrual",
     ) -> bytes:
         """Export income statement as PDF."""
         ctx = income_statement_context(
-            db, organization_id, start_date=start_date, end_date=end_date
+            db, organization_id, start_date=start_date, end_date=end_date, basis=basis
         )
         return self._render_pdf("income_statement", organization_id, db, ctx)
 
@@ -754,6 +818,19 @@ class ReportsWebService:
             db, organization_id, start_date=start_date, end_date=end_date
         )
         return self._render_pdf("cash_flow", organization_id, db, ctx)
+
+    def export_ias7_cash_flow_pdf(
+        self,
+        organization_id: str,
+        db: Session,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> bytes:
+        """Export IAS 7 cash flow statement as PDF."""
+        ctx = ias7_cash_flow_context(
+            db, organization_id, start_date=start_date, end_date=end_date
+        )
+        return self._render_pdf("ias7_cash_flow", organization_id, db, ctx)
 
     def export_changes_in_equity_pdf(
         self,

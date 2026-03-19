@@ -25,6 +25,7 @@ def list_employees(
     date_of_leaving_to: str | None = None,
     filters: str | None = None,
     page: int = Query(default=1, ge=1),
+    limit: int = Query(default=25, ge=1, le=200),
     success: str | None = None,
     error: str | None = None,
     auth: WebAuthContext = Depends(require_hr_access),
@@ -45,6 +46,7 @@ def list_employees(
         date_of_leaving_to,
         filters,
         page,
+        limit,
         success,
         error,
     )

@@ -1,5 +1,8 @@
 (function () {
     function initTypeahead(container) {
+        if (container.dataset.typeaheadInitialized === "true") {
+            return;
+        }
         const input = container.querySelector("[data-typeahead-input]");
         const hidden = container.querySelector("[data-typeahead-hidden]");
         const results = container.querySelector("[data-typeahead-results]");
@@ -9,6 +12,7 @@
         if (!input || !hidden || !results || !url) {
             return;
         }
+        container.dataset.typeaheadInitialized = "true";
         let timer = null;
         let lastQuery = "";
         let selecting = false;
@@ -116,8 +120,16 @@
         });
     }
 
-    function initAll() {
-        const containers = document.querySelectorAll("[data-typeahead-url]");
+    function initAll(root) {
+        const scope = root && root.querySelectorAll ? root : document;
+        const containers = [];
+        if (scope.matches && scope.matches("[data-typeahead-url]")) {
+            containers.push(scope);
+        }
+        containers.push.apply(
+            containers,
+            Array.from(scope.querySelectorAll("[data-typeahead-url]"))
+        );
         containers.forEach(function (container) {
             initTypeahead(container);
         });
@@ -128,4 +140,8 @@
     } else {
         initAll();
     }
+
+    document.body.addEventListener("htmx:afterSwap", function (event) {
+        initAll(event.target);
+    });
 })();

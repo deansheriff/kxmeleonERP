@@ -1,7 +1,7 @@
 {% extends "finance/base_finance.html" %}
 {% from "components/macros.html" import compact_filters, filter_date_field, icon_svg, period_shortcuts %}
 
-{% block page_title %}Trial balance{% endblock %}
+{% block page_title %}Trial balance{% if is_cash_basis %} (Cash Basis){% endif %}{% endblock %}
 
 {% block breadcrumbs %}
 <nav class="text-sm text-slate-500 mt-1" aria-label="Breadcrumb">
@@ -14,11 +14,11 @@
 {% endblock %}
 
 {% block header_actions %}
-<a href="/finance/reports/trial-balance/export?as_of_date={{ as_of_date_iso }}" class="btn btn-secondary h-9 px-3">
+<a href="/finance/reports/trial-balance/export?as_of_date={{ as_of_date_iso }}&basis={{ basis if basis else 'accrual' }}" class="btn btn-secondary h-9 px-3">
     {{ icon_svg("download", "h-4 w-4 mr-1.5") }}
     Export CSV
 </a>
-<a href="/finance/reports/trial-balance/export?format=pdf&as_of_date={{ as_of_date_iso }}" class="btn btn-secondary h-9 px-3">
+<a href="/finance/reports/trial-balance/export?format=pdf&as_of_date={{ as_of_date_iso }}&basis={{ basis if basis else 'accrual' }}" class="btn btn-secondary h-9 px-3">
     {{ icon_svg("download", "h-4 w-4 mr-1.5") }}
     Export PDF
 </a>
@@ -37,8 +37,22 @@
         auto_submit=false,
         show_apply_button=true
     ) %}
-    {{ period_shortcuts(mode="as_of") }}
-    {{ filter_date_field("as_of_date", "As of date", as_of_date_iso) }}
+    <input type="hidden" name="basis" value="{{ basis if basis else 'accrual' }}">
+    <div class="flex items-center gap-3">
+        {{ period_shortcuts(mode="as_of") }}
+        {{ filter_date_field("as_of_date", "As of date", as_of_date_iso) }}
+        <!-- Accounting Basis Toggle -->
+        <div class="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden ml-auto">
+            <a href="/finance/reports/trial-balance?as_of_date={{ as_of_date_iso }}&basis=accrual"
+               class="px-3 py-1.5 text-sm font-medium transition-colors duration-150 {% if not is_cash_basis %}bg-teal-600 text-white{% else %}bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700{% endif %}">
+                Accrual
+            </a>
+            <a href="/finance/reports/trial-balance?as_of_date={{ as_of_date_iso }}&basis=cash"
+               class="px-3 py-1.5 text-sm font-medium border-l border-slate-200 dark:border-slate-700 transition-colors duration-150 {% if is_cash_basis %}bg-teal-600 text-white{% else %}bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700{% endif %}">
+                Cash
+            </a>
+        </div>
+    </div>
     {% endcall %}
 
     <div id="results-container">
@@ -50,6 +64,9 @@
         <div class="text-center mb-6 print:mb-4">
             <p class="text-slate-500 dark:text-slate-400">As of {{ as_of_date }}</p>
             <p class="text-sm text-slate-400 dark:text-slate-500">Period: {{ period_name }}</p>
+            {% if is_cash_basis %}
+            <span class="inline-block mt-2 px-2.5 py-0.5 rounded-md text-xs font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">Cash Basis</span>
+            {% endif %}
         </div>
 
         <!-- Balance Status -->

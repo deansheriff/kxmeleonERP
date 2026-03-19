@@ -32,8 +32,10 @@
         base_url="/inventory/material-requests",
         active_filters=active_filters | default([]),
         date_range=true,
-        start_date=start_date | default('', true),
-        end_date=end_date | default('', true)
+        start_date=filter_start_date | default('', true),
+        end_date=filter_end_date | default('', true),
+        auto_submit=false,
+        show_apply_button=true
     ) %}
     <div>
             <div class="min-w-[150px]">
@@ -173,7 +175,14 @@
             page=page | default(1),
             total_pages=total_pages | default(1),
             total_count=total_count | default(requests | length if requests else 0),
-            limit=limit | default(50)
+            limit=limit | default(50),
+            filters={
+                "status": filter_status,
+                "request_type": filter_request_type,
+                "start_date": filter_start_date,
+                "end_date": filter_end_date,
+                "project_id": filter_project_id
+            }
         ) }}
     </div>
 </div>

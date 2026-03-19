@@ -1,0 +1,108 @@
+{% extends "finance/base_finance.html" %}
+{% from "components/macros.html" import icon_svg %}
+
+{% block page_title %}Accounts Receivable{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/dashboard" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Dashboard</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">Accounts Receivable</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6 page-enter">
+    <div class="card p-6">
+        <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Accounts Receivable</h2>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Choose a receivables category to continue.</p>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <a href="/finance/ar/customers" class="card p-5 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:hover:border-teal-800 dark:hover:bg-teal-900/20">
+            <div class="flex items-start gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                    {{ icon_svg("users", "h-5 w-5") }}
+                </div>
+                <div>
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Customers</h3>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage customer accounts and balances.</p>
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/quotes" class="card p-5 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:hover:border-teal-800 dark:hover:bg-teal-900/20">
+            <div class="flex items-start gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400">
+                    {{ icon_svg("document", "h-5 w-5") }}
+                </div>
+                <div>
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Quotes</h3>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Prepare and review customer quotations.</p>
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/sales-orders" class="card p-5 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:hover:border-teal-800 dark:hover:bg-teal-900/20">
+            <div class="flex items-start gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400">
+                    {{ icon_svg("clipboard", "h-5 w-5") }}
+                </div>
+                <div>
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Sales Orders</h3>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track confirmed customer orders.</p>
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/ar/invoices" class="card p-5 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:hover:border-teal-800 dark:hover:bg-teal-900/20">
+            <div class="flex items-start gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
+                    {{ icon_svg("receipt", "h-5 w-5") }}
+                </div>
+                <div>
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Invoices</h3>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Issue and monitor receivable invoices.</p>
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/ar/credit-notes" class="card p-5 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:hover:border-teal-800 dark:hover:bg-teal-900/20">
+            <div class="flex items-start gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400">
+                    {{ icon_svg("refresh", "h-5 w-5") }}
+                </div>
+                <div>
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Credit Notes</h3>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Handle customer credits and reversals.</p>
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/ar/receipts" class="card p-5 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:hover:border-teal-800 dark:hover:bg-teal-900/20">
+            <div class="flex items-start gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400">
+                    {{ icon_svg("cash", "h-5 w-5") }}
+                </div>
+                <div>
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Receipts</h3>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Record and allocate customer payments.</p>
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/ar/aging" class="card p-5 transition-colors hover:border-teal-200 hover:bg-teal-50/40 dark:hover:border-teal-800 dark:hover:bg-teal-900/20">
+            <div class="flex items-start gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400">
+                    {{ icon_svg("clock", "h-5 w-5") }}
+                </div>
+                <div>
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Aging Report</h3>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Review overdue and outstanding receivables.</p>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+{% endblock %}

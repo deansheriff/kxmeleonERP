@@ -16,9 +16,12 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.models.finance.core_org.organization import Organization
+from app.models.people.hr.employee import Employee
+from app.models.people.payroll.employee_tax_profile import EmployeeTaxProfile
 from app.models.people.payroll.salary_slip import (
     SalarySlip,
     SalarySlipDeduction,
@@ -34,6 +37,14 @@ PAYEFormat = Literal["lirs", "fctirs"]
 def _round_currency(value: Decimal) -> Decimal:
     """Round to 2 decimal places using ROUND_HALF_UP."""
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _spreadsheet_text(value: str | None) -> str:
+    """Force spreadsheet apps to preserve long identifiers as text."""
+    text_value = str(value or "").strip()
+    if not text_value:
+        return ""
+    return f'="{text_value}"'
 
 
 @dataclass
@@ -82,11 +93,27 @@ class PAYEExportService:
             PAYEExportResult with file content and metadata
         """
         slips = self._get_slips(organization_id, year, month, entry_id)
+        profiles_by_employee = self._get_tax_profiles_by_employee(
+            organization_id,
+            slips,
+        )
+        organization_name = self._get_organization_name(organization_id)
 
         if paye_format == "lirs":
-            return self._generate_lirs_format(slips, year, month)
+            return self._generate_lirs_format(
+                slips,
+                year,
+                month,
+                profiles_by_employee=profiles_by_employee,
+            )
         else:
-            return self._generate_fctirs_format(slips, year, month)
+            return self._generate_fctirs_format(
+                slips,
+                year,
+                month,
+                organization_name=organization_name,
+                profiles_by_employee=profiles_by_employee,
+            )
 
     def _get_slips(
         self,
@@ -105,7 +132,7 @@ class PAYEExportService:
         stmt = (
             select(SalarySlip)
             .options(
-                joinedload(SalarySlip.employee),
+                joinedload(SalarySlip.employee).joinedload(Employee.employment_type),
                 joinedload(SalarySlip.earnings).joinedload(SalarySlipEarning.component),
                 joinedload(SalarySlip.deductions).joinedload(
                     SalarySlipDeduction.component
@@ -129,6 +156,7 @@ class PAYEExportService:
         slips: list[SalarySlip],
         year: int,
         month: int,
+        profiles_by_employee: dict[UUID, EmployeeTaxProfile] | None = None,
     ) -> PAYEExportResult:
         """
         Generate LIRS (Lagos) PAYE format.
@@ -183,7 +211,12 @@ class PAYEExportService:
                 continue
 
             # Get employee tax profile
-            tax_profile = getattr(employee, "current_tax_profile", None)
+            tax_profile = self._get_tax_profile_for_employee(
+                employee,
+                profiles_by_employee,
+            )
+            if not self._should_include_employee(employee, tax_profile, "lirs"):
+                continue
             tin = ""
             if tax_profile:
                 tin = tax_profile.tin or ""
@@ -205,7 +238,7 @@ class PAYEExportService:
             writer.writerow(
                 [
                     employee.full_name,
-                    tin,
+                    _spreadsheet_text(tin),
                     "Nigerian",  # Default nationality
                     designation,
                     "1",  # Number of months (1 for monthly payroll)
@@ -250,61 +283,68 @@ class PAYEExportService:
         slips: list[SalarySlip],
         year: int,
         month: int,
+        organization_name: str | None = None,
+        profiles_by_employee: dict[UUID, EmployeeTaxProfile] | None = None,
     ) -> PAYEExportResult:
         """
         Generate FCTIRS (FCT) PAYE format.
-
-        More detailed format with tax band breakdown per NTA 2025.
         """
         output = io.StringIO()
         writer = csv.writer(output)
 
-        # FCTIRS has metadata rows before header
-        writer.writerow(["FCTIRS PAYE SCHEDULE"])
-        writer.writerow([f"Period: {month:02d}/{year}"])
-        writer.writerow([])  # Empty row
-
-        # Header row at row 4
+        writer.writerow([(organization_name or "Company").upper()])
+        writer.writerow([])
+        writer.writerow([f"PAY-AS-YOU-EARN COMPUTATION FOR {self._format_period_label(year, month)}"])
         writer.writerow(
             [
                 "S/N",
-                "Staff ID",
-                "Full Name",
-                "TIN",
-                "Designation",
-                "Basic Salary",
-                "Housing Allowance",
-                "Transport Allowance",
-                "Other Allowances",
-                "Gross Emolument",
-                "Pension (8% of Basic+Housing+Transport)",
-                "NHF (2.5%)",
+                "NAME",
+                "TIN ID",
+                "BASIC",
+                "HOUSING",
+                "TRANSPORT",
+                "UTILITY",
+                "MEDICAL",
+                "ENTERTAINMENT",
+                "OTHER NON ALLOW",
+                "MONTHLY GROSS INCOME",
+                "ANNUAL GROSS INCOME",
+                "EARNED INCOME",
+                "CONSOLDATED ALLOWANCE",
+                "NHF",
                 "NHIS",
-                "Total Relief",
-                "Taxable Income",
-                "First 300K (0%)",
-                "Next 300K (15%)",
-                "Next 500K (18%)",
-                "Next 500K (21%)",
-                "Next 1.6M (23%)",
-                "Above 3.2M (25%)",
-                "Total Tax Due",
-                "Monthly Tax",
+                "LIFE ASSURANCE",
+                "PENSION",
+                "TOTAL  ALLOWANCE",
+                "CHARGEABLE INCOME",
+                "ANNUAL TAX DUE",
+                "ANNUAL MINIMUM TAX",
+                "ANNUAL TAX PAYABLE",
+                "MONTHLY TAX PAYABLE",
+                "No. of Months Worked",
+                "TAX PAID",
+                "TAX OVER/(UNDER) DEDUC.",
             ]
         )
 
         errors: list[str] = []
         total_tax = Decimal("0")
         employee_count = 0
+        serial_number = 1
 
-        for idx, slip in enumerate(slips, start=1):
+        for slip in slips:
             employee = slip.employee
             if not employee:
                 errors.append(f"Slip {slip.slip_number}: No employee data")
                 continue
 
             # Get employee tax profile
-            tax_profile = getattr(employee, "current_tax_profile", None)
+            tax_profile = self._get_tax_profile_for_employee(
+                employee,
+                profiles_by_employee,
+            )
+            if not self._should_include_employee(employee, tax_profile, "fctirs"):
+                continue
             tin = ""
             if tax_profile:
                 tin = tax_profile.tin or ""
@@ -314,7 +354,17 @@ class PAYEExportService:
             basic = earnings.get("basic", Decimal("0"))
             housing = earnings.get("housing", Decimal("0"))
             transport = earnings.get("transport", Decimal("0"))
-            other = slip.gross_pay - basic - housing - transport
+            utility = earnings.get("utility", Decimal("0"))
+            medical = earnings.get("medical", Decimal("0"))
+            entertainment = earnings.get("entertainment", Decimal("0"))
+            other = slip.gross_pay - (
+                basic
+                + housing
+                + transport
+                + utility
+                + medical
+                + entertainment
+            )
 
             # Get deductions by component code
             deduction_map = self._extract_deduction_map(slip)
@@ -322,63 +372,70 @@ class PAYEExportService:
             nhf = deduction_map.get("NHF", Decimal("0"))
             nhis = deduction_map.get("NHIS", Decimal("0"))
             paye = deduction_map.get("PAYE", Decimal("0"))
+            life_assurance = deduction_map.get("LIFE_ASSURANCE", Decimal("0"))
 
-            # Calculate annual values for tax band breakdown
             annual_gross = slip.gross_pay * 12
-            annual_pension = pension * 12
-            annual_nhf = nhf * 12
-            annual_nhis = nhis * 12
-            total_relief = annual_pension + annual_nhf + annual_nhis
-
-            # Consolidated Relief Allowance (CRA) - NTA 2025
-            cra = (
+            earned_income = annual_gross
+            consolidated_allowance = (
                 max(Decimal("200000"), Decimal("0.01") * annual_gross)
                 + Decimal("0.20") * annual_gross
             )
-            total_relief += cra
-
-            taxable = max(Decimal("0"), annual_gross - total_relief)
-
-            # Tax band breakdown (NTA 2025)
-            bands = self._calculate_tax_bands(taxable)
-            annual_tax = paye * 12
-
-            designation = ""
-            if employee.designation:
-                designation = employee.designation.designation_name or ""
-
-                staff_id = employee.employee_code
+            annual_nhf = nhf * 12
+            annual_nhis = nhis * 12
+            annual_life_assurance = life_assurance * 12
+            annual_pension = pension * 12
+            total_allowance = (
+                consolidated_allowance
+                + annual_nhf
+                + annual_nhis
+                + annual_life_assurance
+                + annual_pension
+            )
+            chargeable_income = max(Decimal("0"), earned_income - total_allowance)
+            bands = self._calculate_tax_bands(chargeable_income)
+            annual_tax_due = sum(bands.values(), Decimal("0"))
+            annual_minimum_tax = annual_gross * Decimal("0.01")
+            annual_tax_payable = max(annual_tax_due, annual_minimum_tax)
+            monthly_tax_payable = annual_tax_payable / Decimal("12")
+            no_of_months_worked = Decimal("1")
+            tax_paid = paye
+            tax_over_under = tax_paid - monthly_tax_payable
 
             writer.writerow(
                 [
-                    idx,
-                    staff_id,
+                    serial_number,
                     employee.full_name,
-                    tin,
-                    designation,
+                    _spreadsheet_text(tin),
                     str(_round_currency(basic)),
                     str(_round_currency(housing)),
                     str(_round_currency(transport)),
+                    str(_round_currency(utility)),
+                    str(_round_currency(medical)),
+                    str(_round_currency(entertainment)),
                     str(_round_currency(other)),
                     str(_round_currency(slip.gross_pay)),
-                    str(_round_currency(pension)),
+                    str(_round_currency(annual_gross)),
+                    str(_round_currency(earned_income)),
+                    str(_round_currency(consolidated_allowance)),
                     str(_round_currency(nhf)),
                     str(_round_currency(nhis)),
-                    str(_round_currency(total_relief / 12)),  # Monthly relief
-                    str(_round_currency(taxable / 12)),  # Monthly taxable
-                    str(_round_currency(bands["band1"])),  # First 300K
-                    str(_round_currency(bands["band2"])),  # Next 300K
-                    str(_round_currency(bands["band3"])),  # Next 500K
-                    str(_round_currency(bands["band4"])),  # Next 500K
-                    str(_round_currency(bands["band5"])),  # Next 1.6M
-                    str(_round_currency(bands["band6"])),  # Above 3.2M
-                    str(_round_currency(annual_tax)),
-                    str(_round_currency(paye)),
+                    str(_round_currency(life_assurance)),
+                    str(_round_currency(pension)),
+                    str(_round_currency(total_allowance)),
+                    str(_round_currency(chargeable_income)),
+                    str(_round_currency(annual_tax_due)),
+                    str(_round_currency(annual_minimum_tax)),
+                    str(_round_currency(annual_tax_payable)),
+                    str(_round_currency(monthly_tax_payable)),
+                    str(_round_currency(no_of_months_worked)),
+                    str(_round_currency(tax_paid)),
+                    str(_round_currency(tax_over_under)),
                 ]
             )
 
             total_tax += paye
             employee_count += 1
+            serial_number += 1
 
         content = output.getvalue().encode("utf-8")
         filename = f"FCTIRS_PAYE_{year}_{month:02d}.csv"
@@ -391,6 +448,115 @@ class PAYEExportService:
             total_tax=_round_currency(total_tax),
             errors=errors,
         )
+
+    def _get_organization_name(self, organization_id: UUID) -> str:
+        """Resolve organization display name for FCTIRS export headings."""
+        if self.db is None:
+            return "Company"
+        org = self.db.get(Organization, organization_id)
+        if not org:
+            return "Company"
+        return org.trading_name or org.legal_name or org.organization_code or "Company"
+
+    @staticmethod
+    def _format_period_label(year: int, month: int) -> str:
+        """Render payroll period label like 'Nov, 2025'."""
+        return date(year, month, 1).strftime("%b, %Y")
+
+    @staticmethod
+    def _normalize_tax_state(value: str | None) -> str:
+        if not value:
+            return ""
+        return str(value).strip().lower()
+
+    @staticmethod
+    def _is_permanent_staff(employee) -> bool:
+        employment_type = getattr(employee, "employment_type", None)
+        type_code = (
+            str(getattr(employment_type, "type_code", "") or "").strip().lower()
+        )
+        type_name = (
+            str(getattr(employment_type, "type_name", "") or "").strip().lower()
+        )
+        permanent_codes = {"permanent", "full_time", "full-time", "fulltime"}
+        permanent_names = {"permanent", "full time", "full-time", "fulltime"}
+        return type_code in permanent_codes or type_name in permanent_names
+
+    def _employee_matches_tax_jurisdiction(
+        self,
+        tax_profile: EmployeeTaxProfile | None,
+        paye_format: PAYEFormat,
+    ) -> bool:
+        tax_state = self._normalize_tax_state(getattr(tax_profile, "tax_state", None))
+        if not tax_state:
+            return False
+        if paye_format == "lirs":
+            return tax_state in {"lagos", "lagos state"}
+        return tax_state in {
+            "fct",
+            "abuja",
+            "federal capital territory",
+            "fct abuja",
+        }
+
+    def _should_include_employee(
+        self,
+        employee,
+        tax_profile: EmployeeTaxProfile | None,
+        paye_format: PAYEFormat,
+    ) -> bool:
+        return self._is_permanent_staff(
+            employee
+        ) and self._employee_matches_tax_jurisdiction(tax_profile, paye_format)
+
+    @staticmethod
+    def _get_tax_profile_for_employee(
+        employee,
+        profiles_by_employee: dict[UUID, EmployeeTaxProfile] | None = None,
+    ) -> EmployeeTaxProfile | None:
+        """Resolve an employee tax profile from eager state or explicit lookup."""
+        employee_id = getattr(employee, "employee_id", None)
+        if employee_id and profiles_by_employee:
+            profile = profiles_by_employee.get(employee_id)
+            if profile is not None:
+                return profile
+        return getattr(employee, "current_tax_profile", None)
+
+    def _get_tax_profiles_by_employee(
+        self,
+        organization_id: UUID,
+        slips: list[SalarySlip],
+    ) -> dict[UUID, EmployeeTaxProfile]:
+        """Load current tax profiles for exported employees."""
+        if self.db is None:
+            return {}
+
+        employee_ids = {
+            slip.employee.employee_id
+            for slip in slips
+            if getattr(slip, "employee", None) is not None
+            and getattr(slip.employee, "employee_id", None) is not None
+        }
+        if not employee_ids:
+            return {}
+
+        stmt = (
+            select(EmployeeTaxProfile)
+            .where(
+                EmployeeTaxProfile.organization_id == organization_id,
+                EmployeeTaxProfile.employee_id.in_(employee_ids),
+                EmployeeTaxProfile.effective_to.is_(None),
+            )
+            .order_by(
+                EmployeeTaxProfile.employee_id,
+                EmployeeTaxProfile.effective_from.desc(),
+            )
+        )
+
+        profiles_by_employee: dict[UUID, EmployeeTaxProfile] = {}
+        for profile in self.db.scalars(stmt).all():
+            profiles_by_employee.setdefault(profile.employee_id, profile)
+        return profiles_by_employee
 
     def _extract_earnings_breakdown(self, slip: SalarySlip) -> dict[str, Decimal]:
         """Extract earnings breakdown from salary slip."""
@@ -406,6 +572,8 @@ class PAYEExportService:
             "bonus": Decimal("0"),
             "13th_month": Decimal("0"),
             "utility": Decimal("0"),
+            "medical": Decimal("0"),
+            "entertainment": Decimal("0"),
             "other": Decimal("0"),
         }
 
@@ -425,6 +593,8 @@ class PAYEExportService:
             "13TH_MONTH": "13th_month",
             "THIRTEENTH_MONTH": "13th_month",
             "UTILITY": "utility",
+            "MEDICAL": "medical",
+            "ENTERTAINMENT": "entertainment",
         }
 
         for earning in slip.earnings:

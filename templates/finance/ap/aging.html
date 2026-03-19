@@ -258,7 +258,7 @@
 </div>
 
 <!-- Chart Data -->
-<script id="ap-aging-data" type="application/json">{{ aging_chart_data }}</script>
+<script id="ap-aging-data" type="application/json">{{ aging_chart_data | safe }}</script>
 
 <script>
 function apAgingReport() {

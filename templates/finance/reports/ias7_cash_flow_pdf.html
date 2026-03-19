@@ -1,0 +1,185 @@
+{% extends "finance/reports/_pdf_base.html" %}
+
+{% block title %}Statement of Cash Flows (IAS 7) — {{ org_name }}{% endblock %}
+{% block report_title %}Statement of Cash Flows{% endblock %}
+{% block report_meta %}
+{% if start_date and end_date %}
+<p class="meta-line">For the period {{ start_date }} to {{ end_date }}</p>
+{% endif %}
+<p class="meta-line">Indirect Method (IAS 7)</p>
+{% endblock %}
+
+{% block report_body %}
+<!-- Summary -->
+<table class="summary-grid">
+  <tr>
+    <td>
+      <p class="summary-label">Operating</p>
+      <p class="summary-value {% if net_operating_raw >= 0 %}text-emerald{% else %}text-rose{% endif %}">{{ net_operating }}</p>
+    </td>
+    <td>
+      <p class="summary-label">Investing</p>
+      <p class="summary-value {% if net_investing_raw >= 0 %}text-emerald{% else %}text-rose{% endif %}">{{ net_investing }}</p>
+    </td>
+    <td>
+      <p class="summary-label">Financing</p>
+      <p class="summary-value {% if net_financing_raw >= 0 %}text-emerald{% else %}text-rose{% endif %}">{{ net_financing }}</p>
+    </td>
+    <td>
+      <p class="summary-label">Net Change</p>
+      <p class="summary-value">{{ net_change }}</p>
+    </td>
+  </tr>
+</table>
+
+<!-- Operating Activities -->
+<p class="section-heading">Cash Flows from Operating Activities</p>
+<table class="report-table">
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th class="num" style="width: 25%;">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Profit/(Loss) for the period</td>
+      <td class="num {% if not is_profit %}neg{% endif %}">{{ net_income }}</td>
+    </tr>
+    <tr>
+      <td colspan="2" class="bold" style="background: #f1f5f9; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b;">
+        Adjustments for non-cash items
+      </td>
+    </tr>
+    <tr>
+      <td class="indent">Depreciation and amortisation</td>
+      <td class="num">{{ depreciation }}</td>
+    </tr>
+    <tr>
+      <td colspan="2" class="bold" style="background: #f1f5f9; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b;">
+        Changes in working capital
+      </td>
+    </tr>
+    {% for line in working_capital_lines %}
+    <tr>
+      <td class="indent">{{ line.label }}</td>
+      <td class="num {% if line.amount_raw < 0 %}neg{% endif %}">{{ line.amount }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr class="grandtotal">
+      <td class="bold">Net cash from operating activities</td>
+      <td class="num bold {% if net_operating_raw < 0 %}neg{% endif %}">{{ net_operating }}</td>
+    </tr>
+  </tfoot>
+</table>
+
+<!-- Investing Activities -->
+<p class="section-heading">Cash Flows from Investing Activities</p>
+<table class="report-table">
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th class="num" style="width: 25%;">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in investing_lines %}
+    <tr>
+      <td>{{ line.label }}</td>
+      <td class="num {% if line.amount_raw < 0 %}neg{% endif %}">{{ line.amount }}</td>
+    </tr>
+    {% endfor %}
+    {% if not investing_lines %}
+    <tr>
+      <td colspan="2" class="muted" style="text-align: center;">No investing activities for this period</td>
+    </tr>
+    {% endif %}
+  </tbody>
+  <tfoot>
+    <tr class="grandtotal">
+      <td class="bold">Net cash from investing activities</td>
+      <td class="num bold {% if net_investing_raw < 0 %}neg{% endif %}">{{ net_investing }}</td>
+    </tr>
+  </tfoot>
+</table>
+
+<!-- Financing Activities -->
+<p class="section-heading">Cash Flows from Financing Activities</p>
+<table class="report-table">
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th class="num" style="width: 25%;">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in financing_lines %}
+    <tr>
+      <td>{{ line.label }}</td>
+      <td class="num {% if line.amount_raw < 0 %}neg{% endif %}">{{ line.amount }}</td>
+    </tr>
+    {% endfor %}
+    {% if not financing_lines %}
+    <tr>
+      <td colspan="2" class="muted" style="text-align: center;">No financing activities for this period</td>
+    </tr>
+    {% endif %}
+  </tbody>
+  <tfoot>
+    <tr class="grandtotal">
+      <td class="bold">Net cash from financing activities</td>
+      <td class="num bold {% if net_financing_raw < 0 %}neg{% endif %}">{{ net_financing }}</td>
+    </tr>
+  </tfoot>
+</table>
+
+{% if has_unclassified %}
+<!-- Unclassified -->
+<div class="notes" style="margin-bottom: 14px;">
+  <p><strong>Note:</strong> The following cash movements from manual journal entries could not be automatically classified.</p>
+</div>
+<table class="report-table">
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th class="num" style="width: 25%;">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in unclassified_lines %}
+    <tr>
+      <td>{{ line.label }}</td>
+      <td class="num">{{ line.amount }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<!-- Cash Reconciliation -->
+<p class="section-heading">Cash Reconciliation</p>
+<table class="report-table">
+  <tbody>
+    <tr>
+      <td>Net increase/(decrease) in cash and cash equivalents</td>
+      <td class="num bold {% if net_change_raw < 0 %}neg{% endif %}" style="width: 25%;">{{ net_change }}</td>
+    </tr>
+    <tr>
+      <td>Cash and cash equivalents at beginning of period</td>
+      <td class="num" style="width: 25%;">{{ opening_cash }}</td>
+    </tr>
+    <tr class="grandtotal">
+      <td class="bold">Cash and cash equivalents at end of period</td>
+      <td class="num bold" style="width: 25%;">{{ closing_cash }}</td>
+    </tr>
+  </tbody>
+</table>
+
+{% if is_reconciled %}
+<div class="status-banner status-balanced mt">Reconciled</div>
+{% else %}
+<div class="status-banner status-unbalanced mt">Unreconciled — Difference: {{ reconciliation_diff }}</div>
+{% endif %}
+{% endblock %}

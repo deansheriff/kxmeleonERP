@@ -273,11 +273,14 @@ def list_designations(
     request: Request,
     search: str | None = None,
     page: int = Query(default=1, ge=1),
+    limit: int = Query(default=25, ge=1, le=200),
     auth: WebAuthContext = Depends(require_hr_access),
     db: Session = Depends(get_db),
 ):
     """Designation list page."""
-    return hr_web_service.list_designations_response(request, auth, db, search, page)
+    return hr_web_service.list_designations_response(
+        request, auth, db, search, page, limit
+    )
 
 
 @router.get("/designations/new", response_class=HTMLResponse)

@@ -55,27 +55,36 @@ def reports_dashboard(
 def trial_balance_report(
     request: Request,
     as_of_date: str | None = None,
+    basis: str = Query("accrual", pattern="^(accrual|cash)$"),
     auth: WebAuthContext = Depends(require_finance_access),
     db: Session = Depends(get_db),
 ):
     """Trial balance report page."""
-    return reports_web_service.trial_balance_response(request, auth, as_of_date, db)
+    return reports_web_service.trial_balance_response(
+        request, auth, as_of_date, db, basis=basis
+    )
 
 
 @router.get("/trial-balance/export")
 def export_trial_balance(
     as_of_date: str | None = None,
+    basis: str = Query("accrual", pattern="^(accrual|cash)$"),
     fmt: str = Query("csv", alias="format"),
     auth: WebAuthContext = Depends(require_finance_access),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """Export trial balance as CSV or PDF."""
     org_id = str(auth.organization_id)
+    suffix = "_cash_basis" if basis == "cash" else ""
     if fmt == "pdf":
-        pdf = reports_web_service.export_trial_balance_pdf(org_id, db, as_of_date)
-        return _pdf_response(pdf, "trial_balance.pdf")
-    csv = reports_web_service.export_trial_balance_csv(org_id, db, as_of_date)
-    return _csv_response(csv, "trial_balance.csv")
+        pdf = reports_web_service.export_trial_balance_pdf(
+            org_id, db, as_of_date, basis=basis
+        )
+        return _pdf_response(pdf, f"trial_balance{suffix}.pdf")
+    csv = reports_web_service.export_trial_balance_csv(
+        org_id, db, as_of_date, basis=basis
+    )
+    return _csv_response(csv, f"trial_balance{suffix}.csv")
 
 
 @router.get("/income-statement", response_class=HTMLResponse)
@@ -83,12 +92,13 @@ def income_statement_report(
     request: Request,
     start_date: str | None = None,
     end_date: str | None = None,
+    basis: str = Query("accrual", pattern="^(accrual|cash)$"),
     auth: WebAuthContext = Depends(require_finance_access),
     db: Session = Depends(get_db),
 ):
     """Income statement report page."""
     return reports_web_service.income_statement_response(
-        request, auth, start_date, end_date, db
+        request, auth, start_date, end_date, db, basis=basis
     )
 
 
@@ -96,21 +106,23 @@ def income_statement_report(
 def export_income_statement(
     start_date: str | None = None,
     end_date: str | None = None,
+    basis: str = Query("accrual", pattern="^(accrual|cash)$"),
     fmt: str = Query("csv", alias="format"),
     auth: WebAuthContext = Depends(require_finance_access),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """Export income statement as CSV or PDF."""
     org_id = str(auth.organization_id)
+    suffix = "_cash_basis" if basis == "cash" else ""
     if fmt == "pdf":
         pdf = reports_web_service.export_income_statement_pdf(
-            org_id, db, start_date, end_date
+            org_id, db, start_date, end_date, basis=basis
         )
-        return _pdf_response(pdf, "income_statement.pdf")
+        return _pdf_response(pdf, f"income_statement{suffix}.pdf")
     csv = reports_web_service.export_income_statement_csv(
-        org_id, db, start_date, end_date
+        org_id, db, start_date, end_date, basis=basis
     )
-    return _csv_response(csv, "income_statement.csv")
+    return _csv_response(csv, f"income_statement{suffix}.csv")
 
 
 @router.get("/balance-sheet", response_class=HTMLResponse)
@@ -364,6 +376,41 @@ def export_cash_flow(
     org_id = str(auth.organization_id)
     pdf = reports_web_service.export_cash_flow_pdf(org_id, db, start_date, end_date)
     return _pdf_response(pdf, "cash_flow.pdf")
+
+
+@router.get("/cash-flow/ias7", response_class=HTMLResponse)
+def ias7_cash_flow_report(
+    request: Request,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    auth: WebAuthContext = Depends(require_finance_access),
+    db: Session = Depends(get_db),
+):
+    """IAS 7 cash flow statement (indirect method)."""
+    return reports_web_service.ias7_cash_flow_response(
+        request, auth, start_date, end_date, db
+    )
+
+
+@router.get("/cash-flow/ias7/export")
+def export_ias7_cash_flow(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    fmt: str = Query("csv", alias="format"),
+    auth: WebAuthContext = Depends(require_finance_access),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Export IAS 7 cash flow as CSV or PDF."""
+    org_id = str(auth.organization_id)
+    if fmt == "pdf":
+        pdf = reports_web_service.export_ias7_cash_flow_pdf(
+            org_id, db, start_date, end_date
+        )
+        return _pdf_response(pdf, "ias7_cash_flow.pdf")
+    csv = reports_web_service.export_ias7_cash_flow_csv(
+        org_id, db, start_date, end_date
+    )
+    return _csv_response(csv, "ias7_cash_flow.csv")
 
 
 @router.get("/changes-in-equity", response_class=HTMLResponse)

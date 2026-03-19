@@ -6,6 +6,7 @@ Provides view-focused data and operations for AR receipt and aging web routes.
 
 from __future__ import annotations
 
+import json
 import logging
 from decimal import Decimal
 from uuid import UUID
@@ -610,6 +611,18 @@ class ReceiptWebService:
             for option in customers_list
         ]
 
+        aging_chart_data = json.dumps(
+            {
+                "buckets": {
+                    "current": float(total_current),
+                    "days_30": float(total_31_60),
+                    "days_60": float(total_61_90),
+                    "days_90": float(total_over_90),
+                },
+                "currency": currency_code or "",
+            }
+        )
+
         return {
             "aging_summary": aging_summary,
             "customer_aging": customer_aging,
@@ -619,6 +632,7 @@ class ReceiptWebService:
             "customers_list": customers_list,
             "as_of_date": as_of_date,
             "customer_id": customer_id,
+            "aging_chart_data": aging_chart_data,
         }
 
     # =====================================================================

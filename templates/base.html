@@ -250,6 +250,71 @@
             };
         })();
     </script>
+    <script>
+        (function() {
+            function extractLabel(element) {
+                const explicit = element.getAttribute('data-sidebar-label')
+                    || element.getAttribute('aria-label');
+                if (explicit) {
+                    return explicit.trim();
+                }
+
+                const candidates = element.querySelectorAll('span, p');
+                for (const node of candidates) {
+                    const text = (node.textContent || '').trim();
+                    if (text) {
+                        return text;
+                    }
+                }
+
+                return '';
+            }
+
+            function syncSidebarTooltip(element) {
+                const shell = element.closest('.app-shell');
+                const isCollapsed = !!shell && shell.classList.contains('app-sidebar-collapsed');
+                const label = extractLabel(element);
+
+                if (isCollapsed && label) {
+                    element.setAttribute('title', label);
+                } else {
+                    element.removeAttribute('title');
+                }
+            }
+
+            function wireSidebarTooltips(root) {
+                const scope = root || document;
+                scope.querySelectorAll('aside.app-sidebar a, aside.app-sidebar button').forEach(syncSidebarTooltip);
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                wireSidebarTooltips();
+
+                document.body.addEventListener('mouseover', function(event) {
+                    const target = event.target.closest('aside.app-sidebar a, aside.app-sidebar button');
+                    if (target) {
+                        syncSidebarTooltip(target);
+                    }
+                });
+
+                const observer = new MutationObserver(function(mutations) {
+                    for (const mutation of mutations) {
+                        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                            wireSidebarTooltips(mutation.target);
+                        }
+                    }
+                });
+
+                document.querySelectorAll('.app-shell').forEach(function(shell) {
+                    observer.observe(shell, { attributes: true });
+                });
+            });
+
+            document.body.addEventListener('htmx:afterSwap', function(event) {
+                wireSidebarTooltips(event.target);
+            });
+        })();
+    </script>
 
     <!-- Toast Notification Container -->
     <div id="toast-container"

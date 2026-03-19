@@ -322,11 +322,11 @@
                     </div>
                     <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Tax schedule for state revenue</p>
                     <div class="space-y-1">
-                        <a href="/api/v1/payroll/entries/{{ entry.entry_id }}/exports/paye?paye_format=lirs"
+                        <a href="/people/payroll/runs/{{ entry.entry_id }}/export/paye?paye_format=lirs"
                            class="block text-sm text-violet-600 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300">
                             ↓ LIRS (Lagos)
                         </a>
-                        <a href="/api/v1/payroll/entries/{{ entry.entry_id }}/exports/paye?paye_format=fctirs"
+                        <a href="/people/payroll/runs/{{ entry.entry_id }}/export/paye?paye_format=fctirs"
                            class="block text-sm text-violet-600 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300">
                             ↓ FCTIRS (FCT)
                         </a>

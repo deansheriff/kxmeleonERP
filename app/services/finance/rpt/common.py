@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.finance.gl.account import Account
@@ -26,12 +26,24 @@ from app.services.formatters import format_currency as _format_currency
 from app.services.formatters import format_date as _format_date
 from app.services.formatters import parse_date as _parse_date
 
+# Journal entry types that represent actual cash movement.
+# Used to filter GL queries for cash basis reporting.
+CASH_BASIS_DOC_TYPES: frozenset[str] = frozenset(
+    {
+        "CUSTOMER_PAYMENT",
+        "SUPPLIER_PAYMENT",
+        "EXPENSE_PAYMENT",
+        "BANK_TRANSFER",
+    }
+)
+
 logger = logging.getLogger(__name__)
 
 # Re-export for use by report modules
 __all__ = [
     "Account",
     "AccountCategory",
+    "CASH_BASIS_DOC_TYPES",
     "FiscalPeriod",
     "IFRSCategory",
     "JournalEntry",
@@ -47,6 +59,7 @@ __all__ = [
     "_ifrs_label",
     "_report_type_label",
     "_amount_from_category",
+    "_apply_cash_basis_filter",
     "_category_balances",
     "_tax_totals_from_gl",
 ]
@@ -122,12 +135,56 @@ def _amount_from_category(
     return credit - debit
 
 
+def _apply_cash_basis_filter(
+    stmt: Any,
+    db: Session,
+    organization_id: Any,
+) -> Any:
+    """Restrict a JournalEntry-joined SELECT to cash-movement entries only.
+
+    Includes entries where:
+    1. source_document_type is an explicit payment type, OR
+    2. The journal touches a cash/bank account (handles manual journals
+       with NULL source_document_type).
+    """
+    cash_category_ids = list(
+        db.scalars(
+            select(AccountCategory.category_id).where(
+                AccountCategory.organization_id == organization_id,
+                AccountCategory.category_code.in_({"CASH", "BANK"}),
+            )
+        ).all()
+    )
+
+    # Correlated EXISTS: at least one line touches a cash/bank account
+    cash_touch_conditions = [Account.is_cash_equivalent.is_(True)]
+    if cash_category_ids:
+        cash_touch_conditions.append(Account.category_id.in_(cash_category_ids))
+
+    cash_touch = exists(
+        select(JournalEntryLine.line_id)
+        .join(Account, Account.account_id == JournalEntryLine.account_id)
+        .where(
+            JournalEntryLine.journal_entry_id == JournalEntry.journal_entry_id,
+            or_(*cash_touch_conditions),
+        )
+    )
+
+    return stmt.where(
+        or_(
+            JournalEntry.source_document_type.in_(CASH_BASIS_DOC_TYPES),
+            cash_touch,
+        )
+    )
+
+
 def _category_balances(
     db: Session,
     organization_id: str,
     start_date: date | None = None,
     end_date: date | None = None,
     as_of_date: date | None = None,
+    basis: str = "accrual",
 ) -> dict[str, dict[str, Any]]:
     org_id = coerce_uuid(organization_id)
 
@@ -161,6 +218,9 @@ def _category_balances(
             stmt = stmt.where(JournalEntry.posting_date >= start_date)
         if end_date:
             stmt = stmt.where(JournalEntry.posting_date <= end_date)
+
+    if basis == "cash":
+        stmt = _apply_cash_basis_filter(stmt, db, org_id)
 
     rows = db.execute(
         stmt.group_by(

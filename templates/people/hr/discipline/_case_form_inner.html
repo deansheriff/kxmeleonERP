@@ -19,7 +19,7 @@
         <div class="card-body px-6 pb-6 space-y-6">
             <div>
                 <label for="{{ form_prefix }}_employee_name" class="form-label required">Employee</label>
-                <div class="relative" data-typeahead-url="/people/hr/discipline/employees/search" data-typeahead-min="2" data-typeahead-limit="8">
+                <div class="relative" data-typeahead-url="/people/hr/discipline/employees/search" data-typeahead-min="2" data-typeahead-limit="10">
                     <input
                         type="text"
                         id="{{ form_prefix }}_employee_name"
@@ -94,7 +94,7 @@
                 </div>
                 <div>
                     <label for="{{ form_prefix }}_reported_by_name" class="form-label">Reported By</label>
-                    <div class="relative" data-typeahead-url="/people/hr/discipline/employees/search" data-typeahead-min="2" data-typeahead-limit="8">
+                    <div class="relative" data-typeahead-url="/people/hr/discipline/employees/search" data-typeahead-min="2" data-typeahead-limit="10">
                         <input
                             type="text"
                             id="{{ form_prefix }}_reported_by_name"

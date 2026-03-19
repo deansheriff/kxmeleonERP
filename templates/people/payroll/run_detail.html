@@ -116,11 +116,16 @@
                     </svg>
                 </button>
                 <div x-show="showExports" x-cloak x-transition
-                     class="absolute right-0 mt-2 w-48 rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800 z-10">
-                    <a href="/people/payroll/runs/{{ entry.entry_id }}/export/paye"
+                     class="absolute right-0 mt-2 w-56 rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800 z-10">
+                    <a href="/people/payroll/runs/{{ entry.entry_id }}/export/paye?paye_format=lirs"
                        class="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-t-lg">
                         {{ icon_svg("document", "h-4 w-4 text-rose-500") }}
-                        PAYE Export
+                        PAYE Export (LIRS)
+                    </a>
+                    <a href="/people/payroll/runs/{{ entry.entry_id }}/export/paye?paye_format=fctirs"
+                       class="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                        {{ icon_svg("document", "h-4 w-4 text-amber-500") }}
+                        PAYE Export (FCTIRS)
                     </a>
                     <a href="/people/payroll/runs/{{ entry.entry_id }}/export/pension"
                        class="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">

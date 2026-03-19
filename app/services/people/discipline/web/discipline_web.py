@@ -259,14 +259,15 @@ class DisciplineWebService:
         db: Session,
         organization_id: str,
         query: str,
-        limit: int = 8,
+        limit: int = 10,
     ) -> dict:
         """Search active employees for discipline typeahead fields."""
         from sqlalchemy import select as sa_select
         from sqlalchemy.orm import joinedload as jl
 
         org_id = coerce_uuid(organization_id)
-        search_term = f"%{query.strip()}%"
+        query_text = query.strip()
+        search_term = f"{query_text}%"
         stmt = (
             sa_select(Employee)
             .join(Person, Person.id == Employee.person_id)

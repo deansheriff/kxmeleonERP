@@ -623,12 +623,13 @@ class StructureWebService:
         db: Session,
         search: str | None = None,
         page: int = 1,
+        limit: int = DEFAULT_PAGE_SIZE,
         bulk_created: int | None = None,
         bulk_skipped: int | None = None,
     ) -> HTMLResponse | RedirectResponse:
         """Render salary assignments list page."""
         org_id = coerce_uuid(auth.organization_id)
-        per_page = DEFAULT_PAGE_SIZE
+        per_page = limit if limit in {25, 50, 100, 200} else DEFAULT_PAGE_SIZE
         offset = (page - 1) * per_page
 
         conditions: list[Any] = [SalaryStructureAssignment.organization_id == org_id]

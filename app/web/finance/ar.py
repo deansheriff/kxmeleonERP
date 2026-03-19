@@ -14,6 +14,16 @@ from app.web.deps import WebAuthContext, get_db, require_finance_access
 router = APIRouter(prefix="/ar", tags=["ar-web"])
 
 
+@router.get("/", response_class=HTMLResponse)
+def ar_home(
+    request: Request,
+    auth: WebAuthContext = Depends(require_finance_access),
+    db: Session = Depends(get_db),
+):
+    """Accounts receivable landing page."""
+    return ar_web_service.ar_home_response(request, auth, db)
+
+
 @router.get("/customers", response_class=HTMLResponse)
 def list_customers(
     request: Request,
@@ -21,6 +31,7 @@ def list_customers(
     status: str | None = None,
     parent_customer_id: str | None = None,
     page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=25, le=200),
     sort: str | None = None,
     sort_dir: str | None = None,
     auth: WebAuthContext = Depends(require_finance_access),
@@ -28,14 +39,15 @@ def list_customers(
 ):
     """Customers list page."""
     return ar_web_service.list_customers_response(
-        request,
-        auth,
-        db,
-        search,
-        status,
-        page,
-        sort,
-        sort_dir,
+        request=request,
+        auth=auth,
+        db=db,
+        search=search,
+        status=status,
+        page=page,
+        sort=sort,
+        sort_dir=sort_dir,
+        limit=limit,
         parent_customer_id=parent_customer_id,
     )
 

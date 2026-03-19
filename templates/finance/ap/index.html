@@ -1,0 +1,145 @@
+{% extends "finance/base_finance.html" %}
+{% from "components/macros.html" import icon_svg %}
+
+{% block page_title %}Accounts Payable{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/dashboard" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Dashboard</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/finance/dashboard" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Finance</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">Accounts Payable</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-6xl space-y-8">
+    <section class="relative overflow-hidden rounded-3xl border border-teal-200/70 bg-gradient-to-br from-white via-teal-50 to-emerald-50 p-8 shadow-sm dark:border-teal-900/60 dark:from-slate-900 dark:via-teal-950/40 dark:to-emerald-950/20">
+        <div class="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-teal-200/40 blur-3xl dark:bg-teal-500/10"></div>
+        <div class="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div class="max-w-2xl">
+                <div class="inline-flex items-center gap-2 rounded-full border border-teal-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-teal-700 dark:border-teal-800 dark:bg-slate-900/70 dark:text-teal-300">
+                    {{ icon_svg("cash", "h-3.5 w-3.5") }}
+                    Accounts Payable
+                </div>
+                <h1 class="mt-4 text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">Choose an AP workspace</h1>
+                <p class="mt-3 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+                    Open the area you want to work in instead of navigating AP from the sidebar dropdown.
+                </p>
+            </div>
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div class="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+                    <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Suppliers</p>
+                    <p class="mt-1 text-lg font-semibold text-slate-900 dark:text-white">Vendors</p>
+                </div>
+                <div class="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+                    <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Invoices</p>
+                    <p class="mt-1 text-lg font-semibold text-slate-900 dark:text-white">Bills</p>
+                </div>
+                <div class="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+                    <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Payments</p>
+                    <p class="mt-1 text-lg font-semibold text-slate-900 dark:text-white">Cash Out</p>
+                </div>
+                <div class="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+                    <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Aging</p>
+                    <p class="mt-1 text-lg font-semibold text-slate-900 dark:text-white">Exposure</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <a href="/finance/ap/suppliers" class="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Directory</p>
+                    <h2 class="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Suppliers</h2>
+                    <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Manage vendors, contact records, payment terms, and supplier balances.</p>
+                </div>
+                <div class="flex h-10 w-14 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
+                    {{ icon_svg("users", "h-6 w-6") }}
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/ap/purchase-orders" class="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Procurement</p>
+                    <h2 class="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Purchase Orders</h2>
+                    <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Track ordered spend before bills arrive and keep supplier commitments visible.</p>
+                </div>
+                <div class="flex h-10 w-14 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300">
+                    {{ icon_svg("clipboard-list", "h-6 w-6") }}
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/ap/goods-receipts" class="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Operations</p>
+                    <h2 class="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Goods Receipts</h2>
+                    <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Confirm delivered items and reconcile what was received against what was ordered.</p>
+                </div>
+                <div class="flex h-10 w-14 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300">
+                    {{ icon_svg("archive", "h-6 w-6") }}
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/ap/invoices" class="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Payables</p>
+                    <h2 class="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Invoices</h2>
+                    <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Review posted bills, approval state, due dates, and outstanding liabilities.</p>
+                </div>
+                <div class="flex h-10 w-14 items-center justify-center rounded-xl bg-sky-100 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300">
+                    {{ icon_svg("document-text", "h-6 w-6") }}
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/ap/payments" class="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Settlement</p>
+                    <h2 class="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Payments</h2>
+                    <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Process supplier payments, review approvals, and monitor outgoing cash execution.</p>
+                </div>
+                <div class="flex h-10 w-14 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300">
+                    {{ icon_svg("credit-card", "h-6 w-6") }}
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/ap/payment-batches" class="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Batching</p>
+                    <h2 class="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Payment Batches</h2>
+                    <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Group and release payment runs for controlled supplier settlement cycles.</p>
+                </div>
+                <div class="flex h-10 w-14 items-center justify-center rounded-xl bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-950/40 dark:text-fuchsia-300">
+                    {{ icon_svg("collection", "h-6 w-6") }}
+                </div>
+            </div>
+        </a>
+
+        <a href="/finance/ap/aging" class="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700 sm:col-span-2 xl:col-span-3">
+            <div class="flex items-start justify-between gap-4">
+                <div class="max-w-2xl">
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Control</p>
+                    <h2 class="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Aging Report</h2>
+                    <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Analyze overdue exposure, bucket liabilities by age, and prioritize which suppliers need action first.</p>
+                </div>
+                <div class="flex h-10 w-14 items-center justify-center rounded-xl bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-300">
+                    {{ icon_svg("chart", "h-6 w-6") }}
+                </div>
+            </div>
+        </a>
+    </section>
+</div>
+{% endblock %}

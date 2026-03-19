@@ -21,8 +21,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from app.services.finance.ap.web import ap_web_service
+from app.templates import templates
 from app.web.deps import (
     WebAuthContext,
+    base_context,
     get_db,
     require_any_web_permission,
     require_web_permission,
@@ -31,6 +33,33 @@ from app.web.deps import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ap", tags=["ap-web"])
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AP Landing
+# ═══════════════════════════════════════════════════════════════════
+
+
+@router.get("", response_class=HTMLResponse)
+def ap_landing(
+    request: Request,
+    auth: WebAuthContext = Depends(
+        require_any_web_permission(
+            [
+                "ap:suppliers:read",
+                "ap:invoices:read",
+                "ap:payments:read",
+                "ap:purchase_orders:read",
+                "ap:goods_receipts:read",
+                "ap:payment_batches:read",
+                "ap:aging:read",
+            ]
+        )
+    ),
+):
+    """Accounts Payable landing page."""
+    context = base_context(request, auth, "Accounts Payable", "ap")
+    return templates.TemplateResponse(request, "finance/ap/index.html", context)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -44,6 +73,7 @@ def list_suppliers(
     auth: WebAuthContext = Depends(require_web_permission("ap:suppliers:read")),
     search: str | None = None,
     status: str | None = None,
+    overdue: str | None = None,
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=10, le=500),
     sort: str | None = None,
@@ -57,6 +87,7 @@ def list_suppliers(
         db,
         search,
         status,
+        overdue,
         page,
         limit,
         sort,

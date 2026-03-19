@@ -47,6 +47,15 @@
     <span class="{{ _label_class }}">Switch Module</span>
 </div>
 
+<a href="/"
+   class="{{ _link_class }}"
+   :aria-current="window.location.pathname === '/' ? 'page' : null">
+    <svg class="h-5 w-5 flex-shrink-0 text-slate-{{ _icon_suffix }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7l9-4 9 4M4 10h16M5 10v8a2 2 0 002 2h10a2 2 0 002-2v-8M9 14h6"/>
+    </svg>
+    <span x-show="!sidebarCollapsed" class="truncate" {% if _dark %}x-transition{% else %}x-cloak{% endif %}>All Modules</span>
+</a>
+
 {# ── Module links (skip current module) ── #}
 {% for key, label, url, color, svg_d, access in _modules %}
     {% if key != current_module %}
