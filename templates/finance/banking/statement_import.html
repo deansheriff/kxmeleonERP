@@ -57,7 +57,7 @@
                     </span>
                     <span x-text="label"></span>
                 </div>
-                <svg x-show="i < stepLabels.length - 1" class="h-4 w-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <svg x-show="i < stepLabels.length - 1" class="h-4 w-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </div>
         </template>
     </div>
@@ -125,12 +125,12 @@
                     <div>
                         <label for="opening_balance" class="form-label">Opening Balance</label>
                         <input type="number" id="opening_balance" name="opening_balance" step="0.01"
-                               x-model="formData.opening_balance" class="form-input form-input-currency" placeholder="0.00">
+                               x-model="formData.opening_balance" class="form-input form-input-currency" placeholder="Leave blank if unavailable">
                     </div>
                     <div>
                         <label for="closing_balance" class="form-label">Closing Balance</label>
                         <input type="number" id="closing_balance" name="closing_balance" step="0.01"
-                               x-model="formData.closing_balance" class="form-input form-input-currency" placeholder="0.00">
+                               x-model="formData.closing_balance" class="form-input form-input-currency" placeholder="Leave blank if unavailable">
                     </div>
                 </div>
             </div>
@@ -166,7 +166,7 @@
                                 {{ icon_svg("check-circle", "h-6 w-6 text-teal-600 dark:text-teal-400") }}
                             </div>
                             <p class="text-sm font-medium text-slate-900 dark:text-white" x-text="fileName"></p>
-                            <p class="text-xs text-slate-500" x-text="`${importRowCount} rows detected`" x-show="importRowCount > 0"></p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400" x-text="`${importRowCount} rows detected`" x-show="importRowCount > 0"></p>
                             <p class="text-xs text-amber-600 dark:text-amber-400" x-show="isExcel">Excel files are auto-detected on the server</p>
                             <button type="button" @click="clearFile()" class="text-xs font-medium text-rose-500 hover:text-rose-600 mt-1">Remove file</button>
                         </div>
@@ -206,13 +206,13 @@
                     <template x-for="(row, idx) in manualRows" :key="row._key">
                         <div class="grid gap-2 grid-cols-1 sm:grid-cols-5 items-end">
                             <div>
-                                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400">Date <span class="text-rose-500">*</span></label>
+                                <label class="form-label">Date <span class="text-rose-500">*</span></label>
                                 <input type="date" :name="`lines[${idx}][transaction_date]`" x-model="row.transaction_date" required
                                        :disabled="!!fileName"
                                        class="mt-1 w-full form-input text-sm">
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400">Type <span class="text-rose-500">*</span></label>
+                                <label class="form-label">Type <span class="text-rose-500">*</span></label>
                                 <select :name="`lines[${idx}][transaction_type]`" x-model="row.transaction_type" required
                                         :disabled="!!fileName"
                                         class="mt-1 w-full form-select text-sm">
@@ -221,13 +221,13 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400">Amount <span class="text-rose-500">*</span></label>
+                                <label class="form-label">Amount <span class="text-rose-500">*</span></label>
                                 <input type="number" step="0.01" :name="`lines[${idx}][amount]`" x-model="row.amount" required
                                        :disabled="!!fileName"
                                        class="mt-1 w-full form-input text-sm">
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400">Description</label>
+                                <label class="form-label">Description</label>
                                 <input type="text" :name="`lines[${idx}][description]`" x-model="row.description"
                                        :disabled="!!fileName"
                                        class="mt-1 w-full form-input text-sm">
@@ -320,6 +320,7 @@
                             <svg class="h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
                             <select class="form-select text-sm flex-1"
                                     :class="mapping[h] ? 'border-teal-300 dark:border-teal-700' : 'border-slate-300 dark:border-slate-600'"
+                                    :aria-label="'Map column ' + h"
                                     x-model="mapping[h]">
                                 <option value="">-- Skip this column --</option>
                                 <option value="transaction_date" :disabled="isMappedElsewhere('transaction_date', h)">Transaction Date *</option>
@@ -434,6 +435,39 @@
             </div>
         </div>
     </form>
+
+    <!-- Import Confirmation Modal -->
+    <div x-show="showConfirmModal" x-cloak
+         role="dialog" aria-modal="true" aria-labelledby="confirm-import-title"
+         @keydown.escape.window="showConfirmModal = false"
+         class="fixed inset-0 z-50 flex items-center justify-center">
+        <div class="fixed inset-0 bg-black/50" @click="showConfirmModal = false"
+             x-transition:enter="duration-200 ease-out" x-transition:enter-start="opacity-0"
+             x-transition:leave="duration-150 ease-in" x-transition:leave-end="opacity-0"></div>
+        <div class="relative card max-w-md w-full mx-4 p-6"
+             x-transition:enter="duration-200 ease-out" x-transition:enter-start="opacity-0 scale-95"
+             x-transition:leave="duration-150 ease-in" x-transition:leave-end="opacity-0 scale-95">
+            <div class="flex items-start gap-4">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-900/30">
+                    {{ icon_svg("document", "h-5 w-5 text-blue-600 dark:text-blue-400") }}
+                </div>
+                <div>
+                    <h3 id="confirm-import-title" class="text-lg font-semibold text-slate-900 dark:text-white">Import Statement</h3>
+                    <p class="mt-1 text-sm text-slate-600 dark:text-slate-400" x-text="confirmMessage"></p>
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end gap-3">
+                <button type="button" @click="showConfirmModal = false" class="btn btn-secondary">Cancel</button>
+                <button type="button" @click="confirmImport()" class="btn btn-primary">
+                    <span x-show="!submitting">Import Now</span>
+                    <span x-show="submitting" class="flex items-center gap-2">
+                        <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        Importing...
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script src="/static/js/csv-parser.js"></script>
@@ -571,6 +605,9 @@ function importWizard(accounts, serverFormData) {
 
         // Submit state
         submitting: false,
+        showConfirmModal: false,
+        confirmMessage: '',
+        _confirmed: false,
 
         get previewRows() {
             return this.csvRows.slice(0, 5);
@@ -834,14 +871,15 @@ function importWizard(accounts, serverFormData) {
                     this.parseError = 'No mapped rows available to import.';
                     return;
                 }
-                const confirmMessage = this.fileName
-                    ? `Import mapped transactions now? (${totalToImport} rows detected)`
-                    : `Import ${totalToImport} mapped transaction${totalToImport === 1 ? '' : 's'} now?`;
-                const proceed = window.confirm(confirmMessage);
-                if (!proceed) {
+                if (!this._confirmed) {
+                    this.confirmMessage = this.fileName
+                        ? `Import ${totalToImport} mapped transactions from ${this.fileName}?`
+                        : `Import ${totalToImport} mapped transaction${totalToImport === 1 ? '' : 's'}?`;
                     event.preventDefault();
+                    this.showConfirmModal = true;
                     return;
                 }
+                this._confirmed = false;
             }
 
             this.submitting = true;
@@ -850,7 +888,7 @@ function importWizard(accounts, serverFormData) {
             if (this.step === 3 && this.fileName) {
                 const container = this.$refs.hiddenLines;
                 try {
-                    container.innerHTML = '';
+                    container.replaceChildren();
                     for (const [source, target] of Object.entries(this.mapping)) {
                         if (!target) continue;
                         const input = document.createElement('input');
@@ -868,7 +906,7 @@ function importWizard(accounts, serverFormData) {
             } else if (this.step === 3 && this.mappedRows.length > 0) {
                 const container = this.$refs.hiddenLines;
                 try {
-                    container.innerHTML = '';
+                    container.replaceChildren();
                     for (let i = 0; i < this.mappedRows.length; i++) {
                         const row = this.mappedRows[i];
                         for (const [field, value] of Object.entries(row)) {
@@ -889,6 +927,13 @@ function importWizard(accounts, serverFormData) {
             }
 
             // Allow form to submit normally
+        },
+
+        confirmImport() {
+            this.showConfirmModal = false;
+            this._confirmed = true;
+            // Re-submit — onSubmit will skip the modal since _confirmed is true
+            this.$refs.importForm.requestSubmit();
         },
     };
 }

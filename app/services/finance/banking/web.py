@@ -2911,11 +2911,11 @@ class BankingWebService:
             # CSRF middleware parses form data first, which can advance the file pointer.
             try:
                 await upload_file.seek(0)
-            except Exception:
+            except (OSError, AttributeError):
                 try:
                     upload_file.file.seek(0)
-                except Exception:
-                    logger.exception("Ignored exception")
+                except (OSError, AttributeError):
+                    logger.warning("Could not seek upload file to start")
             filename = upload_file.filename or ""
             lowered = filename.lower()
             upload_ext = (
@@ -2929,9 +2929,25 @@ class BankingWebService:
                 if lowered.endswith(".xlsm")
                 else ""
             )
+            _ALLOWED_CONTENT_TYPES = {
+                "text/csv",
+                "application/csv",
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-excel.sheet.macroEnabled.12",
+                "application/octet-stream",  # many browsers send this for .xls/.xlsx
+            }
             if not lowered.endswith(SPREADSHEET_EXTENSIONS):
                 errors.append(
                     f"Supported statement files: {spreadsheet_formats_label()}."
+                )
+            elif (
+                upload_file.content_type
+                and upload_file.content_type not in _ALLOWED_CONTENT_TYPES
+            ):
+                errors.append(
+                    f"Invalid file type '{upload_file.content_type}'. "
+                    f"Supported: {spreadsheet_formats_label()}."
                 )
             else:
                 # Limit upload size to avoid memory blowups.
@@ -2942,7 +2958,7 @@ class BankingWebService:
                         "Uploaded file is too large (max 10 MB). Please upload a smaller file."
                     )
                     content = b""
-                if not content:
+                elif not content:
                     # Some middleware (e.g., CSRF) may have consumed the file stream.
                     # Fall back to reading from the underlying file handle.
                     try:
@@ -2953,8 +2969,8 @@ class BankingWebService:
                                 "Uploaded file is too large (max 10 MB). Please upload a smaller file."
                             )
                             content = b""
-                    except Exception:
-                        content = content or b""
+                    except OSError:
+                        content = b""
                 if content:
                     # Avoid logging file contents (may contain PII).
                     logger.info(
@@ -3102,7 +3118,6 @@ class BankingWebService:
             import_filename=payload.import_filename,
             imported_by=auth.user_id,
         )
-        db.flush()
         redirect_url = (
             f"/finance/banking/statements/{result.statement.statement_id}"
             f"?success=Statement+imported+successfully"

@@ -258,7 +258,12 @@ async def import_statement_submit(
     db: Session = Depends(get_db),
 ):
     """Handle bank statement import submission."""
-    return await banking_web_service.statement_import_submit_response(request, auth, db)
+    response = await banking_web_service.statement_import_submit_response(
+        request, auth, db
+    )
+    if isinstance(response, RedirectResponse):
+        db.commit()
+    return response
 
 
 @router.post("/statements/import/preview", response_class=JSONResponse)
@@ -276,7 +281,7 @@ async def import_statement_preview(
 @router.get("/statements/sample-csv")
 def download_sample_csv(
     _auth: WebAuthContext = Depends(require_finance_access),
-    format: str = Query(default="type"),
+    csv_format: str = Query(default="type", alias="format"),
 ):
     """Download a sample CSV template for bank statement import."""
     from io import BytesIO
@@ -285,7 +290,7 @@ def download_sample_csv(
 
     from app.services.finance.banking import bank_statement_service
 
-    content, filename = bank_statement_service.build_sample_csv(format)
+    content, filename = bank_statement_service.build_sample_csv(csv_format)
     buf = BytesIO(content)
 
     return StreamingResponse(

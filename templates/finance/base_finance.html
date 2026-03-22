@@ -32,7 +32,10 @@
                     const href = (link.getAttribute('href') || '').split('?')[0];
                     if (!href) return;
                     const segments = href.split('/').filter(Boolean);
-                    if (path === href || (segments.length >= 2 && path.startsWith(href + '/'))) {
+                    const isActive = path === href || (segments.length >= 2 && path.startsWith(href + '/'));
+                    /* Treat /statements/import (form) as belonging to /statements/imports (list) */
+                    const isImportFormOfList = href.endsWith('/imports') && path === href.replace(/s$/, '');
+                    if (isActive || isImportFormOfList) {
                         link.classList.remove('text-slate-600', 'dark:text-slate-400');
                         link.classList.add('text-teal-800', 'bg-teal-50/50', 'font-medium', 'dark:text-teal-200', 'dark:bg-teal-900/20');
                         link.setAttribute('aria-current', 'page');

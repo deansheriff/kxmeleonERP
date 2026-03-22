@@ -423,7 +423,7 @@ def get_unmatched_statement_lines(
     if not statement:
         raise HTTPException(status_code=404, detail="Statement not found")
 
-    return bank_statement_service.get_unmatched_lines(db, statement_id)
+    return bank_statement_service.get_unmatched_lines(db, organization_id, statement_id)
 
 
 @router.delete("/statements/{statement_id}", status_code=status.HTTP_204_NO_CONTENT)

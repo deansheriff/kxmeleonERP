@@ -4,6 +4,8 @@ Bank Statement Service.
 Provides statement import and management functionality.
 """
 
+from __future__ import annotations
+
 import builtins
 import csv
 import logging
@@ -13,7 +15,6 @@ from decimal import Decimal
 from io import BytesIO, StringIO
 from uuid import UUID
 
-from fastapi import HTTPException
 from openpyxl import load_workbook
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
@@ -527,7 +528,7 @@ class BankStatementService:
 
         try:
             workbook = xlrd.open_workbook(file_contents=content)
-        except Exception:
+        except (xlrd.XLRDError, ValueError, IndexError):
             return [], ["Could not parse XLS file. Please upload a valid .xls file."]
         if workbook.nsheets == 0:
             return [], ["XLS file must include a header row."]
@@ -760,27 +761,26 @@ class BankStatementService:
         db: Session,
         bank_account_id: UUID,
         line: StatementLineInput,
-        organization_id: UUID | None = None,
+        organization_id: UUID,
     ) -> BankStatementLine | None:
         """
         Check if a transaction line is a potential duplicate.
 
         Matches on: same account, date, amount, and transaction type.
-        Scoped to organization_id to prevent cross-tenant matches.
+        Always scoped to organization_id to prevent cross-tenant matches.
         """
         # Find existing lines with same date/amount/type
         stmt = (
             select(BankStatementLine)
             .join(BankStatement)
             .where(
+                BankStatement.organization_id == organization_id,
                 BankStatement.bank_account_id == bank_account_id,
                 BankStatementLine.transaction_date == line.transaction_date,
                 BankStatementLine.amount == line.amount,
                 BankStatementLine.transaction_type == line.transaction_type,
             )
         )
-        if organization_id is not None:
-            stmt = stmt.where(BankStatement.organization_id == organization_id)
         existing = db.execute(stmt).scalars().first()
 
         if existing:
@@ -828,21 +828,17 @@ class BankStatementService:
         # Validate bank account
         bank_account = db.get(BankAccount, bank_account_id)
         if not bank_account:
-            raise HTTPException(
-                status_code=404, detail=f"Bank account {bank_account_id} not found"
-            )
+            raise ValueError(f"Bank account {bank_account_id} not found")
 
         if bank_account.organization_id != organization_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Bank account does not belong to this organization",
-            )
+            raise ValueError("Bank account does not belong to this organization")
 
         # Check for duplicate statement (only when number is provided)
         if statement_number:
             existing = db.execute(
                 select(BankStatement).where(
                     and_(
+                        BankStatement.organization_id == organization_id,
                         BankStatement.bank_account_id == bank_account_id,
                         BankStatement.statement_number == statement_number,
                     )
@@ -850,9 +846,8 @@ class BankStatementService:
             ).scalar_one_or_none()
 
             if existing:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Statement {statement_number} already exists for this account",
+                raise ValueError(
+                    f"Statement {statement_number} already exists for this account"
                 )
 
         # Calculate totals
@@ -953,7 +948,7 @@ class BankStatementService:
                 )
                 db.add(line)
                 result.lines_imported += 1
-            except Exception as e:
+            except (ValueError, TypeError, ArithmeticError) as e:
                 result.lines_skipped += 1
                 result.errors.append(f"Line {line_input.line_number}: {str(e)}")
 
@@ -1089,13 +1084,16 @@ class BankStatementService:
     def get_unmatched_lines(
         self,
         db: Session,
+        organization_id: UUID,
         statement_id: UUID,
     ) -> builtins.list[BankStatementLine]:
         """Get all unmatched lines for a statement."""
         query = (
             select(BankStatementLine)
+            .join(BankStatement)
             .where(
                 and_(
+                    BankStatement.organization_id == organization_id,
                     BankStatementLine.statement_id == statement_id,
                     BankStatementLine.is_matched == False,
                 )
@@ -1108,16 +1106,22 @@ class BankStatementService:
     def mark_line_matched(
         self,
         db: Session,
+        organization_id: UUID,
         line_id: UUID,
         journal_line_id: UUID,
         matched_by: UUID | None = None,
     ) -> BankStatementLine:
         """Mark a statement line as matched to a GL entry."""
-        line = db.get(BankStatementLine, line_id)
-        if not line:
-            raise HTTPException(
-                status_code=404, detail=f"Statement line {line_id} not found"
+        line = db.scalars(
+            select(BankStatementLine)
+            .join(BankStatement)
+            .where(
+                BankStatement.organization_id == organization_id,
+                BankStatementLine.line_id == line_id,
             )
+        ).first()
+        if not line:
+            raise ValueError(f"Statement line {line_id} not found")
 
         line.is_matched = True
         line.matched_at = datetime.now(UTC)
@@ -1140,14 +1144,20 @@ class BankStatementService:
     def unmatch_line(
         self,
         db: Session,
+        organization_id: UUID,
         line_id: UUID,
     ) -> BankStatementLine:
         """Unmatch a statement line."""
-        line = db.get(BankStatementLine, line_id)
-        if not line:
-            raise HTTPException(
-                status_code=404, detail=f"Statement line {line_id} not found"
+        line = db.scalars(
+            select(BankStatementLine)
+            .join(BankStatement)
+            .where(
+                BankStatement.organization_id == organization_id,
+                BankStatementLine.line_id == line_id,
             )
+        ).first()
+        if not line:
+            raise ValueError(f"Statement line {line_id} not found")
 
         if not line.is_matched:
             return line
@@ -1187,23 +1197,11 @@ class BankStatementService:
     def delete(
         self,
         db: Session,
-        organization_id: UUID | None,
-        statement_id: UUID | None = None,
+        organization_id: UUID,
+        statement_id: UUID,
     ) -> bool:
-        """Delete a statement and its lines (CASCADE).
-
-        Supports both signatures for backward compatibility:
-        - ``delete(db, organization_id, statement_id)`` (tenant-scoped)
-        - ``delete(db, statement_id)`` (legacy, unscoped)
-        """
-        if statement_id is None:
-            # Legacy call style: delete(db, statement_id)
-            statement = db.get(BankStatement, organization_id)
-        else:
-            # Tenant-scoped call style: delete(db, organization_id, statement_id)
-            if organization_id is None:
-                return False
-            statement = self.get(db, organization_id, statement_id)
+        """Delete a statement and its lines (CASCADE)."""
+        statement = self.get(db, organization_id, statement_id)
         if not statement:
             return False
 
@@ -1226,14 +1224,17 @@ class BankStatementService:
         """Get summary statistics for statements of an account."""
         bank_account = db.get(BankAccount, bank_account_id)
         if not bank_account or bank_account.organization_id != organization_id:
-            raise HTTPException(status_code=404, detail="Bank account not found")
+            raise ValueError("Bank account not found")
 
         query = select(
             func.count(BankStatement.statement_id).label("total_statements"),
             func.sum(BankStatement.total_lines).label("total_lines"),
             func.sum(BankStatement.matched_lines).label("matched_lines"),
             func.sum(BankStatement.unmatched_lines).label("unmatched_lines"),
-        ).where(BankStatement.bank_account_id == bank_account_id)
+        ).where(
+            BankStatement.organization_id == organization_id,
+            BankStatement.bank_account_id == bank_account_id,
+        )
 
         result = db.execute(query).one()
 
