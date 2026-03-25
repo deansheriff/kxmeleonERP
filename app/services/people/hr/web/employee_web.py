@@ -116,8 +116,12 @@ class HRWebService:
             phone=self._clean_person_text(self._form_str(form, "phone")),
             date_of_birth=self._parse_date(self._form_str(form, "date_of_birth")),
             gender=gender,
-            address_line1=self._clean_person_text(self._form_str(form, "address_line1")),
-            address_line2=self._clean_person_text(self._form_str(form, "address_line2")),
+            address_line1=self._clean_person_text(
+                self._form_str(form, "address_line1")
+            ),
+            address_line2=self._clean_person_text(
+                self._form_str(form, "address_line2")
+            ),
             city=self._clean_person_text(self._form_str(form, "city")),
             region=self._clean_person_text(self._form_str(form, "region")),
             postal_code=self._clean_person_text(self._form_str(form, "postal_code")),
