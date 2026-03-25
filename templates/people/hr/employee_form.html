@@ -48,10 +48,10 @@
 
         {# Personal Information (Person fields - for new employees or display only for existing) #}
         <div class="card">
-            <div class="card-header">
+            <div class="card-header px-6 pt-6">
                 <h3 class="font-medium text-slate-900 dark:text-white">Personal Information</h3>
             </div>
-            <div class="card-body space-y-4">
+            <div class="card-body space-y-4 px-6 pb-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label for="first_name" class="form-label{% if not employee %} required{% endif %}">First Name <span class="text-rose-500">*</span></label>
@@ -157,10 +157,10 @@
 
         {# Employee Information #}
         <div class="card">
-            <div class="card-header">
+            <div class="card-header px-6 pt-6">
                 <h3 class="font-medium text-slate-900 dark:text-white">Employment Details</h3>
             </div>
-            <div class="card-body space-y-4">
+            <div class="card-body space-y-4 px-6 pb-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label for="employee_code" class="form-label">Employee Code</label>
@@ -380,7 +380,7 @@
 
         {# Personal Contact & Emergency (collapsible) #}
         <div class="card" x-data="{ expanded: {{ 'true' if employee and (employee.personal_email or employee.emergency_contact_name) else 'false' }} }">
-            <div class="card-header cursor-pointer flex items-center justify-between" @click="expanded = !expanded">
+            <div class="card-header cursor-pointer flex items-center justify-between px-6 pt-6" @click="expanded = !expanded">
                 <h3 class="font-medium text-slate-900 dark:text-white">Personal Contact & Emergency</h3>
                 <div class="flex items-center gap-2">
                     <span class="text-slate-400 text-sm">(Optional)</span>
@@ -389,7 +389,7 @@
                     </svg>
                 </div>
             </div>
-            <div class="card-body space-y-4" x-show="expanded" x-collapse>
+            <div class="card-body space-y-4 px-6 pb-6" x-show="expanded" x-collapse>
                 <p class="text-sm text-slate-500 dark:text-slate-400">Personal contact info separate from work email/phone on Person record.</p>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -431,11 +431,11 @@
 
         {# Bank Details (optional) #}
         <div class="card" x-data="{ expanded: {{ 'true' if employee and employee.bank_name else 'false' }} }">
-            <div class="card-header cursor-pointer flex items-center justify-between" @click="expanded = !expanded">
+            <div class="card-header cursor-pointer flex items-center justify-between px-6 pt-6" @click="expanded = !expanded">
                 <h3 class="font-medium text-slate-900 dark:text-white">Bank Details</h3>
                 <span class="text-slate-400 text-sm">(Optional)</span>
             </div>
-            <div class="card-body space-y-4" x-show="expanded" x-collapse>
+            <div class="card-body space-y-4 px-6 pb-6" x-show="expanded" x-collapse>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label for="bank_name" class="form-label">Bank Name</label>
@@ -463,6 +463,151 @@
                             value="{{ employee.bank_branch_code if employee else form_data.bank_branch_code | default('', true) }}"
                             class="form-input w-full font-mono">
                     </div>
+                </div>
+            </div>
+        </div>
+
+        {% set nigeria_states = nigeria_states if nigeria_states is defined else [
+            "Abia",
+            "Adamawa",
+            "Akwa Ibom",
+            "Anambra",
+            "Bauchi",
+            "Bayelsa",
+            "Benue",
+            "Borno",
+            "Cross River",
+            "Delta",
+            "Ebonyi",
+            "Edo",
+            "Ekiti",
+            "Enugu",
+            "Gombe",
+            "Imo",
+            "Jigawa",
+            "Kaduna",
+            "Kano",
+            "Katsina",
+            "Kebbi",
+            "Kogi",
+            "Kwara",
+            "Lagos",
+            "Nasarawa",
+            "Niger",
+            "Ogun",
+            "Ondo",
+            "Osun",
+            "Oyo",
+            "Plateau",
+            "Rivers",
+            "Sokoto",
+            "Taraba",
+            "Yobe",
+            "Zamfara",
+            "FCT",
+        ] %}
+        {% set tin_value = form_data.tin | default(tax_profile.tin if tax_profile else '', true) %}
+        {% set tax_state_value = form_data.tax_state | default(tax_profile.tax_state if tax_profile else '', true) %}
+        {% set rsa_pin_value = form_data.rsa_pin | default(tax_profile.rsa_pin if tax_profile else '', true) %}
+        {% set selected_pfa = form_data.pfa_code | default(tax_profile.pfa_code if tax_profile else '', true) %}
+        {% set pension_rate_value = form_data.pension_rate | default(tax_profile.pension_rate if tax_profile else '', true) %}
+        {% set nhf_value = form_data.nhf_number | default(tax_profile.nhf_number if tax_profile else '', true) %}
+        {% set pfa_choices = pfas if pfas is defined else [] %}
+
+        <div class="card">
+            <div class="card-header px-6 pt-6">
+                <h3 class="font-medium text-slate-900 dark:text-white">Tax Identification</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400">TIN and tax state for PAYE filings.</p>
+            </div>
+            <div class="card-body space-y-4 px-6 pb-6">
+                <div class="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:bg-slate-800/50 dark:text-slate-300">
+                    Update these values whenever the employee's tax residency changes.
+                    {% if not can_edit_tax %}
+                    <div class="text-xs text-slate-500 mt-1">Only HR staff with <code>people:write</code> can update this section.</div>
+                    {% endif %}
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="tin" class="form-label">Tax Identification Number (TIN)</label>
+                        <input type="text" name="tin" id="tin"
+                            value="{{ tin_value }}"
+                            placeholder="12345678-0001"
+                            class="form-input w-full font-mono placeholder-slate-400/70 dark:placeholder-slate-500/70">
+                    </div>
+                    <div>
+                        <label for="tax_state" class="form-label">Tax State</label>
+                        <select name="tax_state" id="tax_state" class="form-input w-full">
+                            <option value="">Select state</option>
+                            {% for state in nigeria_states %}
+                            <option value="{{ state }}" {{ 'selected' if tax_state_value == state }}>
+                                {{ state }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">State where PAYE returns are remitted.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header px-6 pt-6">
+                <h3 class="font-medium text-slate-900 dark:text-white">Pension Information</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400">RSA PIN and pension rate.</p>
+            </div>
+            <div class="card-body space-y-4 px-6 pb-6">
+                <div class="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:bg-slate-800/50 dark:text-slate-300">
+                    Use this section to keep retirement deductions aligned with payroll.
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="rsa_pin" class="form-label">RSA PIN</label>
+                        <input type="text" name="rsa_pin" id="rsa_pin"
+                            value="{{ rsa_pin_value }}"
+                            placeholder="PEN100012345678"
+                            class="form-input w-full font-mono placeholder-slate-400/70 dark:placeholder-slate-500/70">
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Retirement Savings Account PIN from the employee's PFA.</p>
+                    </div>
+                    <div>
+                        <label for="pfa_code" class="form-label">Pension Fund Administrator (PFA)</label>
+                        <select name="pfa_code" id="pfa_code" class="form-select w-full">
+                            <option value="">Select PFA</option>
+                            {% for pfa in pfa_choices %}
+                            <option value="{{ pfa.pfa_code }}" {{ 'selected' if selected_pfa == pfa.pfa_code }}>
+                                {{ pfa.pfa_name }}{% if pfa.short_name %} ({{ pfa.short_name }}){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label for="pension_rate" class="form-label">Pension Rate</label>
+                    <input type="number" name="pension_rate" id="pension_rate"
+                        value="{{ pension_rate_value }}"
+                        step="0.0001"
+                        min="0"
+                        class="form-input w-full">
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Enter as a decimal (e.g., 0.08 for 8%).</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header px-6 pt-6">
+                <h3 class="font-medium text-slate-900 dark:text-white">National Housing Fund (NHF)</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400">FMBN registration number.</p>
+            </div>
+            <div class="card-body space-y-4 px-6 pb-6">
+                <div class="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:bg-slate-800/50 dark:text-slate-300">
+                    Keep the NHF number in sync with payroll deductions.
+                </div>
+                <div class="max-w-md">
+                    <label for="nhf_number" class="form-label">NHF Number</label>
+                    <input type="text" name="nhf_number" id="nhf_number"
+                        value="{{ nhf_value }}"
+                        placeholder="NHF12345678"
+                        class="form-input w-full font-mono placeholder-slate-400/70 dark:placeholder-slate-500/70">
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Enter the employee's NHF registration number if available.</p>
                 </div>
             </div>
         </div>

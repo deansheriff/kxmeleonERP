@@ -21,6 +21,7 @@ from app.models.auth import Session as AuthSession
 from app.models.auth import SessionStatus, UserCredential
 from app.models.finance.core_org.cost_center import CostCenter
 from app.models.finance.core_org.location import Location
+from app.models.finance.core_org.pfa_directory import PFADirectory
 from app.models.people.hr import (
     Department,
     Designation,
@@ -60,6 +61,46 @@ from app.templates import templates
 from app.web.deps import WebAuthContext, base_context
 
 logger = logging.getLogger(__name__)
+
+NIGERIA_STATES = [
+    "Abia",
+    "Adamawa",
+    "Akwa Ibom",
+    "Anambra",
+    "Bauchi",
+    "Bayelsa",
+    "Benue",
+    "Borno",
+    "Cross River",
+    "Delta",
+    "Ebonyi",
+    "Edo",
+    "Ekiti",
+    "Enugu",
+    "Gombe",
+    "Imo",
+    "Jigawa",
+    "Kaduna",
+    "Kano",
+    "Katsina",
+    "Kebbi",
+    "Kogi",
+    "Kwara",
+    "Lagos",
+    "Nasarawa",
+    "Niger",
+    "Ogun",
+    "Ondo",
+    "Osun",
+    "Oyo",
+    "Plateau",
+    "Rivers",
+    "Sokoto",
+    "Taraba",
+    "Yobe",
+    "Zamfara",
+    "FCT",
+]
 
 
 class HRWebService:
@@ -133,6 +174,54 @@ class HRWebService:
 
         for key, value in payload.model_dump(exclude_unset=True).items():
             setattr(person, key, value)
+
+    def _update_tax_profile(
+        self,
+        *,
+        auth: WebAuthContext,
+        db: Session,
+        employee: Employee,
+        form: Any,
+    ) -> None:
+        if not auth.has_permission("people:write"):
+            return
+        org_id = coerce_uuid(auth.organization_id)
+        profile = db.scalar(
+            select(EmployeeTaxProfile)
+            .where(
+                EmployeeTaxProfile.organization_id == org_id,
+                EmployeeTaxProfile.employee_id == employee.employee_id,
+                EmployeeTaxProfile.effective_to.is_(None),
+            )
+            .order_by(EmployeeTaxProfile.effective_from.desc())
+            .limit(1)
+        )
+
+        def _value(name: str) -> str | None:
+            return self._clean_person_text(self._form_str(form, name))
+
+        tin = _value("tin")
+        rsa_pin = _value("rsa_pin")
+        pfa_code = _value("pfa_code")
+        nhf_number = _value("nhf_number")
+        pension_rate = self._parse_decimal(self._form_str(form, "pension_rate"))
+
+        if profile is None:
+            profile = EmployeeTaxProfile(
+                employee_id=employee.employee_id,
+                organization_id=org_id,
+                effective_from=datetime.now(UTC),
+                tax_state=None,
+                annual_rent=Decimal("0"),
+            )
+            db.add(profile)
+
+        profile.tin = tin or profile.tin
+        profile.rsa_pin = rsa_pin or profile.rsa_pin
+        profile.pfa_code = pfa_code or profile.pfa_code
+        profile.nhf_number = nhf_number or profile.nhf_number
+        if pension_rate is not None:
+            profile.pension_rate = pension_rate
 
     def list_employees_response(
         self,
@@ -417,6 +506,13 @@ class HRWebService:
         ctc = self._parse_decimal(ctc_raw)
         salary_mode = self._parse_salary_mode(salary_mode_raw)
 
+        tin = self._form_str(form, "tin")
+        tax_state = self._form_str(form, "tax_state")
+        rsa_pin = self._form_str(form, "rsa_pin")
+        pfa_code = self._form_str(form, "pfa_code")
+        pension_rate_raw = self._form_str(form, "pension_rate")
+        nhf_number = self._form_str(form, "nhf_number")
+
         if (
             not linked_person_id and (not first_name or not last_name or not email)
         ) or not date_of_joining:
@@ -465,6 +561,12 @@ class HRWebService:
                     "ctc": ctc_raw,
                     "salary_mode": salary_mode_raw,
                     "notes": notes,
+                    "tin": tin,
+                    "tax_state": tax_state,
+                    "rsa_pin": rsa_pin,
+                    "pfa_code": pfa_code,
+                    "pension_rate": pension_rate_raw,
+                    "nhf_number": nhf_number,
                 },
                 errors=errors,
             )
@@ -504,27 +606,33 @@ class HRWebService:
                     auth,
                     db,
                     error=f"A person with email '{email}' already has an employee record.",
-                    form_data={
-                        "first_name": first_name,
-                        "last_name": last_name,
-                        "email": email,
-                        "employee_code": employee_code,
-                        "department_id": department_id,
-                        "designation_id": designation_id,
-                        "assigned_location_id": assigned_location_id,
-                        "default_shift_type_id": default_shift_type_id,
-                        "expense_approver_id": expense_approver_id,
-                        "linked_person_id": linked_person_id,
-                        "date_of_joining": date_of_joining,
-                        "status": status,
-                        "bank_name": bank_name,
-                        "bank_account_name": bank_account_name,
-                        "bank_account_number": bank_account_number,
-                        "bank_branch_code": bank_branch_code,
-                        "ctc": ctc_raw,
-                        "salary_mode": salary_mode_raw,
-                    },
-                )
+                        form_data={
+                            "first_name": first_name,
+                            "last_name": last_name,
+                            "email": email,
+                            "employee_code": employee_code,
+                            "department_id": department_id,
+                            "designation_id": designation_id,
+                            "assigned_location_id": assigned_location_id,
+                            "default_shift_type_id": default_shift_type_id,
+                            "expense_approver_id": expense_approver_id,
+                            "linked_person_id": linked_person_id,
+                            "date_of_joining": date_of_joining,
+                            "status": status,
+                            "bank_name": bank_name,
+                            "bank_account_name": bank_account_name,
+                            "bank_account_number": bank_account_number,
+                            "bank_branch_code": bank_branch_code,
+                            "ctc": ctc_raw,
+                            "salary_mode": salary_mode_raw,
+                            "tin": tin,
+                            "tax_state": tax_state,
+                            "rsa_pin": rsa_pin,
+                            "pfa_code": pfa_code,
+                            "pension_rate": pension_rate_raw,
+                            "nhf_number": nhf_number,
+                        },
+                    )
             person = existing_person
         else:
             if linked_person_id:
@@ -569,6 +677,12 @@ class HRWebService:
                             "ctc": ctc_raw,
                             "salary_mode": salary_mode_raw,
                             "notes": notes,
+                            "tin": tin,
+                            "tax_state": tax_state,
+                            "rsa_pin": rsa_pin,
+                            "pfa_code": pfa_code,
+                            "pension_rate": pension_rate_raw,
+                            "nhf_number": nhf_number,
                         },
                     )
             else:
@@ -632,6 +746,7 @@ class HRWebService:
         if person is None:
             raise HTTPException(status_code=400, detail="Person not found")
         employee = svc.create_employee(person.id, data)
+        self._update_tax_profile(auth=auth, db=db, employee=employee, form=form)
         db.commit()
         svc.send_employee_access_invite(
             employee.employee_id,
@@ -776,6 +891,7 @@ class HRWebService:
         self._update_linked_person(auth=auth, db=db, employee=employee, form=form)
 
         svc.update_employee(coerce_uuid(employee_id), data)
+        self._update_tax_profile(auth=auth, db=db, employee=employee, form=form)
         db.commit()
 
         return RedirectResponse(
@@ -1277,6 +1393,7 @@ class HRWebService:
             )
             .items
         )
+        pfas = self._list_pfas(db)
         user_rows = db.execute(
             select(UserCredential, Person)
             .join(Person, UserCredential.person_id == Person.id)
@@ -1313,6 +1430,10 @@ class HRWebService:
             "error": error,
             "errors": errors or {},
             "form_data": form_data or {},
+            "pfas": pfas,
+            "tax_profile": None,
+            "nigeria_states": NIGERIA_STATES,
+            "can_edit_tax": auth.has_permission("people:write"),
         }
 
         return templates.TemplateResponse(
@@ -1358,6 +1479,14 @@ class HRWebService:
             return SalaryMode(value.upper())
         except ValueError:
             return None
+
+    @staticmethod
+    def _list_pfas(db: Session) -> list[PFADirectory]:
+        """Return the PFA dictionary ordered by name."""
+        return db.scalars(
+            select(PFADirectory)
+            .order_by(PFADirectory.pfa_name)
+        ).all()
 
     def employee_edit_form_response(
         self,
@@ -1425,6 +1554,7 @@ class HRWebService:
             )
             .items
         )
+        pfas = self._list_pfas(db)
         user_rows = db.execute(
             select(UserCredential, Person)
             .join(Person, UserCredential.person_id == Person.id)
@@ -1447,11 +1577,23 @@ class HRWebService:
             }
         user_accounts = list(user_options.values())
 
+        tax_profile = db.scalar(
+            select(EmployeeTaxProfile)
+            .where(
+                EmployeeTaxProfile.organization_id == org_id,
+                EmployeeTaxProfile.employee_id == employee.employee_id,
+                EmployeeTaxProfile.effective_to.is_(None),
+            )
+            .order_by(EmployeeTaxProfile.effective_from.desc())
+            .limit(1)
+        )
+
         context = {
             **base_context(request, auth, "Edit Employee", "employees"),
             "employee": employee,
             "person": person,
             "can_edit_person": auth.has_permission("people:write"),
+            "can_edit_tax": auth.has_permission("people:write"),
             "departments": departments,
             "designations": designations,
             "employment_types": employment_types,
@@ -1461,11 +1603,14 @@ class HRWebService:
             "locations": locations,
             "shift_types": shift_types,
             "user_accounts": user_accounts,
+            "pfas": pfas,
+            "tax_profile": tax_profile,
             "statuses": [s.value for s in EmployeeStatus],
             "salary_modes": [m.value for m in SalaryMode],
             "genders": [g.value for g in Gender],
             "errors": {},
             "form_data": {},
+            "nigeria_states": NIGERIA_STATES,
         }
 
         return templates.TemplateResponse(
