@@ -96,7 +96,7 @@
                             <div class="text-sm font-medium text-slate-900 dark:text-white">{{ claim.claim_number }}</div>
                             <div class="text-xs text-slate-500 dark:text-slate-400">{{ claim.purpose }}</div>
                         </td>
-                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{{ claim.claim_date }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ claim.claim_date }}</td>
                         <td class="px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300 font-mono tabular-nums">{{ claim.total_claimed_amount | format_currency }}</td>
                         <td class="px-4 py-3 text-sm">{{ status_badge(status_text | upper, 'sm') }}</td>
                         <td class="px-4 py-3 text-right text-sm">
@@ -319,8 +319,8 @@
                         <p class="mt-1 text-xs text-slate-400">Link expense to a specific project task</p>
                     </div>
                     <div class="sm:col-span-2 flex items-center justify-between">
-                        <label class="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                            <input type="checkbox" name="submit_now" class="rounded border-slate-300 text-teal-600 focus:ring-teal-500">
+                        <label class="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                            <input type="checkbox" name="submit_now" class="rounded border-slate-300 dark:border-slate-600 text-teal-600 focus:ring-teal-500">
                             Submit for approval
                         </label>
                         <div class="flex items-center gap-3">

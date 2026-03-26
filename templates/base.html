@@ -49,13 +49,17 @@
     <link rel="icon" href="{{ favicon_url }}" type="{{ favicon_type }}">
     <link rel="alternate icon" href="{{ favicon_url }}" type="{{ favicon_type }}">
 
+    <!-- Preload critical fonts -->
+    <link rel="preload" href="/static/fonts/dm-sans/dm-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/static/fonts/fraunces/fraunces-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+
     <!-- Compiled Tailwind CSS -->
     <link href="/static/css/app.css?v=20260319c" rel="stylesheet">
     <link href="/static/css/font-overrides.css?v=20260319c" rel="stylesheet">
 
     <!-- HTMX (local) -->
-    <script src="/static/js/vendor/htmx.js"></script>
-    <script src="/static/js/vendor/htmx-loading-states.js"></script>
+    <script defer src="/static/js/vendor/htmx.js"></script>
+    <script defer src="/static/js/vendor/htmx-loading-states.js"></script>
 
     <!-- Bulk actions (must load before Alpine initializes components) -->
     <script defer src="/static/js/bulk-actions.js"></script>
@@ -73,8 +77,8 @@
     <script defer src="/static/js/vendor/alpine.js"></script>
 
     <!-- Chart.js for dashboard visualizations (local) -->
-    <script src="/static/js/vendor/chart.js"></script>
-    <script src="/static/js/charts.js?v=20260205b"></script>
+    <script defer src="/static/js/vendor/chart.js"></script>
+    <script defer src="/static/js/charts.js?v=20260205b"></script>
 
     {% block head %}{% endblock %}
     {% block page_styles %}{% endblock %}
@@ -90,7 +94,7 @@
 
     {% block body %}
     <div class="relative">
-        <header class="sticky top-0 z-40 border-b border-slate-200/70 bg-white/80 backdrop-blur dark:border-slate-800/70 dark:bg-slate-900/80">
+        <header class="sticky top-0 z-40 border-b border-slate-200/70 bg-white dark:border-slate-800/70 dark:bg-slate-900">
             <div class="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-6 md:flex-row md:items-center md:justify-between">
                 <a href="/" class="flex items-center gap-3">
                     {% if brand_logo_url %}
@@ -190,7 +194,7 @@
         <div class="fixed bottom-5 right-5 z-30">
             <div class="flex flex-col items-end gap-2">
                 <a href="{{ contextual_help_search_url }}"
-                   class="hidden rounded-full border border-slate-200 bg-white/90 px-4 py-2 text-xs font-medium text-slate-600 shadow-lg shadow-slate-900/5 backdrop-blur transition hover:border-teal-200 hover:text-teal-700 dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:text-teal-300 sm:block">
+                   class="hidden rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-600 shadow-lg shadow-slate-900/5 transition hover:border-teal-200 hover:text-teal-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-teal-300 sm:block">
                     Search Help
                 </a>
                 <a href="{{ contextual_help_url }}"

@@ -71,7 +71,7 @@
                         <td class="px-4 py-3">
                             <a href="/procurement/requisitions/{{ req.requisition_id }}" class="font-medium text-blue-600 hover:underline dark:text-blue-400">{{ req.requisition_number }}</a>
                         </td>
-                        <td class="hidden sm:table-cell px-4 py-3 text-slate-600 dark:text-slate-400">{{ req.requisition_date }}</td>
+                        <td class="hidden sm:table-cell px-4 py-3 text-slate-600 dark:text-slate-300">{{ req.requisition_date }}</td>
                         <td class="hidden sm:table-cell px-4 py-3">
                             {{ status_badge(req.urgency.value, size="sm") }}
                         </td>
@@ -117,7 +117,7 @@
                 search=search
             ) }}
         {% if total > limit %}
-        <div class="p-4 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center text-sm text-slate-600 dark:text-slate-400">
+        <div class="p-4 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center text-sm text-slate-600 dark:text-slate-300">
             <span>Showing {{ offset + 1 }}-{{ [offset + limit, total] | min }} of {{ total }}</span>
             <div class="flex gap-2">
                 {% if offset > 0 %}<a href="?offset={{ offset - limit }}&limit={{ limit }}{% if filter_status %}&status={{ filter_status }}{% endif %}{% if filter_urgency %}&urgency={{ filter_urgency }}{% endif %}" class="btn btn-secondary text-xs">Previous</a>{% endif %}
@@ -130,23 +130,23 @@
 </div>
 
 <!-- Import Modal -->
-<div id="proc-req-import-modal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-modal="true" role="dialog">
+<div id="proc-req-import-modal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-modal="true" role="dialog" aria-labelledby="import-modal-title">
     <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" onclick="document.getElementById('proc-req-import-modal').classList.add('hidden')"></div>
     <div class="relative mx-auto my-10 w-full max-w-2xl bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Import Requisitions</h3>
+            <h3 id="import-modal-title" class="text-lg font-semibold text-slate-900 dark:text-white">Import Requisitions</h3>
             <button type="button" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" onclick="document.getElementById('proc-req-import-modal').classList.add('hidden')" aria-label="Close">
                 {{ icon_svg("x-mark") }}
             </button>
         </div>
-        <p class="text-sm text-slate-600 dark:text-slate-400 mb-6">
+        <p class="text-sm text-slate-600 dark:text-slate-300 mb-6">
             Upload a CSV or XLSX file. Required columns: requisition_number, requisition_date, requester_id, line_number, description, quantity, estimated_unit_price, estimated_amount.
         </p>
         <form method="post" action="/procurement/requisitions/import" enctype="multipart/form-data" class="space-y-4">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Format</label>
+                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Format</label>
                     <select name="format" id="proc-req-import-format" class="form-select text-sm" onchange="document.getElementById('proc-req-template-link').href = '/procurement/requisitions/template?format=' + this.value;">
                         <option value="csv">CSV</option>
                         {% if xlsx_available %}
@@ -161,7 +161,7 @@
                 </div>
             </div>
             <div>
-                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">File <span class="text-rose-500">*</span></label>
+                <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">File <span class="text-rose-500">*</span></label>
                 <input type="file" name="file" accept=".csv{% if xlsx_available %},.xlsx{% endif %}" class="form-input text-sm" required>
             </div>
             <div class="flex items-center justify-end gap-2">
@@ -176,22 +176,22 @@
 </div>
 
 <!-- Export Modal -->
-<div id="proc-req-export-modal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-modal="true" role="dialog">
+<div id="proc-req-export-modal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-modal="true" role="dialog" aria-labelledby="export-modal-title">
     <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" onclick="document.getElementById('proc-req-export-modal').classList.add('hidden')"></div>
     <div class="relative mx-auto my-10 w-full max-w-xl bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Export Requisitions</h3>
+            <h3 id="export-modal-title" class="text-lg font-semibold text-slate-900 dark:text-white">Export Requisitions</h3>
             <button type="button" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" onclick="document.getElementById('proc-req-export-modal').classList.add('hidden')" aria-label="Close">
                 {{ icon_svg("x-mark") }}
             </button>
         </div>
-        <p class="text-sm text-slate-600 dark:text-slate-400 mb-6">
+        <p class="text-sm text-slate-600 dark:text-slate-300 mb-6">
             Export the current list (including filters) as CSV or XLSX.
         </p>
         <form method="get" action="/procurement/requisitions/export" class="space-y-4">
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Format</label>
+                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Format</label>
                     <select name="format" class="form-select text-sm">
                         <option value="csv">CSV</option>
                         {% if xlsx_available %}

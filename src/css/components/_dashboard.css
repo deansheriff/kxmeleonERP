@@ -218,8 +218,11 @@
     }
     .kpi-progress-bar {
         height: 100%;
+        width: 100%;
         border-radius: 3px;
-        transition: width 0.5s ease;
+        transform: scaleX(var(--progress, 0));
+        transform-origin: left;
+        transition: transform 0.5s ease;
     }
     .kpi-progress-bar-teal { background: linear-gradient(90deg, var(--teal) 0%, var(--teal-light) 100%); }
     .kpi-progress-bar-gold { background: linear-gradient(90deg, var(--gold) 0%, var(--gold-light) 100%); }

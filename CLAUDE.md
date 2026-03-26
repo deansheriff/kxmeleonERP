@@ -253,3 +253,29 @@ Never pure `#000` — darkest is `slate-900`.
 - Bare `except:` — always catch specific exceptions
 - Missing `scope="col"` on `<th>` elements
 - Importing `app.web.*` from pure business services
+
+## Design Context
+
+### Users
+- **Primary**: Finance professionals — accountants, bookkeepers, CFOs managing general ledgers, reconciliations, AR/AP aging, tax filings, and financial reporting for Nigerian businesses.
+- **Secondary**: HR and operations staff — payroll officers, HR managers, operations leads handling employee lifecycle, leave, attendance, and procurement workflows.
+- **Context**: Cross-functional enterprise teams in mid-to-large organizations. Users spend hours daily processing transactions, reviewing reports, and making approval decisions. Speed and accuracy are existential.
+- **Job to be done**: "Give me a clear, trustworthy picture of my organization's financial and operational state, and let me act on it fast."
+
+### Brand Personality
+- **Three words**: Professional, Trustworthy, Clear
+- **Voice**: Authoritative but approachable — like a senior accountant who explains things plainly.
+- **Emotional goal**: **Confidence and control** — "I know exactly where things stand."
+
+### Aesthetic Direction
+- Modern professional — clean, structured, precise without being cold. Warm parchment backgrounds and teal accents give character without playfulness.
+- Distinctly a *finance tool* — tabular numbers, ledger patterns, double-entry displays, module color-coding from physical colored-tab ledger tradition.
+- **References**: Stripe's polish, Xero's accounting structure, Linear's information hierarchy.
+- **Anti-references**: NOT legacy enterprise (SAP/Oracle density), NOT generic SaaS (Bootstrap/Material cookie-cutter).
+
+### Design Principles
+1. **Clarity over cleverness** — Every element earns its place. Financial data must be instantly scannable.
+2. **Confidence through structure** — Predictable layouts, consistent patterns, visible system state.
+3. **Warmth without whimsy** — Parchment, teal-gold accents, serif headings give personality. But nothing bounces or sparkles.
+4. **Accessible by default** — WCAG 2.2 AA minimum. Color is never the sole indicator.
+5. **Speed is a feature** — 300ms debounced search, HTMX partial updates, no full-page reloads for list operations.

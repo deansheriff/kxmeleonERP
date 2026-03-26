@@ -121,7 +121,7 @@
                                @click.stop="toggleRow('{{ item.item_id }}')"
                                aria-label="Select {{ item.item_code }}">
                     </div>
-                    <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                         <div><p class="text-slate-500 dark:text-slate-400">Category</p><p class="text-slate-700 dark:text-slate-200 truncate">{{ item.category_code }}</p></div>
                         <div><p class="text-slate-500 dark:text-slate-400">Type</p><p class="text-slate-700 dark:text-slate-200">{{ item.item_type | replace('_', ' ') | title }}</p></div>
                         <div><p class="text-slate-500 dark:text-slate-400">On Hand</p><p class="font-mono text-slate-900 dark:text-white">{{ "%.2f"|format(item.quantity_on_hand|float) if item.track_inventory else 'N/A' }}</p></div>
@@ -176,7 +176,7 @@
                                     {{ item.category_code }}
                                 </span>
                             </td>
-                            <td class="hidden sm:table-cell text-sm text-slate-600 dark:text-slate-400">{{ item.item_type | replace('_', ' ') | title }}</td>
+                            <td class="hidden sm:table-cell text-sm text-slate-600 dark:text-slate-300">{{ item.item_type | replace('_', ' ') | title }}</td>
                             <td class="text-right font-mono font-medium text-slate-900 dark:text-white">{{ item.list_price | default("-") }}</td>
                             <td class="text-right">
                                 {% if item.track_inventory %}

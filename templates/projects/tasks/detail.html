@@ -141,7 +141,7 @@
                                 {% if att.content_type and att.content_type.startswith('image/') %}
                                 <button type="button" class="h-10 w-10 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700"
                                         @click.prevent="openPreview('/projects/{{ project.project_code }}/tasks/{{ task.task_code or task.task_id }}/attachments/{{ att.attachment_id }}/download', '{{ att.file_name }}', '/projects/{{ project.project_code }}/tasks/{{ task.task_code or task.task_id }}/attachments/{{ att.attachment_id }}/download')">
-                                    <img src="/projects/{{ project.project_code }}/tasks/{{ task.task_code or task.task_id }}/attachments/{{ att.attachment_id }}/download" alt="{{ att.file_name }}" class="h-full w-full object-cover">
+                                    <img src="/projects/{{ project.project_code }}/tasks/{{ task.task_code or task.task_id }}/attachments/{{ att.attachment_id }}/download" alt="{{ att.file_name }}" class="h-full w-full object-cover" loading="lazy">
                                 </button>
                                 {% else %}
                                 <div class="h-10 w-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
@@ -186,7 +186,7 @@
                         {{ request.state.csrf_form | safe }}
                         <textarea name="content" required rows="2" class="form-input w-full" placeholder="Add a comment..."></textarea>
                         <div class="flex flex-wrap items-center justify-between gap-3">
-                            <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                            <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                                 <input type="checkbox" name="is_internal" value="true" class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500">
                                 <span>Internal note (staff only)</span>
                             </label>
@@ -223,7 +223,7 @@
                                 {% if att.content_type and att.content_type.startswith('image/') %}
                                 <button type="button" class="h-8 w-8 rounded overflow-hidden border border-slate-200 dark:border-slate-700"
                                         @click.prevent="openPreview('/projects/{{ project.project_code }}/tasks/{{ task.task_code or task.task_id }}/attachments/{{ att.attachment_id }}/download', '{{ att.file_name }}', '/projects/{{ project.project_code }}/tasks/{{ task.task_code or task.task_id }}/attachments/{{ att.attachment_id }}/download')">
-                                    <img src="/projects/{{ project.project_code }}/tasks/{{ task.task_code or task.task_id }}/attachments/{{ att.attachment_id }}/download" alt="{{ att.file_name }}" class="h-full w-full object-cover">
+                                    <img src="/projects/{{ project.project_code }}/tasks/{{ task.task_code or task.task_id }}/attachments/{{ att.attachment_id }}/download" alt="{{ att.file_name }}" class="h-full w-full object-cover" loading="lazy">
                                 </button>
                                 {% else %}
                                 <div class="h-8 w-8 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">

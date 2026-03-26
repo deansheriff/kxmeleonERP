@@ -10,7 +10,7 @@
   </div>
 
   <section class="relative mx-auto flex min-h-screen max-w-3xl items-center justify-center px-6 py-16">
-    <div class="w-full rounded-2xl border border-slate-200 bg-white/90 p-8 shadow-2xl shadow-slate-900/10 backdrop-blur dark:border-slate-700 dark:bg-slate-900/80">
+    <div class="w-full rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl shadow-slate-900/10 dark:border-slate-700 dark:bg-slate-900">
       <div class="text-center">
         <div class="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
           {{ brand.name | default("Dotmac") }}
@@ -159,6 +159,13 @@
         No modules are enabled for your account yet. Contact an administrator to get access.
       </div>
       {% endif %}
+
+      <div class="mt-8 flex justify-center">
+        <a href="/gov-erp"
+           class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:border-slate-600 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white">
+          Gov ERP
+        </a>
+      </div>
 
     </div>
   </section>

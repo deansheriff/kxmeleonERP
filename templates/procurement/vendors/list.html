@@ -1,5 +1,5 @@
 {% extends "procurement/base_procurement.html" %}
-{% from "components/macros.html" import compact_filters, icon_svg, pagination %}
+{% from "components/macros.html" import compact_filters, icon_svg, pagination, status_badge %}
 
 
 {% block page_title %}Vendor Registry{% endblock %}
@@ -81,11 +81,10 @@
                             </div>
                         </td>
                         <td class="px-4 py-3">
-                            {% set label, classes = status_labels.get(vendor.status, ("Unknown", "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400")) %}
-                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {{ classes }}">{{ label }}</span>
+                            {{ status_badge(vendor.status, 'sm') }}
                         </td>
-                        <td class="px-4 py-3 text-slate-600 dark:text-slate-400">{{ vendor.valid_from or '-' }}</td>
-                        <td class="px-4 py-3 text-slate-600 dark:text-slate-400">{{ vendor.valid_to or '-' }}</td>
+                        <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ vendor.valid_from or '-' }}</td>
+                        <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ vendor.valid_to or '-' }}</td>
                         <td class="px-4 py-3 text-right">
                             {% if vendor.overall_score is not none %}
                             <span class="font-semibold {% if vendor.overall_score >= 80 %}text-emerald-600 dark:text-emerald-400{% elif vendor.overall_score >= 60 %}text-amber-600 dark:text-amber-400{% else %}text-rose-600 dark:text-rose-400{% endif %}">{{ "{:.0f}".format(vendor.overall_score) }}%</span>

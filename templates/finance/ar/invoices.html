@@ -74,7 +74,7 @@
                     {% if invoice.purpose %}
                     <p class="mt-2 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{{ invoice.purpose }}</p>
                     {% endif %}
-                    <div class="mt-3 grid grid-cols-2 gap-2 text-xs font-mono tabular-nums">
+                    <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono tabular-nums">
                         <div><p class="text-slate-500 dark:text-slate-400">Amount</p><p class="text-slate-900 dark:text-white">{{ invoice.total_amount | default(zero_amount) }}</p></div>
                         <div><p class="text-slate-500 dark:text-slate-400">Balance</p><p class="text-slate-900 dark:text-white">{{ invoice.balance | default(zero_amount) }}</p></div>
                     </div>
@@ -107,8 +107,8 @@
                         {% for invoice in invoices %}
                         <tr class="group">
                             {{ bulk_select_cell(invoice.invoice_id) }}
-                            <td class="text-slate-600 dark:text-slate-400">{{ invoice.created_at }}</td>
-                            <td class="text-slate-600 dark:text-slate-400">{{ invoice.invoice_date }}</td>
+                            <td class="text-slate-600 dark:text-slate-300">{{ invoice.created_at }}</td>
+                            <td class="text-slate-600 dark:text-slate-300">{{ invoice.invoice_date }}</td>
                             <td>
                                 <a href="/finance/ar/invoices/{{ invoice.invoice_id }}" class="inline-flex items-center gap-2 font-mono text-sm font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400 transition-colors" data-copy-text="{{ invoice.invoice_number }}" title="Click to copy invoice number">
                                     <span class="h-5 w-0.5 rounded-full bg-teal-400 dark:bg-teal-500 opacity-60"></span>
@@ -120,7 +120,7 @@
                         </td>
                         <td class="text-right font-mono tabular-nums text-sm text-slate-500 dark:text-slate-400">{{ invoice.total_amount | default(zero_amount) }}</td>
                         <td class="max-w-xs">
-                            <p class="truncate text-sm text-slate-600 dark:text-slate-400">{{ invoice.purpose if invoice.purpose else '—' }}</p>
+                            <p class="truncate text-sm text-slate-600 dark:text-slate-300">{{ invoice.purpose if invoice.purpose else '—' }}</p>
                         </td>
                         <td class="text-right font-mono tabular-nums text-sm text-slate-500 dark:text-slate-400 hidden md:table-cell">{{ invoice.tax_amount if invoice.tax_amount else '—' }}</td>
                         <td class="text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white">{{ invoice.balance | default(zero_amount) }}</td>

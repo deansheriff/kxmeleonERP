@@ -91,7 +91,7 @@
         <h3 class="text-sm font-medium text-slate-500 dark:text-slate-400">Customer</h3>
         <div class="mt-4 space-y-2">
             <div class="flex justify-between text-sm">
-                <span class="text-slate-600 dark:text-slate-400">Name</span>
+                <span class="text-slate-600 dark:text-slate-300">Name</span>
                 <span class="font-medium text-slate-900 dark:text-white text-right">
                     {{ customer_info.customer_name }}
                     <span class="block font-mono text-xs text-slate-400">{{ customer_info.customer_code }}</span>
@@ -99,26 +99,26 @@
             </div>
             {% if customer_info.email or customer_info.phone %}
             <div class="flex justify-between text-sm">
-                <span class="text-slate-600 dark:text-slate-400">Contact</span>
+                <span class="text-slate-600 dark:text-slate-300">Contact</span>
                 <span class="font-medium text-slate-900 dark:text-white text-right">
                     {% if customer_info.email %}
                     <div>{{ customer_info.email }}</div>
                     {% endif %}
                     {% if customer_info.phone %}
-                    <div class="text-slate-600 dark:text-slate-400">{{ customer_info.phone }}</div>
+                    <div class="text-slate-600 dark:text-slate-300">{{ customer_info.phone }}</div>
                     {% endif %}
                 </span>
             </div>
             {% endif %}
             {% if customer_info.billing_address %}
             <div class="flex justify-between text-sm">
-                <span class="text-slate-600 dark:text-slate-400">Billing Address</span>
+                <span class="text-slate-600 dark:text-slate-300">Billing Address</span>
                 <span class="font-medium text-slate-900 dark:text-white text-right">{{ customer_info.billing_address }}</span>
             </div>
             {% endif %}
             {% if customer_info.shipping_address %}
             <div class="flex justify-between text-sm">
-                <span class="text-slate-600 dark:text-slate-400">Shipping Address</span>
+                <span class="text-slate-600 dark:text-slate-300">Shipping Address</span>
                 <span class="font-medium text-slate-900 dark:text-white text-right">{{ customer_info.shipping_address }}</span>
             </div>
             {% endif %}
@@ -146,13 +146,13 @@
             <h3 class="text-sm font-medium text-slate-500 dark:text-slate-400">Timeline</h3>
             <div class="mt-4 space-y-2">
                 <div class="flex justify-between text-sm">
-                    <span class="text-slate-600 dark:text-slate-400">Start</span>
+                    <span class="text-slate-600 dark:text-slate-300">Start</span>
                     <span class="font-medium text-slate-900 dark:text-white">
                         {% if project.start_date %}{{ project.start_date | format_date }}{% else %}Not set{% endif %}
                     </span>
                 </div>
                 <div class="flex justify-between text-sm">
-                    <span class="text-slate-600 dark:text-slate-400">End</span>
+                    <span class="text-slate-600 dark:text-slate-300">End</span>
                     <span class="font-medium text-slate-900 dark:text-white">
                         {% if project.end_date %}{{ project.end_date | format_date }}{% else %}Not set{% endif %}
                     </span>
@@ -165,13 +165,13 @@
             <h3 class="text-sm font-medium text-slate-500 dark:text-slate-400">Budget</h3>
             <div class="mt-4 space-y-2">
                 <div class="flex justify-between text-sm">
-                    <span class="text-slate-600 dark:text-slate-400">Budget</span>
+                    <span class="text-slate-600 dark:text-slate-300">Budget</span>
                     <span class="font-medium text-slate-900 dark:text-white">
                         {% if project.budget_amount %}{{ project.budget_currency_code or 'NGN' }} {{ '{:,.2f}'.format(project.budget_amount) }}{% else %}Not set{% endif %}
                     </span>
                 </div>
                 <div class="flex justify-between text-sm">
-                    <span class="text-slate-600 dark:text-slate-400">Actual</span>
+                    <span class="text-slate-600 dark:text-slate-300">Actual</span>
                     <span class="font-medium text-slate-900 dark:text-white">
                         {% if project.actual_cost %}{{ project.budget_currency_code or 'NGN' }} {{ '{:,.2f}'.format(project.actual_cost) }}{% else %}-{% endif %}
                     </span>
@@ -202,7 +202,7 @@
             <div class="mb-6">
                 {% set budget_used_pct = ((budget.actual_cost or 0) / budget.budget_amount * 100) if budget.budget_amount else 0 %}
                 <div class="flex justify-between text-sm mb-2">
-                    <span class="text-slate-600 dark:text-slate-400">Budget Used</span>
+                    <span class="text-slate-600 dark:text-slate-300">Budget Used</span>
                     <span class="font-medium {{ 'text-rose-600' if budget_used_pct > 100 else 'text-amber-600' if budget_used_pct > 80 else 'text-green-600' }}">
                         {{ '{:.1f}'.format(budget_used_pct) }}%
                     </span>
@@ -299,7 +299,7 @@
                 <p class="text-xs font-medium text-rose-600 dark:text-rose-400 uppercase mb-2">Overdue Milestones</p>
                 <ul class="space-y-1">
                     {% for m in milestones.overdue[:3] %}
-                    <li class="text-sm text-slate-600 dark:text-slate-400">
+                    <li class="text-sm text-slate-600 dark:text-slate-300">
                         {{ m.milestone_name }} <span class="text-rose-500">({{ m.days_overdue }}d overdue)</span>
                     </li>
                     {% endfor %}
@@ -348,7 +348,7 @@
     {% if project.description %}
     <div class="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
         <h3 class="text-lg font-medium text-slate-900 dark:text-white">Description</h3>
-        <p class="mt-2 text-sm text-slate-600 dark:text-slate-400 whitespace-pre-line">{{ project.description }}</p>
+        <p class="mt-2 text-sm text-slate-600 dark:text-slate-300 whitespace-pre-line">{{ project.description }}</p>
     </div>
     {% endif %}
 
@@ -383,7 +383,7 @@
                         {% if att.content_type and att.content_type.startswith('image/') %}
                         <button type="button" class="h-10 w-10 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700"
                                 @click.prevent="openPreview('/projects/{{ project.project_code }}/attachments/{{ att.attachment_id }}/download', '{{ att.file_name }}', '/projects/{{ project.project_code }}/attachments/{{ att.attachment_id }}/download')">
-                            <img src="/projects/{{ project.project_code }}/attachments/{{ att.attachment_id }}/download" alt="{{ att.file_name }}" class="h-full w-full object-cover">
+                            <img src="/projects/{{ project.project_code }}/attachments/{{ att.attachment_id }}/download" alt="{{ att.file_name }}" class="h-full w-full object-cover" loading="lazy">
                         </button>
                         {% else %}
                         <div class="h-10 w-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
@@ -428,7 +428,7 @@
                 {{ request.state.csrf_form | safe }}
                 <textarea name="content" required rows="2" class="form-input w-full" placeholder="Add a comment..."></textarea>
                 <div class="flex flex-wrap items-center justify-between gap-3">
-                    <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                    <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                         <input type="checkbox" name="is_internal" value="true" class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500">
                         <span>Internal note (staff only)</span>
                     </label>
@@ -465,7 +465,7 @@
                         {% if att.content_type and att.content_type.startswith('image/') %}
                         <button type="button" class="h-8 w-8 rounded overflow-hidden border border-slate-200 dark:border-slate-700"
                                 @click.prevent="openPreview('/projects/{{ project.project_code }}/attachments/{{ att.attachment_id }}/download', '{{ att.file_name }}', '/projects/{{ project.project_code }}/attachments/{{ att.attachment_id }}/download')">
-                            <img src="/projects/{{ project.project_code }}/attachments/{{ att.attachment_id }}/download" alt="{{ att.file_name }}" class="h-full w-full object-cover">
+                            <img src="/projects/{{ project.project_code }}/attachments/{{ att.attachment_id }}/download" alt="{{ att.file_name }}" class="h-full w-full object-cover" loading="lazy">
                         </button>
                         {% else %}
                         <div class="h-8 w-8 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">

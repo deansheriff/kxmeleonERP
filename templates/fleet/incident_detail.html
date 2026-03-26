@@ -20,7 +20,7 @@
     <div class="card p-6">
         <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div class="flex items-start gap-4">
-                <div class="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-lg">
+                <div class="flex h-14 w-14 items-center justify-center rounded-xl bg-rose-600 dark:bg-rose-500 text-white shadow-lg">
                     {{ icon_svg("warning", "h-7 w-7") }}
                 </div>
                 <div>
@@ -55,7 +55,7 @@
                 <h3 class="font-semibold text-slate-900 dark:text-white">Incident Information</h3>
             </div>
             <div class="p-4">
-                <dl class="grid grid-cols-2 gap-4">
+                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <dt class="text-xs text-slate-500 dark:text-slate-400">Date</dt>
                         <dd class="text-sm font-medium text-slate-900 dark:text-white">{{ incident.incident_date | format_date }}</dd>
@@ -102,7 +102,7 @@
                 <h3 class="font-semibold text-slate-900 dark:text-white">Cost & Insurance</h3>
             </div>
             <div class="p-4">
-                <dl class="grid grid-cols-2 gap-4">
+                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <dt class="text-xs text-slate-500 dark:text-slate-400">Estimated Repair</dt>
                         <dd class="text-sm font-mono text-slate-900 dark:text-white">{{ "{:,.2f}".format(incident.estimated_repair_cost) if incident.estimated_repair_cost else '-' }}</dd>
