@@ -252,7 +252,8 @@ def create_wht_transaction(
         return None
 
     try:
-        # Calculate gross amount (base for WHT)
+        # WHT base is the net amount (pre-VAT) not gross.
+        # Back-calculate from WHT amount and rate, falling back to gross if rate is zero.
         gross_amount = payment.gross_amount or (payment.amount + wht_amount)
 
         tax_code_id = payment.withholding_tax_code_id
@@ -267,6 +268,12 @@ def create_wht_transaction(
         ):
             return None
 
+        # WHT base = net amount (pre-VAT). Back-calculate from WHT and rate.
+        if tax_code.tax_rate and tax_code.tax_rate > Decimal("0"):
+            wht_base = wht_amount / tax_code.tax_rate
+        else:
+            wht_base = gross_amount  # Fallback if rate is zero/missing
+
         tax_txn = tax_transaction_service.create_transaction(
             db=db,
             organization_id=organization_id,
@@ -280,10 +287,10 @@ def create_wht_transaction(
                 source_document_id=payment.payment_id,
                 source_document_reference=payment.payment_number,
                 currency_code=payment.currency_code,
-                base_amount=gross_amount,
+                base_amount=wht_base,
                 tax_rate=tax_code.tax_rate,
                 tax_amount=wht_amount,
-                functional_base_amount=gross_amount * exchange_rate,
+                functional_base_amount=wht_base * exchange_rate,
                 functional_tax_amount=wht_amount * exchange_rate,
                 exchange_rate=exchange_rate,
                 counterparty_name=supplier.legal_name,

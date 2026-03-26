@@ -1521,6 +1521,8 @@ class APWebService:
                 ),
                 "balance": _format_currency(balance, invoice.currency_code),
                 "balance_raw": float(balance),  # For JS calculations
+                "subtotal_raw": float(invoice.subtotal),  # Pre-VAT for WHT base
+                "tax_amount_raw": float(invoice.tax_amount),  # VAT component
                 "currency_code": invoice.currency_code,
             }
             open_invoices.append(view)
@@ -3634,9 +3636,16 @@ class APWebService:
         request: Request,
         auth: WebAuthContext,
         db: Session,
+        *,
+        search: str | None = None,
+        supplier_id: str | None = None,
     ) -> HTMLResponse:
         context = base_context(request, auth, "New Payment Batch", "ap")
-        context.update(self.payment_batch_new_form_context(db, auth.organization_id))
+        context.update(
+            self.payment_batch_new_form_context(
+                db, auth.organization_id, search=search, supplier_id=supplier_id,
+            )
+        )
         return templates.TemplateResponse(
             request, "finance/ap/payment_batch_form.html", context
         )
@@ -3645,6 +3654,9 @@ class APWebService:
         self,
         db: Session,
         organization_id: UUID,
+        *,
+        search: str | None = None,
+        supplier_id: str | None = None,
     ) -> dict[str, Any]:
         bank_accounts = bank_account_service.list(
             db=db,
@@ -3663,7 +3675,7 @@ class APWebService:
                 SupplierPayment.status.not_in(APPaymentStatus.terminal()),
             )
         )
-        invoices = db.execute(
+        stmt = (
             select(SupplierInvoice, Supplier)
             .join(Supplier, SupplierInvoice.supplier_id == Supplier.supplier_id)
             .where(
@@ -3677,10 +3689,26 @@ class APWebService:
                 SupplierInvoice.total_amount > SupplierInvoice.amount_paid,
                 SupplierInvoice.invoice_id.not_in(active_payment_invoice_ids),
             )
-            .order_by(
+        )
+        if search and search.strip():
+            term = f"%{search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    SupplierInvoice.invoice_number.ilike(term),
+                    Supplier.trading_name.ilike(term),
+                    Supplier.legal_name.ilike(term),
+                    SupplierInvoice.reference.ilike(term),
+                )
+            )
+        if supplier_id and supplier_id.strip():
+            stmt = stmt.where(
+                SupplierInvoice.supplier_id == coerce_uuid(supplier_id.strip())
+            )
+        invoices = db.execute(
+            stmt.order_by(
                 SupplierInvoice.due_date.asc(), SupplierInvoice.invoice_date.desc()
             )
-            .limit(50)
+            .limit(200)
         ).all()
         invoices_view = [
             {
@@ -3694,11 +3722,25 @@ class APWebService:
             }
             for invoice, supplier in invoices
         ]
+        suppliers = list(
+            db.scalars(
+                select(Supplier)
+                .where(
+                    Supplier.organization_id == organization_id,
+                    Supplier.is_active.is_(True),
+                )
+                .order_by(Supplier.trading_name)
+                .limit(500)
+            ).all()
+        )
 
         context = {
             "bank_accounts": bank_accounts,
             "invoices": invoices_view,
+            "suppliers": suppliers,
             "payment_methods": [method.value for method in APPaymentMethod],
+            "search": search or "",
+            "selected_supplier_id": supplier_id or "",
             "form_data": {},
         }
         context.update(get_currency_context(db, str(organization_id)))

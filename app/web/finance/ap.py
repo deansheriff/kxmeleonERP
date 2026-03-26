@@ -703,11 +703,15 @@ def list_payment_batches(
 @router.get("/payment-batches/new", response_class=HTMLResponse)
 def new_payment_batch_form(
     request: Request,
+    search: str | None = None,
+    supplier_id: str | None = None,
     auth: WebAuthContext = Depends(require_web_permission("ap:payment_batches:create")),
     db: Session = Depends(get_db),
 ):
     """New payment batch form page."""
-    return ap_web_service.payment_batch_new_form_response(request, auth, db)
+    return ap_web_service.payment_batch_new_form_response(
+        request, auth, db, search=search, supplier_id=supplier_id,
+    )
 
 
 @router.post("/payment-batches/new")
