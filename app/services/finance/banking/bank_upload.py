@@ -151,42 +151,83 @@ class BankUploadService:
         batch_reference: str | None = None,
     ) -> BankUploadResult:
         """
-        Generate Zenith Bank upload format.
+        Generate Zenith Bank Corporate I-Bank bulk payment Excel file.
 
-        Columns:
-        - Transaction Ref
-        - Beneficiary Name
-        - Amount
-        - Date (DD/MM/YYYY)
-        - Beneficiary Code
-        - Account Number
-        - Sort Code (bank code)
-        - Debit Account
+        Matches the official Zenith template exactly:
+        - Column headers are the full descriptive text from the bank template
+        - Text columns use @ (text) format to preserve leading zeros
+        - Amount uses 0.00 number format
+        - Date is a datetime with dd/mm/yyyy format
         """
-        output = io.StringIO()
-        writer = csv.writer(output)
+        from datetime import datetime
 
-        # Header row
-        writer.writerow(
-            [
-                "Transaction Ref",
-                "Beneficiary Name",
-                "Amount",
-                "Date",
-                "Beneficiary Code",
-                "Account Number",
-                "Sort Code",
-                "Debit Account",
-            ]
-        )
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+
+        # Exact headers from official Zenith Corporate I-Bank template
+        headers_and_formats = [
+            (
+                "TRANSACTION REFERENCE NUMBER (MANDATORY FIELD) This is a unique "
+                "reference created by the payer and used to identify a payment. "
+                "Must not contain commas semi-colon apostrophe or space. "
+                "Text format. Alpha-numeric(max. 30 characters)",
+                "@",
+            ),
+            (
+                "BENEFICIARY NAME (MANDATORY FIELD) Text format. "
+                "Alpha-numeric(max. 100 characters)",
+                "@",
+            ),
+            (
+                "PAYMENT AMOUNT (MANDATORY FIELD) Number format with 2 decimal "
+                "digits. Must not contain commas semi-colon apostrophe or spaces",
+                "0.00;[Red]0.00",
+            ),
+            (
+                "PAYMENT DUE DATE (MANDATORY FIELD) This is the effective date "
+                "of payment. Format is DD/MM/YYYY (max. 10 characters)",
+                "dd/mm/yyyy;@",
+            ),
+            (
+                "BENEFICIARY CODE (MANDATORY FIELD) Unique code assigned by "
+                "Payer to the beneficiary. Used on Corporate I-Bank to search "
+                "for payments made to the beneficiary. Alphanumeric e.g. staff "
+                "number. RC no. or name (max. 35 characters)",
+                "@",
+            ),
+            (
+                "BENEFICIARY ACCOUNT NUMBER (MANDATORY FIELD) Numeric (10 digits)",
+                "@",
+            ),
+            (
+                "BENEFICIARY BANK SORT CODE (MANDATORY FIELD) This is used to "
+                "represent Beneficiary Bank Name and Payment routing method. "
+                "Leave blank for Zenith beneficiaries or use 057. Use first "
+                "3-digits for Instant transfer via InterSwitch. Use 9-digits "
+                "for non-instant transfer via NEFT",
+                "@",
+            ),
+            (
+                "DEBIT ACCOUNT NUMBER (MANDATORY FIELD) This is the account "
+                "number to debit. Number format (max. 10 digits)",
+                "@",
+            ),
+        ]
+
+        # Write header row (no bold — matches Zenith template exactly)
+        for col_idx, (header_text, fmt) in enumerate(headers_and_formats, 1):
+            cell = ws.cell(row=1, column=col_idx, value=header_text)
+            cell.number_format = fmt
 
         errors: list[str] = []
         total_amount = Decimal("0")
         row_count = 0
-        date_str = payment_date.strftime("%d/%m/%Y")
 
-        # Format source/debit account number
         formatted_source_account = self._format_account_number(source_account_number)
+        payment_datetime = datetime.combine(payment_date, datetime.min.time())
 
         for item in items:
             bank_code = self._resolve_bank_code(item)
@@ -196,29 +237,55 @@ class BankUploadService:
                 )
 
             account_number = self._format_account_number(item.account_number)
-
-            writer.writerow(
-                [
-                    item.reference,
-                    item.beneficiary_name,
-                    str(item.amount),
-                    date_str,
-                    item.beneficiary_code or "",
-                    account_number,
-                    bank_code,
-                    formatted_source_account,
-                ]
-            )
-            total_amount += item.amount
             row_count += 1
+            row = row_count + 1  # +1 for header
 
-        content = output.getvalue().encode("utf-8")
-        filename = f"bank_upload_zenith_{payment_date.strftime('%Y%m%d')}.csv"
+            # Col 1: Transaction reference (text, no commas/semicolons/spaces)
+            ref = (item.reference or "").replace(",", "").replace(";", "")
+            c = ws.cell(row=row, column=1, value=ref)
+            c.number_format = "@"
+
+            # Col 2: Beneficiary name (text)
+            c = ws.cell(row=row, column=2, value=item.beneficiary_name)
+            c.number_format = "@"
+
+            # Col 3: Amount (number, 2 decimals)
+            c = ws.cell(row=row, column=3, value=float(item.amount))
+            c.number_format = "0.00;[Red]0.00"
+
+            # Col 4: Payment date (datetime)
+            c = ws.cell(row=row, column=4, value=payment_datetime)
+            c.number_format = "dd/mm/yyyy;@"
+
+            # Col 5: Beneficiary code (text, mandatory)
+            c = ws.cell(
+                row=row, column=5, value=item.beneficiary_code or item.reference
+            )
+            c.number_format = "@"
+
+            # Col 6: Account number (text, 10 digits)
+            c = ws.cell(row=row, column=6, value=account_number)
+            c.number_format = "@"
+
+            # Col 7: Sort code (text)
+            c = ws.cell(row=row, column=7, value=bank_code)
+            c.number_format = "@"
+
+            # Col 8: Debit account (text)
+            c = ws.cell(row=row, column=8, value=formatted_source_account)
+            c.number_format = "@"
+
+            total_amount += item.amount
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        content = buffer.getvalue()
+        filename = f"bank_upload_zenith_{payment_date.strftime('%Y%m%d')}.xlsx"
 
         return BankUploadResult(
             content=content,
             filename=filename,
-            content_type="text/csv",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             row_count=row_count,
             total_amount=total_amount,
             errors=errors,

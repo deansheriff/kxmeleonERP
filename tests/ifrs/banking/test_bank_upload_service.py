@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import io
 from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock
@@ -5,7 +8,10 @@ from unittest.mock import MagicMock
 from app.services.finance.banking.bank_upload import BankUploadService, PaymentItem
 
 
-def test_generate_zenith_format_pads_account_numbers_and_bank_code(monkeypatch):
+def test_generate_zenith_format_produces_valid_excel(monkeypatch):
+    """Zenith format produces an xlsx file with text-formatted account numbers."""
+    from openpyxl import load_workbook
+
     service = BankUploadService(MagicMock())
     monkeypatch.setattr(service.bank_directory, "lookup_bank_code", lambda _name: "44")
 
@@ -17,6 +23,7 @@ def test_generate_zenith_format_pads_account_numbers_and_bank_code(monkeypatch):
                 amount=Decimal("1500.50"),
                 account_number="12345",
                 bank_name="Some Bank",
+                beneficiary_code="EMP001",
             )
         ],
         source_account_number="7890",
@@ -24,15 +31,32 @@ def test_generate_zenith_format_pads_account_numbers_and_bank_code(monkeypatch):
         bank_format="zenith",
     )
 
-    assert result.filename == "bank_upload_zenith_20260201.csv"
+    assert result.filename == "bank_upload_zenith_20260201.xlsx"
     assert result.row_count == 1
     assert result.total_amount == Decimal("1500.50")
     assert result.errors == []
+    assert "spreadsheetml" in result.content_type
 
-    content = result.content.decode("utf-8")
-    assert "0000012345" in content
-    assert "044" in content
-    assert "0000007890" in content
+    # Parse the Excel content and verify cell values
+    wb = load_workbook(io.BytesIO(result.content))
+    ws = wb.active
+
+    # Header row — full descriptive text from Zenith template
+    assert ws.cell(row=1, column=1).value.startswith("TRANSACTION REFERENCE NUMBER")
+    assert ws.cell(row=1, column=6).value.startswith("BENEFICIARY ACCOUNT NUMBER")
+
+    # Data row — account numbers zero-padded and text-formatted
+    assert ws.cell(row=2, column=1).value == "PAY-001"
+    assert ws.cell(row=2, column=2).value == "Jane Doe"
+    assert ws.cell(row=2, column=3).value == 1500.50
+    assert ws.cell(row=2, column=3).number_format == "0.00;[Red]0.00"
+    assert ws.cell(row=2, column=5).value == "EMP001"
+    assert ws.cell(row=2, column=6).value == "0000012345"  # zero-padded
+    assert ws.cell(row=2, column=6).number_format == "@"  # text format
+    assert ws.cell(row=2, column=7).value == "044"  # zero-padded bank code
+    assert ws.cell(row=2, column=7).number_format == "@"
+    assert ws.cell(row=2, column=8).value == "0000007890"  # zero-padded debit acct
+    assert ws.cell(row=2, column=8).number_format == "@"
 
 
 def test_generate_upload_reports_missing_bank_code(monkeypatch):

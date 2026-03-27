@@ -1127,7 +1127,7 @@ class RunWebService:
             else entry.entry_number
         )
         filename = (
-            f"bank_upload_zenith_{entry_suffix}_{payment_date.strftime('%Y%m%d')}.csv"
+            f"bank_upload_zenith_{entry_suffix}_{payment_date.strftime('%Y%m%d')}.xlsx"
         )
 
         # Return as downloadable file

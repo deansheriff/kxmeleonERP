@@ -4,7 +4,6 @@ Payroll Web Service - Salary Slip operations.
 
 from __future__ import annotations
 
-import csv
 import io
 import logging
 from datetime import date
@@ -281,14 +280,72 @@ class SlipWebService:
                 ]
             )
 
-        buffer = io.StringIO()
-        writer = csv.writer(buffer)
-        writer.writerows(rows)
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Salary Slips"
+
+        # Header styling
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(
+            start_color="0D9488", end_color="0D9488", fill_type="solid"
+        )
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        # Write headers
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+
+        # Number format for currency columns
+        currency_fmt = "#,##0.00"
+        # Columns: 4-7 earnings, 8 gross, 9-12 deductions, 13 total ded, 14 net pay (1-indexed)
+        earning_cols = {4, 5, 6, 7, 8, 14}  # Basic, Hsg, Trsp, Other, Gross, Net Pay
+        deduction_cols = {9, 10, 11, 12, 13}  # Pen, NHF, PAYE, PEN-ER, Deductions
+
+        # Write data rows
+        for row_idx, row_data in enumerate(rows, 2):
+            for col_idx, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                if col_idx in earning_cols or col_idx in deduction_cols:
+                    # Store as number for Excel, strip formatting chars
+                    raw = str(value).replace(",", "").replace("(", "").replace(")", "")
+                    try:
+                        num = Decimal(raw)
+                        cell.value = float(num)
+                        cell.number_format = currency_fmt
+                        cell.alignment = Alignment(horizontal="right")
+                    except (ValueError, ArithmeticError):
+                        pass
+
+        # Auto-width columns
+        for col_idx in range(1, len(headers) + 1):
+            col_letter = get_column_letter(col_idx)
+            max_len = len(str(headers[col_idx - 1]))
+            for row_idx in range(2, len(rows) + 2):
+                cell_val = ws.cell(row=row_idx, column=col_idx).value
+                if cell_val is not None:
+                    max_len = max(max_len, len(str(cell_val)))
+            ws.column_dimensions[col_letter].width = min(max_len + 3, 40)
+
+        # Freeze header row
+        ws.freeze_panes = "A2"
+
+        # Auto-filter
+        ws.auto_filter.ref = ws.dimensions
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
         content = buffer.getvalue()
         return Response(
             content=content,
-            media_type="text/csv",
-            headers={"Content-Disposition": 'attachment; filename="salary_slips.csv"'},
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="salary_slips.xlsx"'},
         )
 
     def slip_new_form_response(
