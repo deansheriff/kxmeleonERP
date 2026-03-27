@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import func, literal_column, or_, select
@@ -126,7 +127,7 @@ class PayrollService:
     ) -> str:
         if currency_code:
             return currency_code
-        return org_context_service.get_functional_currency(self.db, org_id)
+        return cast(str, org_context_service.get_functional_currency(self.db, org_id))
 
     # =========================================================================
     # Salary Components
@@ -849,7 +850,7 @@ class PayrollService:
                     review_reasons.append("Missing bank account details")
 
                 # Flag for missing tax profile
-                if not readiness.has_tax_profile:
+                if not readiness.has_tax_profile and not readiness.is_contract_staff:
                     review_reasons.append("No tax profile - PAYE may not be accurate")
 
                 # Flag for LWP

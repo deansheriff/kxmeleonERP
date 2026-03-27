@@ -566,6 +566,7 @@ class EmployeePayrollReadiness:
     attendance_gap_days: int = 0
     is_prorated: bool = False
     proration_reason: str | None = None
+    is_contract_staff: bool = False
 
     @property
     def review_reasons(self) -> list[str]:
@@ -621,6 +622,42 @@ class PayrollReadinessService:
 
     def __init__(self, db: Session):
         self.db = db
+
+    def _is_contract_staff_employee(
+        self,
+        employee: Employee,
+        assignment: SalaryStructureAssignment | None,
+    ) -> bool:
+        """Check whether payroll should skip statutory profile requirements."""
+        if assignment is None:
+            return False
+
+        from app.models.people.hr.employment_type import EmploymentType
+        from app.models.people.payroll.salary_structure import SalaryStructure
+
+        employment_type = employee.employment_type
+        if employment_type is None and employee.employment_type_id:
+            employment_type = self.db.get(EmploymentType, employee.employment_type_id)
+
+        structure = assignment.salary_structure
+        if structure is None and assignment.structure_id:
+            structure = self.db.get(SalaryStructure, assignment.structure_id)
+
+        type_code = (
+            (employment_type.type_code or "").strip().lower() if employment_type else ""
+        )
+        type_name = (
+            (employment_type.type_name or "").strip().lower() if employment_type else ""
+        )
+        structure_name = (
+            (structure.structure_name or "").strip().lower() if structure else ""
+        )
+
+        return (
+            type_code == "contract"
+            or type_name == "contract"
+            or structure_name == "contract staff"
+        )
 
     def check_readiness(
         self,
@@ -867,6 +904,7 @@ class PayrollReadinessService:
         issues: list[PayrollReadinessIssue] = []
         is_ready = True
         needs_review = False
+        is_contract_staff = self._is_contract_staff_employee(employee, assignment)
 
         # Check salary assignment
         has_assignment = assignment is not None
@@ -894,7 +932,7 @@ class PayrollReadinessService:
 
         # Check tax profile
         has_tax_profile = tax_profile is not None
-        if tax_profile is None:
+        if not is_contract_staff and tax_profile is None:
             issues.append(
                 PayrollReadinessIssue(
                     issue_type=PayrollIssueType.MISSING_TAX_PROFILE,
@@ -903,7 +941,11 @@ class PayrollReadinessService:
                 )
             )
             needs_review = True
-        elif not tax_profile.tin:
+        elif (
+            not is_contract_staff
+            and tax_profile is not None
+            and not tax_profile.tin
+        ):
             issues.append(
                 PayrollReadinessIssue(
                     issue_type=PayrollIssueType.MISSING_TIN,
@@ -989,6 +1031,7 @@ class PayrollReadinessService:
             attendance_gap_days=attendance_gap_days,
             is_prorated=is_prorated,
             proration_reason=proration_reason,
+            is_contract_staff=is_contract_staff,
         )
 
 
