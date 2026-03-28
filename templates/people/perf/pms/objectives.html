@@ -1,5 +1,5 @@
 {% extends "people/base_people.html" %}
-{% from "components/macros.html" import empty_state, compact_filters, icon_svg, pagination %}
+{% from "components/macros.html" import empty_state, compact_filters, icon_svg, pagination, live_search %}
 
 {% block page_title %}Strategic Objectives{% endblock %}
 
@@ -23,6 +23,9 @@
 
 {% block content %}
 <div class="space-y-6">
+    {# Search #}
+    {{ live_search(search=search if search else "", base_url="/people/perf/pms/objectives", placeholder="Search objectives…") }}
+
     {% call(filter_attrs) compact_filters(
         base_url="/people/perf/pms/objectives",
         active_filters=active_filters if active_filters is defined else []

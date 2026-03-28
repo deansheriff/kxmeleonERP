@@ -1,6 +1,6 @@
 {% extends "people/base_people.html" %}
 
-{% from "components/macros.html" import empty_state, compact_filters, icon_svg, pagination, status_badge %}
+{% from "components/macros.html" import empty_state, compact_filters, icon_svg, pagination, status_badge, live_search %}
 
 {% block page_title %}Monthly Reviews{% endblock %}
 
@@ -24,6 +24,9 @@
 
 {% block content %}
 <div class="space-y-6">
+
+    {# Search #}
+    {{ live_search(search=search if search else "", base_url="/people/perf/pms/reviews", placeholder="Search reviews…") }}
 
     {# Filters #}
     {% call(filter_attrs) compact_filters(
@@ -122,9 +125,9 @@
         {% endif %}
 
         {{ pagination(
-            page=page | default(1),
-            total_pages=total_pages | default(1),
-            total_count=total | default(0),
+            page=page if page else 1,
+            total_pages=total_pages if total_pages else 1,
+            total_count=total if total else 0,
             limit=20,
             show_size_selector=false,
             filters={"status": status, "contract_id": contract_id, "employee_id": employee_id}

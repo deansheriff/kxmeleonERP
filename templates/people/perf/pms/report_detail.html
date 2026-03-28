@@ -87,8 +87,289 @@
   </div>
   {% endif %}
 
-  {# Generic data dump for other report types #}
-  {% if report_type not in ['rating-summary', 'distribution', 'top-performers', 'bottom-performers'] %}
+  {# By Department #}
+  {% if report_type == 'by-department' %}
+  <div class="card">
+    <div class="card-header">
+      <h2 class="text-lg font-semibold">{{ report_title }}</h2>
+      <span class="text-sm text-slate-500 dark:text-slate-400">{{ report_data.get('total', 0) }} completed appraisal{{ 's' if report_data.get('total', 0) != 1 else '' }}</span>
+    </div>
+    <div class="p-6">
+      <div class="table-container">
+        <table class="table">
+          <thead><tr>
+            <th scope="col">Department</th>
+            <th scope="col" class="text-right">Count</th>
+            <th scope="col" class="text-right">Avg Score</th>
+            <th scope="col" class="text-right">Avg Rating</th>
+          </tr></thead>
+          <tbody>
+            {% for dept in report_data.get('departments', []) %}
+            <tr>
+              <td>{{ dept.department_name if dept.department_name else '—' }}</td>
+              <td class="text-right font-mono tabular-nums">{{ dept.count if dept.count else 0 }}</td>
+              <td class="text-right font-mono tabular-nums">{{ dept.avg_score if dept.avg_score else '—' }}</td>
+              <td class="text-right font-mono tabular-nums">{{ dept.avg_rating if dept.avg_rating else '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-slate-500 dark:text-slate-400 py-8">No department data available.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# By Grade #}
+  {% if report_type == 'by-grade' %}
+  <div class="card">
+    <div class="card-header">
+      <h2 class="text-lg font-semibold">{{ report_title }}</h2>
+      <span class="text-sm text-slate-500 dark:text-slate-400">{{ report_data.get('total', 0) }} completed appraisal{{ 's' if report_data.get('total', 0) != 1 else '' }}</span>
+    </div>
+    <div class="p-6">
+      <div class="table-container">
+        <table class="table">
+          <thead><tr>
+            <th scope="col">Grade</th>
+            <th scope="col" class="text-right">Count</th>
+            <th scope="col" class="text-right">Avg Score</th>
+          </tr></thead>
+          <tbody>
+            {% for grade in report_data.get('grades', []) %}
+            <tr>
+              <td>{{ grade.grade_name if grade.grade_name else '—' }}</td>
+              <td class="text-right font-mono tabular-nums">{{ grade.count if grade.count else 0 }}</td>
+              <td class="text-right font-mono tabular-nums">{{ grade.avg_score if grade.avg_score else '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-slate-500 dark:text-slate-400 py-8">No grade data available.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Distribution by Department #}
+  {% if report_type == 'distribution-dept' %}
+  <div class="space-y-4">
+    {% for dept in report_data.get('departments', []) %}
+    <div class="card">
+      <div class="card-header">
+        <h3 class="font-semibold text-slate-900 dark:text-white">{{ dept.department_name if dept.department_name else 'Unassigned' }}</h3>
+        <span class="text-sm text-slate-500 dark:text-slate-400">{{ dept.total }} appraisal{{ 's' if dept.total != 1 else '' }}</span>
+      </div>
+      <div class="p-4">
+        <div class="table-container">
+          <table class="table">
+            <thead><tr>
+              <th scope="col">Rating</th>
+              <th scope="col" class="text-right">Count</th>
+              <th scope="col" class="text-right">Percentage</th>
+            </tr></thead>
+            <tbody>
+              {% for r in dept.distribution %}
+              {% if r.count > 0 %}
+              <tr>
+                <td>{{ r.label if r.label else '—' }}</td>
+                <td class="text-right font-mono tabular-nums">{{ r.count }}</td>
+                <td class="text-right font-mono tabular-nums">{{ r.percentage }}%</td>
+              </tr>
+              {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 text-center">
+      <p class="text-slate-500 dark:text-slate-400">No department distribution data available.</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# Distribution by Grade #}
+  {% if report_type == 'distribution-grade' %}
+  <div class="space-y-4">
+    {% for grade in report_data.get('grades', []) %}
+    <div class="card">
+      <div class="card-header">
+        <h3 class="font-semibold text-slate-900 dark:text-white">{{ grade.grade_name if grade.grade_name else 'Ungraded' }}</h3>
+        <span class="text-sm text-slate-500 dark:text-slate-400">{{ grade.total }} appraisal{{ 's' if grade.total != 1 else '' }}</span>
+      </div>
+      <div class="p-4">
+        <div class="table-container">
+          <table class="table">
+            <thead><tr>
+              <th scope="col">Rating</th>
+              <th scope="col" class="text-right">Count</th>
+              <th scope="col" class="text-right">Percentage</th>
+            </tr></thead>
+            <tbody>
+              {% for r in grade.distribution %}
+              {% if r.count > 0 %}
+              <tr>
+                <td>{{ r.label if r.label else '—' }}</td>
+                <td class="text-right font-mono tabular-nums">{{ r.count }}</td>
+                <td class="text-right font-mono tabular-nums">{{ r.percentage }}%</td>
+              </tr>
+              {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 text-center">
+      <p class="text-slate-500 dark:text-slate-400">No grade distribution data available.</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# Compliance Dashboard #}
+  {% if report_type == 'compliance' %}
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    {# Contracts card #}
+    {% set contracts = report_data.get('contracts', {}) %}
+    <div class="card p-5">
+      <h3 class="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">Contracts</h3>
+      <dl class="space-y-2">
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Total</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-slate-900 dark:text-white">{{ contracts.get('total', 0) }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Signed</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-emerald-600 dark:text-emerald-400">{{ contracts.get('signed', 0) }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Unsigned</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-amber-600 dark:text-amber-400">{{ contracts.get('unsigned', 0) }}</dd>
+        </div>
+        <div class="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2 mt-2">
+          <dt class="text-sm font-medium text-slate-600 dark:text-slate-300">Compliance</dt>
+          <dd class="text-sm font-mono tabular-nums font-semibold text-violet-600 dark:text-violet-400">{{ contracts.get('compliance_pct', 0) }}%</dd>
+        </div>
+      </dl>
+    </div>
+    {# Monthly Reviews card #}
+    {% set reviews = report_data.get('monthly_reviews', {}) %}
+    <div class="card p-5">
+      <h3 class="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">Monthly Reviews</h3>
+      <dl class="space-y-2">
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Expected</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-slate-900 dark:text-white">{{ reviews.get('expected', 0) }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Completed</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-emerald-600 dark:text-emerald-400">{{ reviews.get('completed', 0) }}</dd>
+        </div>
+        <div class="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2 mt-2">
+          <dt class="text-sm font-medium text-slate-600 dark:text-slate-300">Completion</dt>
+          <dd class="text-sm font-mono tabular-nums font-semibold text-violet-600 dark:text-violet-400">{{ reviews.get('completion_pct', 0) }}%</dd>
+        </div>
+      </dl>
+    </div>
+    {# Appraisals card #}
+    {% set appraisals = report_data.get('appraisals', {}) %}
+    <div class="card p-5">
+      <h3 class="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">Appraisals</h3>
+      <dl class="space-y-2">
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Total</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-slate-900 dark:text-white">{{ appraisals.get('total', 0) }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Completed</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-emerald-600 dark:text-emerald-400">{{ appraisals.get('completed', 0) }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Pending</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-amber-600 dark:text-amber-400">{{ appraisals.get('pending', 0) }}</dd>
+        </div>
+        <div class="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2 mt-2">
+          <dt class="text-sm font-medium text-slate-600 dark:text-slate-300">Completion</dt>
+          <dd class="text-sm font-mono tabular-nums font-semibold text-violet-600 dark:text-violet-400">{{ appraisals.get('completion_pct', 0) }}%</dd>
+        </div>
+      </dl>
+    </div>
+    {# Appeals card #}
+    {% set appeals = report_data.get('appeals', {}) %}
+    <div class="card p-5">
+      <h3 class="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">Appeals</h3>
+      <dl class="space-y-2">
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Total</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-slate-900 dark:text-white">{{ appeals.get('total', 0) }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Pending</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-amber-600 dark:text-amber-400">{{ appeals.get('pending', 0) }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Resolved</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-emerald-600 dark:text-emerald-400">{{ appeals.get('resolved', 0) }}</dd>
+        </div>
+      </dl>
+    </div>
+    {# PIPs card #}
+    {% set pips = report_data.get('pips', {}) %}
+    <div class="card p-5">
+      <h3 class="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">PIPs</h3>
+      <dl class="space-y-2">
+        <div class="flex justify-between">
+          <dt class="text-sm text-slate-500 dark:text-slate-400">Active PIPs</dt>
+          <dd class="text-sm font-mono tabular-nums font-medium text-rose-600 dark:text-rose-400">{{ pips.get('active', 0) }}</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Development Needs #}
+  {% if report_type == 'development-needs' %}
+  <div class="card">
+    <div class="card-header">
+      <h2 class="text-lg font-semibold">{{ report_title }}</h2>
+      <span class="text-sm text-slate-500 dark:text-slate-400">
+        {{ report_data.get('total_with_needs', 0) }} of {{ report_data.get('total_appraisals', 0) }} appraisals have identified needs
+      </span>
+    </div>
+    <div class="p-6">
+      {% if report_data.get('needs_list') %}
+      <div class="table-container">
+        <table class="table">
+          <thead><tr>
+            <th scope="col">Development Need</th>
+            <th scope="col" class="text-right">Frequency</th>
+          </tr></thead>
+          <tbody>
+            {% for item in report_data.get('needs_list', []) %}
+            <tr>
+              <td>{{ item.need if item.need else '—' }}</td>
+              <td class="text-right font-mono tabular-nums">{{ item.count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-center text-slate-500 dark:text-slate-400 py-8">No development needs data available.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# Generic data dump for truly unhandled report types #}
+  {% if report_type not in ['rating-summary', 'distribution', 'top-performers', 'bottom-performers', 'by-department', 'by-grade', 'distribution-dept', 'distribution-grade', 'compliance', 'development-needs'] %}
   <div class="card">
     <div class="card-header"><h2 class="text-lg font-semibold">{{ report_title }}</h2></div>
     <div class="p-6">

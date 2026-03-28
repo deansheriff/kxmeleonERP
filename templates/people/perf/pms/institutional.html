@@ -1,5 +1,5 @@
 {% extends "people/base_people.html" %}
-{% from "components/macros.html" import empty_state, compact_filters, icon_svg, pagination, status_badge %}
+{% from "components/macros.html" import empty_state, compact_filters, icon_svg, pagination, status_badge, live_search %}
 
 {% block page_title %}Institutional Performance{% endblock %}
 
@@ -23,6 +23,9 @@
 
 {% block content %}
 <div class="space-y-6">
+    {# Search #}
+    {{ live_search(search=search if search else "", base_url="/people/perf/pms/institutional", placeholder="Search institutional records…") }}
+
     {% call(filter_attrs) compact_filters(
         base_url="/people/perf/pms/institutional",
         active_filters=active_filters if active_filters is defined else []

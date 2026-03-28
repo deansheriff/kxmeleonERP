@@ -1,5 +1,5 @@
 {% extends "people/base_people.html" %}
-{% from "components/macros.html" import empty_state, compact_filters, icon_svg, pagination, status_badge %}
+{% from "components/macros.html" import empty_state, compact_filters, icon_svg, pagination, status_badge, live_search %}
 
 {% block page_title %}Appraisal Appeals{% endblock %}
 
@@ -32,6 +32,9 @@
             </p>
         </div>
     </div>
+
+    {# Search #}
+    {{ live_search(search=search if search else "", base_url="/people/perf/pms/appeals", placeholder="Search appeals…") }}
 
     {% call(filter_attrs) compact_filters(
         base_url="/people/perf/pms/appeals",

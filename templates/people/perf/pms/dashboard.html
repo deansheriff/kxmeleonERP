@@ -61,28 +61,28 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {{ stats_card(
             label="Contracts Signed",
-            value=(compliance.contracts_signed if compliance.contracts_signed is not none else 0) ~ " / " ~ (compliance.contracts_total if compliance.contracts_total is not none else 0),
+            value=(compliance.contracts.signed if compliance.contracts else 0) ~ " / " ~ (compliance.contracts.total if compliance.contracts else 0),
             icon="document",
             color="teal",
             href="/people/perf/pms/contracts"
         ) }}
         {{ stats_card(
             label="Monthly Reviews",
-            value=(compliance.reviews_completed if compliance.reviews_completed is not none else 0) ~ " / " ~ (compliance.reviews_expected if compliance.reviews_expected is not none else 0),
+            value=(compliance.monthly_reviews.completed if compliance.monthly_reviews else 0) ~ " / " ~ (compliance.monthly_reviews.expected if compliance.monthly_reviews else 0),
             icon="check-circle",
             color="blue",
             href="/people/perf/pms/reviews"
         ) }}
         {{ stats_card(
             label="Appraisals Done",
-            value=(compliance.appraisals_completed if compliance.appraisals_completed is not none else 0) ~ " / " ~ (compliance.appraisals_total if compliance.appraisals_total is not none else 0),
+            value=(compliance.appraisals.completed if compliance.appraisals else 0) ~ " / " ~ (compliance.appraisals.total if compliance.appraisals else 0),
             icon="users",
             color="emerald",
             href="/people/perf/appraisals"
         ) }}
         {{ stats_card(
             label="Appeals / PIPs",
-            value=(compliance.appeals_pending if compliance.appeals_pending is not none else 0) ~ " / " ~ (compliance.pips_active if compliance.pips_active is not none else 0),
+            value=(compliance.appeals.pending if compliance.appeals else 0) ~ " / " ~ (compliance.pips.active if compliance.pips else 0),
             icon="warning",
             color="amber",
             href="/people/perf/pms/appeals"

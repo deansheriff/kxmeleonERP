@@ -28,7 +28,7 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
         {# Rating Summary #}
-        <a href="/people/perf/pms/reports/ratings"
+        <a href="/people/perf/pms/reports/rating-summary"
            class="card card-hover p-6 group transition-all duration-200">
             <div class="flex items-start gap-4">
                 <div class="h-10 w-10 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center flex-shrink-0 group-hover:bg-violet-200 dark:group-hover:bg-violet-900/50 transition-colors">
@@ -95,16 +95,16 @@
             </div>
         </a>
 
-        {# Top/Bottom Performers #}
-        <a href="/people/perf/pms/reports/top-bottom"
+        {# Top Performers #}
+        <a href="/people/perf/pms/reports/top-performers"
            class="card card-hover p-6 group transition-all duration-200">
             <div class="flex items-start gap-4">
                 <div class="h-10 w-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-200 dark:group-hover:bg-emerald-900/50 transition-colors">
                     {{ icon_svg("trending-up", "w-5 h-5 text-emerald-600 dark:text-emerald-400") }}
                 </div>
                 <div class="flex-1 min-w-0">
-                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">Top &amp; Bottom Performers</h3>
-                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Identify the highest and lowest performers for reward and intervention planning.</p>
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">Top Performers</h3>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Identify the highest performers for recognition and reward planning.</p>
                 </div>
             </div>
             <div class="mt-4 flex items-center justify-end text-xs text-emerald-600 dark:text-emerald-400 font-medium">
@@ -112,8 +112,25 @@
             </div>
         </a>
 
+        {# Bottom Performers #}
+        <a href="/people/perf/pms/reports/bottom-performers"
+           class="card card-hover p-6 group transition-all duration-200">
+            <div class="flex items-start gap-4">
+                <div class="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center flex-shrink-0 group-hover:bg-rose-200 dark:group-hover:bg-rose-900/50 transition-colors">
+                    {{ icon_svg("trending-down", "w-5 h-5 text-rose-600 dark:text-rose-400") }}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white group-hover:text-rose-700 dark:group-hover:text-rose-400 transition-colors">Bottom Performers</h3>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Identify lowest performers for structured intervention and PIP planning.</p>
+                </div>
+            </div>
+            <div class="mt-4 flex items-center justify-end text-xs text-rose-600 dark:text-rose-400 font-medium">
+                View report {{ icon_svg("chevron-right", "w-3.5 h-3.5 ml-1") }}
+            </div>
+        </a>
+
         {# L&D Needs #}
-        <a href="/people/perf/pms/reports/ld-needs"
+        <a href="/people/perf/pms/reports/development-needs"
            class="card card-hover p-6 group transition-all duration-200">
             <div class="flex items-start gap-4">
                 <div class="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center flex-shrink-0 group-hover:bg-rose-200 dark:group-hover:bg-rose-900/50 transition-colors">

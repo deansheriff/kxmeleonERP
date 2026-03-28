@@ -31,7 +31,7 @@
 
     <form method="post" action="/people/perf/pms/contracts/new"
           x-data='{
-              objectives: {{ (form_data.objectives_json if form_data and form_data.objectives_json else "[]") | safe }},
+              objectives: JSON.parse({{ (form_data.objectives_json if form_data and form_data.objectives_json else "[]") | tojson | safe }}),
               totalWeight: 0,
               addObjective() {
                   this.objectives.push({ kra: "", kpi: "", weight: 0, target: "" });
