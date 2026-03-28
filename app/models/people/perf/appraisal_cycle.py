@@ -14,6 +14,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -137,6 +138,17 @@ class AppraisalCycle(Base, AuditMixin, ERPNextSyncMixin):
         default=3,
         comment="Minimum months employed to participate",
     )
+
+    # OHCSF quarterly sub-cycle support
+    cycle_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="ANNUAL", server_default=text("'ANNUAL'")
+    )
+    parent_cycle_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("perf.appraisal_cycle.cycle_id"),
+        nullable=True,
+    )
+    quarter: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(

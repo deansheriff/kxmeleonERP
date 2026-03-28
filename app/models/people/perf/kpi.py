@@ -90,6 +90,13 @@ class KPI(Base, AuditMixin, ERPNextSyncMixin):
         nullable=True,
     )
 
+    # OHCSF goal cascade traceability
+    institutional_objective_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("perf.strategic_objective.objective_id"),
+        nullable=True,
+    )
+
     # KPI details
     kpi_name: Mapped[str] = mapped_column(
         String(200),

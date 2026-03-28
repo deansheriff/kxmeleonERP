@@ -145,6 +145,13 @@ class Organization(Base):
         server_default=text("false"),
         comment="Enable budget commitment/encumbrance control",
     )
+    pms_ohcsf_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        comment="Enable OHCSF Performance Management System (public sector)",
+    )
 
     # Regional settings
     timezone: Mapped[str | None] = mapped_column(String(50), nullable=True)
