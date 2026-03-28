@@ -224,9 +224,9 @@ docker compose down
 ```
 
 Services:
-- **App**: http://localhost:8001
-- **PostgreSQL**: localhost:5434
-- **Redis**: localhost:6379
+- **App**: http://localhost:8003
+- **PostgreSQL**: localhost:5437
+- **Redis**: localhost:6382
 
 ### Running Locally
 
