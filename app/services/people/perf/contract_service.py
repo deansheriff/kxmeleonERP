@@ -201,6 +201,29 @@ class PerformanceContractService:
         Raises:
             ContractValidationError: if validation fails.
         """
+        # Sequencing gate: institutional goals must exist for this cycle/department
+        from app.models.people.hr.employee import Employee
+        from app.models.people.perf.institutional_performance import InstitutionalPerformance
+        from app.models.people.perf.pms_enums import InstitutionalPerfStatus
+
+        employee = self.db.scalar(
+            select(Employee).where(Employee.employee_id == employee_id)
+        )
+        if employee and employee.department_id:
+            inst_perf = self.db.scalar(
+                select(InstitutionalPerformance).where(
+                    InstitutionalPerformance.organization_id == org_id,
+                    InstitutionalPerformance.cycle_id == cycle_id,
+                    InstitutionalPerformance.department_id == employee.department_id,
+                    InstitutionalPerformance.status != InstitutionalPerfStatus.DRAFT,
+                )
+            )
+            if not inst_perf:
+                raise ContractValidationError(
+                    "Departmental goals must be agreed before individual performance planning. "
+                    "Create and approve institutional performance targets for this department first."
+                )
+
         self._validate_objectives(objectives)
         if competency_ids is not None:
             # competency_ids here is a list of dicts with is_development_focus
@@ -304,6 +327,48 @@ class PerformanceContractService:
             countersigner_id,
         )
         return contract
+
+    def check_30_day_requirement(self, org_id: UUID) -> list[dict]:
+        """Find employees without active contracts within 30 days of joining/transfer/promotion."""
+        from datetime import timedelta
+
+        from app.models.people.hr.employee import Employee
+
+        cutoff = date.today() - timedelta(days=30)
+
+        # Employees who joined in the last 30 days
+        stmt = select(Employee).where(
+            Employee.organization_id == org_id,
+            Employee.status == "ACTIVE",
+            Employee.date_of_joining >= cutoff,
+        )
+        recent_employees = list(self.db.scalars(stmt).all())
+
+        missing = []
+        for emp in recent_employees:
+            has_contract = self.db.scalar(
+                select(PerformanceContract.contract_id).where(
+                    PerformanceContract.organization_id == org_id,
+                    PerformanceContract.employee_id == emp.employee_id,
+                    PerformanceContract.status.in_(
+                        [
+                            ContractStatus.ACTIVE,
+                            ContractStatus.PENDING_SIGNATURE,
+                        ]
+                    ),
+                )
+            )
+            if not has_contract:
+                missing.append(
+                    {
+                        "employee_id": emp.employee_id,
+                        "employee_code": emp.employee_code,
+                        "date_of_joining": emp.date_of_joining,
+                        "days_since_joining": (date.today() - emp.date_of_joining).days,
+                    }
+                )
+
+        return missing
 
     def amend_contract(
         self,

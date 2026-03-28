@@ -241,6 +241,70 @@ class UnderperformanceService:
         )
         return milestones
 
+    def flag_for_pip(
+        self,
+        org_id: UUID,
+        employee_id: UUID,
+        *,
+        trigger_type: str,
+        triggering_appraisal_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        """Create a draft PIP and notify HR and supervisor."""
+        from app.models.people.hr.employee import Employee
+        from app.models.people.perf.pip import PerformanceImprovementPlan
+        from app.models.people.perf.pms_enums import PIPCauseCategory, PIPStatus  # noqa: F401
+        from sqlalchemy import func as sa_func
+
+        employee = self.db.scalar(
+            select(Employee).where(Employee.employee_id == employee_id)
+        )
+        if not employee:
+            return {"status": "error", "message": f"Employee {employee_id} not found"}
+
+        # Generate PIP code
+        count = self.db.scalar(
+            select(sa_func.count(PerformanceImprovementPlan.pip_id)).where(
+                PerformanceImprovementPlan.organization_id == org_id,
+            )
+        ) or 0
+        pip_code = f"PIP-{date.today().year}-{count + 1:04d}"
+
+        pip = PerformanceImprovementPlan(
+            organization_id=org_id,
+            employee_id=employee_id,
+            supervisor_id=employee.reports_to_id or employee_id,
+            hr_officer_id=employee_id,  # Placeholder — HR assigns later
+            pip_code=pip_code,
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=183),
+            reason=f"Auto-flagged: {trigger_type} trigger",
+            cause_category=PIPCauseCategory.SKILLS,  # Default — supervisor refines
+            improvement_areas=[
+                {
+                    "area": "To be defined by supervisor",
+                    "current_level": "Below threshold",
+                    "expected_level": "Good",
+                }
+            ],
+            appraisal_id=triggering_appraisal_id,
+        )
+        self.db.add(pip)
+        self.db.flush()
+
+        logger.info(
+            "Flagged employee %s for PIP: %s (trigger: %s)",
+            employee_id,
+            pip_code,
+            trigger_type,
+        )
+        return {
+            "status": "flagged",
+            "pip_id": str(pip.pip_id),
+            "pip_code": pip_code,
+            "employee_id": str(employee_id),
+            "trigger_type": trigger_type,
+        }
+
     # -------------------------------------------------------------------------
     # Internal logic helpers — pure functions, no DB access
     # -------------------------------------------------------------------------

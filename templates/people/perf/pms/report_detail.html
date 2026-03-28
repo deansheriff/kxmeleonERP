@@ -1,0 +1,102 @@
+{% extends "people/base_people.html" %}
+{% from "components/_topbar.html" import topbar %}
+
+{% block title %}{{ report_title }}{% endblock %}
+{% block content %}
+
+{% call(breadcrumbs, actions) topbar(report_title, accent="violet") %}
+  {% call(bc) breadcrumbs %}
+    {{ bc("Performance", "/people/perf") }}
+    {{ bc("PMS", "/people/perf/pms") }}
+    {{ bc("Reports", "/people/perf/pms/reports") }}
+    {{ bc(report_title) }}
+  {% endcall %}
+{% endcall %}
+
+<div class="space-y-6">
+  {% if not active_cycle %}
+  <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
+    <strong class="text-amber-700 dark:text-amber-400">No Active Cycle</strong>
+    <p class="text-amber-600 dark:text-amber-300 text-sm mt-1">Activate an appraisal cycle to view reports.</p>
+  </div>
+  {% elif not report_data %}
+  <div class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 text-center">
+    <p class="text-slate-500 dark:text-slate-400">No data available for this report.</p>
+  </div>
+  {% else %}
+
+  {# Rating Summary / Distribution reports #}
+  {% if report_type in ['rating-summary', 'distribution'] %}
+  <div class="card">
+    <div class="card-header"><h2 class="text-lg font-semibold">{{ report_title }}</h2></div>
+    <div class="p-6">
+      <div class="table-container">
+        <table class="table">
+          <thead><tr>
+            <th scope="col">Rating</th>
+            <th scope="col" class="text-right">Count</th>
+            <th scope="col" class="text-right">Percentage</th>
+          </tr></thead>
+          <tbody>
+            {% for r in report_data.get('ratings', []) %}
+            <tr>
+              <td>{{ r.label if r.label else '—' }}</td>
+              <td class="text-right font-mono tabular-nums">{{ r.count if r.count else 0 }}</td>
+              <td class="text-right font-mono tabular-nums">{{ r.percentage if r.percentage else 0 }}%</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-slate-500 dark:text-slate-400 py-8">No rating data available.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Top/Bottom Performers #}
+  {% if report_type in ['top-performers', 'bottom-performers'] %}
+  <div class="card">
+    <div class="card-header"><h2 class="text-lg font-semibold">{{ report_title }}</h2></div>
+    <div class="p-6">
+      <div class="table-container">
+        <table class="table">
+          <thead><tr>
+            <th scope="col">#</th>
+            <th scope="col">Employee</th>
+            <th scope="col">Department</th>
+            <th scope="col" class="text-right">Score</th>
+            <th scope="col" class="text-center">Rating</th>
+          </tr></thead>
+          <tbody>
+            {% for row in report_data %}
+            <tr>
+              <td class="font-mono tabular-nums">{{ loop.index }}</td>
+              <td>{{ row.employee_name if row.employee_name else '—' }}</td>
+              <td>{{ row.department if row.department else '—' }}</td>
+              <td class="text-right font-mono tabular-nums">{{ row.score if row.score else '—' }}</td>
+              <td class="text-center">{{ row.rating_label if row.rating_label else '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-slate-500 dark:text-slate-400 py-8">No performer data available.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Generic data dump for other report types #}
+  {% if report_type not in ['rating-summary', 'distribution', 'top-performers', 'bottom-performers'] %}
+  <div class="card">
+    <div class="card-header"><h2 class="text-lg font-semibold">{{ report_title }}</h2></div>
+    <div class="p-6">
+      <pre class="text-sm text-slate-700 dark:text-slate-300 font-mono whitespace-pre-wrap">{{ report_data | tojson(indent=2) | safe }}</pre>
+    </div>
+  </div>
+  {% endif %}
+
+  {% endif %}
+</div>
+{% endblock %}

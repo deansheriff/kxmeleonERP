@@ -541,7 +541,7 @@ def pms_probation_check() -> dict[str, Any]:
                 for milestone in milestones:
                     try:
                         employee_id = milestone.get("employee_id")
-                        months_served = milestone.get("months_served", 0)
+                        months_served = milestone.get("months_of_service", 0)
 
                         if not employee_id:
                             continue

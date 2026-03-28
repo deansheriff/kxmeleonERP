@@ -414,15 +414,17 @@ class OHCSFReportingService:
         from app.models.people.hr.department import Department
         from app.models.people.hr.employee import Employee
         from app.models.people.perf.appraisal import Appraisal, AppraisalStatus
+        from app.models.person import Person
 
         stmt = (
             select(
-                Employee.employee_id,
+                Person.display_name,
                 Department.department_name,
                 Appraisal.final_score,
                 Appraisal.rating_label,
             )
             .join(Employee, Employee.employee_id == Appraisal.employee_id)
+            .join(Person, Person.id == Employee.person_id)
             .outerjoin(Department, Department.department_id == Employee.department_id)
             .where(
                 Appraisal.organization_id == org_id,
@@ -452,15 +454,17 @@ class OHCSFReportingService:
         from app.models.people.hr.department import Department
         from app.models.people.hr.employee import Employee
         from app.models.people.perf.appraisal import Appraisal, AppraisalStatus
+        from app.models.person import Person
 
         stmt = (
             select(
-                Employee.employee_id,
+                Person.display_name,
                 Department.department_name,
                 Appraisal.final_score,
                 Appraisal.rating_label,
             )
             .join(Employee, Employee.employee_id == Appraisal.employee_id)
+            .join(Person, Person.id == Employee.person_id)
             .outerjoin(Department, Department.department_id == Employee.department_id)
             .where(
                 Appraisal.organization_id == org_id,
@@ -847,18 +851,14 @@ class OHCSFReportingService:
     @staticmethod
     def _format_performer_rows(rows: list) -> list[dict]:
         """
-        Convert (employee_id, department_name, final_score, rating_label) rows
+        Convert (display_name, department_name, final_score, rating_label) rows
         into the standard performer dict shape.
-
-        ``employee_name`` is the employee_id stringified — callers that need the
-        display name should join to Person and pass the name through; this helper
-        keeps the query simple and avoids an extra join.
         """
         result = []
-        for employee_id, dept_name, final_score, rating_label in rows:
+        for display_name, dept_name, final_score, rating_label in rows:
             result.append(
                 {
-                    "employee_name": str(employee_id),
+                    "employee_name": display_name or "",
                     "department": dept_name or "",
                     "score": (
                         Decimal(str(final_score)).quantize(Decimal("0.01"))
