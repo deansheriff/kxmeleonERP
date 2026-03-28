@@ -399,7 +399,9 @@ class AppraisalAppealService:
             )
             if appraisal:
                 engine = OHCSFScoringEngine()
-                _, label = engine.score_to_rating(Decimal(str(adjusted_rating)))
+                _, label = engine.score_to_rating(
+                    Decimal(str(adjusted_rating)) / Decimal("5") * Decimal("100")
+                )
                 appraisal.final_rating = adjusted_rating
                 appraisal.rating_label = label
 

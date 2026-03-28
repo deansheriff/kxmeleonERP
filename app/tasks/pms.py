@@ -12,14 +12,43 @@ Handles:
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from celery import shared_task
 
 from app.db import SessionLocal
 
 logger = logging.getLogger(__name__)
+
+
+def _window_start(day: date) -> datetime:
+    """Return the start-of-day timestamp for reminder de-duplication."""
+    return datetime.combine(day, datetime.min.time())
+
+
+def _resolve_person_id(
+    db,
+    organization_id: UUID,
+    employee_id: UUID | None,
+) -> UUID | None:
+    """Map an HR employee ID to the linked person ID for notifications."""
+    if employee_id is None:
+        return None
+
+    from sqlalchemy import select
+
+    from app.models.people.hr.employee import Employee
+
+    employee = db.scalar(
+        select(Employee).where(
+            Employee.organization_id == organization_id,
+            Employee.employee_id == employee_id,
+            Employee.is_deleted.is_(False),
+        )
+    )
+    return employee.person_id if employee is not None else None
 
 
 @shared_task
@@ -94,11 +123,21 @@ def pms_monthly_review_reminder() -> dict[str, Any]:
                         if existing:
                             continue
 
+                        supervisor_person_id = _resolve_person_id(
+                            db, org.organization_id, contract.supervisor_id
+                        )
+                        if supervisor_person_id is None:
+                            logger.warning(
+                                "Skipping monthly review reminder for contract %s: supervisor person not found",
+                                contract.contract_id,
+                            )
+                            continue
+
                         # Notify supervisor to complete the review
-                        notification_service.create(
+                        created = notification_service.create_if_not_sent_since(
                             db,
                             organization_id=org.organization_id,
-                            recipient_id=contract.supervisor_id,
+                            recipient_id=supervisor_person_id,
                             entity_type=EntityType.EMPLOYEE,
                             entity_id=contract.contract_id,
                             notification_type=NotificationType.REMINDER,
@@ -108,10 +147,12 @@ def pms_monthly_review_reminder() -> dict[str, Any]:
                                 f"{review_month.strftime('%B %Y')} has not been completed. "
                                 "Please complete the review."
                             ),
+                            since=_window_start(first_of_this_month),
                             channel=NotificationChannel.BOTH,
                             action_url="/people/perf/pms/reviews",
                         )
-                        results["reminders_sent"] += 1
+                        if created is not None:
+                            results["reminders_sent"] += 1
 
                     except Exception as e:
                         logger.exception(
@@ -204,41 +245,54 @@ def pms_quarterly_appraisal_reminder() -> dict[str, Any]:
 
                 for contract in active_contracts:
                     try:
-                        # Notify employee to begin self-assessment
-                        notification_service.create(
-                            db,
-                            organization_id=org.organization_id,
-                            recipient_id=contract.employee_id,
-                            entity_type=EntityType.EMPLOYEE,
-                            entity_id=contract.contract_id,
-                            notification_type=NotificationType.DUE_SOON,
-                            title=f"{quarter_label} Appraisal — Self-Assessment Due",
-                            message=(
-                                f"Your {quarter_label} performance appraisal self-assessment "
-                                "is now open. Please complete it promptly."
-                            ),
-                            channel=NotificationChannel.BOTH,
-                            action_url="/people/perf/pms/dashboard",
+                        employee_person_id = _resolve_person_id(
+                            db, org.organization_id, contract.employee_id
                         )
-                        results["employee_reminders_sent"] += 1
+                        supervisor_person_id = _resolve_person_id(
+                            db, org.organization_id, contract.supervisor_id
+                        )
+
+                        # Notify employee to begin self-assessment
+                        if employee_person_id is not None:
+                            created = notification_service.create_if_not_sent_since(
+                                db,
+                                organization_id=org.organization_id,
+                                recipient_id=employee_person_id,
+                                entity_type=EntityType.EMPLOYEE,
+                                entity_id=contract.contract_id,
+                                notification_type=NotificationType.DUE_SOON,
+                                title=f"{quarter_label} Appraisal — Self-Assessment Due",
+                                message=(
+                                    f"Your {quarter_label} performance appraisal self-assessment "
+                                    "is now open. Please complete it promptly."
+                                ),
+                                since=_window_start(today.replace(day=1)),
+                                channel=NotificationChannel.BOTH,
+                                action_url="/people/perf/pms/dashboard",
+                            )
+                            if created is not None:
+                                results["employee_reminders_sent"] += 1
 
                         # Notify supervisor to prepare
-                        notification_service.create(
-                            db,
-                            organization_id=org.organization_id,
-                            recipient_id=contract.supervisor_id,
-                            entity_type=EntityType.EMPLOYEE,
-                            entity_id=contract.contract_id,
-                            notification_type=NotificationType.DUE_SOON,
-                            title=f"{quarter_label} Appraisal — Supervisor Review Upcoming",
-                            message=(
-                                f"The {quarter_label} appraisal period has begun. "
-                                "Prepare to review your direct reports."
-                            ),
-                            channel=NotificationChannel.BOTH,
-                            action_url="/people/perf/pms/dashboard",
-                        )
-                        results["supervisor_reminders_sent"] += 1
+                        if supervisor_person_id is not None:
+                            created = notification_service.create_if_not_sent_since(
+                                db,
+                                organization_id=org.organization_id,
+                                recipient_id=supervisor_person_id,
+                                entity_type=EntityType.EMPLOYEE,
+                                entity_id=contract.contract_id,
+                                notification_type=NotificationType.DUE_SOON,
+                                title=f"{quarter_label} Appraisal — Supervisor Review Upcoming",
+                                message=(
+                                    f"The {quarter_label} appraisal period has begun. "
+                                    "Prepare to review your direct reports."
+                                ),
+                                since=_window_start(today.replace(day=1)),
+                                channel=NotificationChannel.BOTH,
+                                action_url="/people/perf/pms/dashboard",
+                            )
+                            if created is not None:
+                                results["supervisor_reminders_sent"] += 1
 
                     except Exception as e:
                         logger.exception(
@@ -328,11 +382,21 @@ def pms_contract_deadline_check() -> dict[str, Any]:
 
                 for contract in unsigned_contracts:
                     try:
+                        supervisor_person_id = _resolve_person_id(
+                            db, org.organization_id, contract.supervisor_id
+                        )
+                        if supervisor_person_id is None:
+                            logger.warning(
+                                "Skipping unsigned contract alert for %s: supervisor person not found",
+                                contract.contract_id,
+                            )
+                            continue
+
                         # Get HR officer — notify supervisor as proxy for HR alert
-                        notification_service.create(
+                        created = notification_service.create_if_not_sent_since(
                             db,
                             organization_id=org.organization_id,
-                            recipient_id=contract.supervisor_id,
+                            recipient_id=supervisor_person_id,
                             entity_type=EntityType.EMPLOYEE,
                             entity_id=contract.contract_id,
                             notification_type=NotificationType.OVERDUE,
@@ -342,10 +406,12 @@ def pms_contract_deadline_check() -> dict[str, Any]:
                                 "The 3rd-week-of-January deadline has passed. "
                                 "Please ensure the contract is finalised immediately."
                             ),
+                            since=_window_start(date(today.year, 1, 22)),
                             channel=NotificationChannel.BOTH,
                             action_url=f"/people/perf/pms/contracts/{contract.contract_id}",
                         )
-                        results["contracts_flagged"] += 1
+                        if created is not None:
+                            results["contracts_flagged"] += 1
 
                     except Exception as e:
                         logger.exception(
@@ -498,8 +564,8 @@ def pms_probation_check() -> dict[str, Any]:
     Check probation milestones for employees in PMS-enabled organisations.
 
     Runs monthly. Calls UnderperformanceService.check_probation_milestones()
-    and notifies HR for employees approaching the 18, 20, and 21-month
-    service milestones who have not yet been confirmed.
+    and notifies line managers for employees approaching the 18, 20, and
+    21-month service milestones who have not yet been confirmed.
 
     Returns:
         Dict with processing statistics.
@@ -521,12 +587,15 @@ def pms_probation_check() -> dict[str, Any]:
             NotificationChannel,
             NotificationType,
         )
+        from app.models.people.hr.employee import Employee
         from app.services.notification import NotificationService
         from app.services.people.perf.underperformance_service import (
             UnderperformanceService,
         )
 
+        today = date.today()
         notification_service = NotificationService()
+        first_of_month = today.replace(day=1)
 
         orgs = db.scalars(
             select(Organization).where(Organization.pms_ohcsf_enabled == True)  # noqa: E712
@@ -546,6 +615,28 @@ def pms_probation_check() -> dict[str, Any]:
                         if not employee_id:
                             continue
 
+                        employee = db.get(Employee, employee_id)
+                        if (
+                            employee is None
+                            or employee.organization_id != org.organization_id
+                            or employee.is_deleted
+                        ):
+                            logger.warning(
+                                "Skipping probation milestone alert for %s: employee not found in org",
+                                employee_id,
+                            )
+                            continue
+
+                        recipient_person_id = _resolve_person_id(
+                            db, org.organization_id, employee.reports_to_id
+                        )
+                        if recipient_person_id is None:
+                            logger.warning(
+                                "Skipping probation milestone alert for %s: supervisor person not found",
+                                employee_id,
+                            )
+                            continue
+
                         # Determine milestone label
                         if months_served >= 21:
                             label = "21-month (final probation milestone)"
@@ -554,23 +645,25 @@ def pms_probation_check() -> dict[str, Any]:
                         else:
                             label = "18-month probation milestone"
 
-                        notification_service.create(
+                        created = notification_service.create_if_not_sent_since(
                             db,
                             organization_id=org.organization_id,
-                            recipient_id=employee_id,
+                            recipient_id=recipient_person_id,
                             entity_type=EntityType.EMPLOYEE,
                             entity_id=employee_id,
                             notification_type=NotificationType.ALERT,
                             title=f"Probation Milestone: {label}",
                             message=(
-                                f"Employee has reached the {label} and has not yet been "
-                                "confirmed. A Progress Report is required. "
+                                f"Your direct report has reached the {label} and has not yet "
+                                "been confirmed. A Progress Report is required. "
                                 "Please take action immediately."
                             ),
+                            since=_window_start(first_of_month),
                             channel=NotificationChannel.BOTH,
                             action_url="/people/perf/pms/dashboard",
                         )
-                        results["notifications_sent"] += 1
+                        if created is not None:
+                            results["notifications_sent"] += 1
 
                     except Exception as e:
                         logger.exception(
@@ -674,10 +767,20 @@ def pms_appeal_deadline_check() -> dict[str, Any]:
 
                 for appeal in open_appeals:
                     try:
-                        notification_service.create(
+                        employee_person_id = _resolve_person_id(
+                            db, org.organization_id, appeal.employee_id
+                        )
+                        if employee_person_id is None:
+                            logger.warning(
+                                "Skipping appeal deadline alert for %s: employee person not found",
+                                appeal.appeal_id,
+                            )
+                            continue
+
+                        created = notification_service.create_if_not_sent_since(
                             db,
                             organization_id=org.organization_id,
-                            recipient_id=appeal.employee_id,
+                            recipient_id=employee_person_id,
                             entity_type=EntityType.EMPLOYEE,
                             entity_id=appeal.appeal_id,
                             notification_type=NotificationType.DUE_SOON,
@@ -688,10 +791,12 @@ def pms_appeal_deadline_check() -> dict[str, Any]:
                                 f"({days_to_deadline} days remaining). "
                                 "Please ensure it is resolved before the deadline."
                             ),
+                            since=_window_start(today - timedelta(days=7)),
                             channel=NotificationChannel.BOTH,
                             action_url=f"/people/perf/pms/appeals/{appeal.appeal_id}",
                         )
-                        results["appeals_flagged"] += 1
+                        if created is not None:
+                            results["appeals_flagged"] += 1
 
                     except Exception as e:
                         logger.exception(
@@ -780,10 +885,10 @@ def pms_pip_review_reminder() -> dict[str, Any]:
 
                         for interval in review_intervals:
                             try:
-                                # Expect each interval to have a "date" key (ISO format string)
+                                # Expect each interval to have a "review_date" key (ISO format string)
                                 if not isinstance(interval, dict):
                                     continue
-                                interval_date_str = interval.get("date")
+                                interval_date_str = interval.get("review_date")
                                 if not interval_date_str:
                                     continue
 
@@ -792,46 +897,60 @@ def pms_pip_review_reminder() -> dict[str, Any]:
                                     continue
 
                                 days_until = (interval_date - today).days
-                                interval_label = interval.get("label", "PIP Review")
+                                interval_label = f"Review on {interval_date.strftime('%d %b %Y')}"
+
+                                supervisor_person_id = _resolve_person_id(
+                                    db, org.organization_id, pip.supervisor_id
+                                )
+                                hr_person_id = _resolve_person_id(
+                                    db, org.organization_id, pip.hr_officer_id
+                                )
 
                                 # Notify supervisor
-                                notification_service.create(
-                                    db,
-                                    organization_id=org.organization_id,
-                                    recipient_id=pip.supervisor_id,
-                                    entity_type=EntityType.EMPLOYEE,
-                                    entity_id=pip.pip_id,
-                                    notification_type=NotificationType.DUE_SOON,
-                                    title=f"PIP Review Due: {interval_label}",
-                                    message=(
-                                        f"A PIP review checkpoint ({interval_label}) is due "
-                                        f"in {days_until} day(s) on "
-                                        f"{interval_date.strftime('%d %b %Y')}. "
-                                        "Please prepare for the review meeting."
-                                    ),
-                                    channel=NotificationChannel.BOTH,
-                                    action_url=f"/people/perf/pms/pips/{pip.pip_id}",
-                                )
-                                results["reminders_sent"] += 1
+                                since = _window_start(today - timedelta(days=7))
+                                if supervisor_person_id is not None:
+                                    created = notification_service.create_if_not_sent_since(
+                                        db,
+                                        organization_id=org.organization_id,
+                                        recipient_id=supervisor_person_id,
+                                        entity_type=EntityType.EMPLOYEE,
+                                        entity_id=pip.pip_id,
+                                        notification_type=NotificationType.DUE_SOON,
+                                        title=f"PIP Review Due: {interval_label}",
+                                        message=(
+                                            f"A PIP review checkpoint ({interval_label}) is due "
+                                            f"in {days_until} day(s) on "
+                                            f"{interval_date.strftime('%d %b %Y')}. "
+                                            "Please prepare for the review meeting."
+                                        ),
+                                        since=since,
+                                        channel=NotificationChannel.BOTH,
+                                        action_url=f"/people/perf/pms/pips/{pip.pip_id}",
+                                    )
+                                    if created is not None:
+                                        results["reminders_sent"] += 1
 
                                 # Notify HR officer
-                                notification_service.create(
-                                    db,
-                                    organization_id=org.organization_id,
-                                    recipient_id=pip.hr_officer_id,
-                                    entity_type=EntityType.EMPLOYEE,
-                                    entity_id=pip.pip_id,
-                                    notification_type=NotificationType.DUE_SOON,
-                                    title=f"PIP Review Due: {interval_label}",
-                                    message=(
-                                        f"PIP {pip.pip_code} has a review checkpoint "
-                                        f"({interval_label}) due in {days_until} day(s) on "
-                                        f"{interval_date.strftime('%d %b %Y')}."
-                                    ),
-                                    channel=NotificationChannel.IN_APP,
-                                    action_url=f"/people/perf/pms/pips/{pip.pip_id}",
-                                )
-                                results["reminders_sent"] += 1
+                                if hr_person_id is not None:
+                                    created = notification_service.create_if_not_sent_since(
+                                        db,
+                                        organization_id=org.organization_id,
+                                        recipient_id=hr_person_id,
+                                        entity_type=EntityType.EMPLOYEE,
+                                        entity_id=pip.pip_id,
+                                        notification_type=NotificationType.DUE_SOON,
+                                        title=f"PIP Review Due: {interval_label}",
+                                        message=(
+                                            f"PIP {pip.pip_code} has a review checkpoint "
+                                            f"({interval_label}) due in {days_until} day(s) on "
+                                            f"{interval_date.strftime('%d %b %Y')}."
+                                        ),
+                                        since=since,
+                                        channel=NotificationChannel.IN_APP,
+                                        action_url=f"/people/perf/pms/pips/{pip.pip_id}",
+                                    )
+                                    if created is not None:
+                                        results["reminders_sent"] += 1
 
                             except (ValueError, TypeError) as e:
                                 logger.warning(

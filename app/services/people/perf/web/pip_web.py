@@ -148,7 +148,7 @@ class PIPWebService:
 
         emp_svc = EmployeeService(db, org_id)
         employees = emp_svc.list_employees(
-            EmployeeFilters(), PaginationParams(limit=500)
+            EmployeeFilters(is_active=True), PaginationParams(limit=500)
         ).items
 
         context = base_context(request, auth, "New Performance Improvement Plan", "perf", db=db)
@@ -223,7 +223,7 @@ class PIPWebService:
 
             emp_svc = EmployeeService(db, org_id)
             employees = emp_svc.list_employees(
-                EmployeeFilters(), PaginationParams(limit=500)
+                EmployeeFilters(is_active=True), PaginationParams(limit=500)
             ).items
 
             context = base_context(

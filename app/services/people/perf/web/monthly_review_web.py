@@ -75,6 +75,7 @@ class MonthlyReviewWebService:
             status=parsed_status,
             contract_id=parse_uuid(contract_id),
             employee_id=parse_uuid(employee_id),
+            search=search,
             pagination=pagination,
         )
 

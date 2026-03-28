@@ -116,6 +116,9 @@ class MonthlyReviewService:
             stmt = stmt.where(MonthlyReview.status == status)
         if review_month is not None:
             stmt = stmt.where(MonthlyReview.review_month == review_month)
+        if search:
+            pattern = f"%{search}%"
+            stmt = stmt.where(MonthlyReview.challenges.ilike(pattern))
 
         return paginate(
             self.db,
