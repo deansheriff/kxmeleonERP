@@ -20,7 +20,6 @@ from app.services.people.perf.underperformance_service import (
     UnderperformanceServiceError,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -103,10 +102,10 @@ class TestAnnualTriggerLogic:
             employee_id=emp_id,
             is_quarterly=False,
             kra_scores=[
-                make_kra_score(65.0),   # fair (< 70)
-                make_kra_score(60.0),   # fair (< 70)
-                make_kra_score(80.0),   # good
-                make_kra_score(85.0),   # good
+                make_kra_score(65.0),  # fair (< 70)
+                make_kra_score(60.0),  # fair (< 70)
+                make_kra_score(80.0),  # good
+                make_kra_score(85.0),  # good
             ],
         )
 
@@ -126,10 +125,10 @@ class TestAnnualTriggerLogic:
             employee_id=emp_id,
             is_quarterly=False,
             kra_scores=[
-                make_kra_score(50.0),   # fair
-                make_kra_score(60.0),   # fair
-                make_kra_score(69.9),   # fair (just below threshold)
-                make_kra_score(90.0),   # good
+                make_kra_score(50.0),  # fair
+                make_kra_score(60.0),  # fair
+                make_kra_score(69.9),  # fair (just below threshold)
+                make_kra_score(90.0),  # good
             ],
         )
 
@@ -146,7 +145,7 @@ class TestAnnualTriggerLogic:
         appraisal = make_appraisal(
             is_quarterly=False,
             kra_scores=[
-                make_kra_score(70.0),   # exactly at threshold — good
+                make_kra_score(70.0),  # exactly at threshold — good
                 make_kra_score(80.0),
                 make_kra_score(90.0),
                 make_kra_score(100.0),
@@ -163,7 +162,7 @@ class TestAnnualTriggerLogic:
         appraisal = make_appraisal(
             is_quarterly=False,
             kra_scores=[
-                make_kra_score(60.0),   # fair
+                make_kra_score(60.0),  # fair
                 make_kra_score(75.0),
                 make_kra_score(80.0),
                 make_kra_score(85.0),
@@ -180,10 +179,10 @@ class TestAnnualTriggerLogic:
         appraisal = make_appraisal(
             is_quarterly=False,
             kra_scores=[
-                make_kra_score(60.0),   # fair
-                make_kra_score(None),   # not scored — excluded
-                make_kra_score(None),   # not scored — excluded
-                make_kra_score(80.0),   # good
+                make_kra_score(60.0),  # fair
+                make_kra_score(None),  # not scored — excluded
+                make_kra_score(None),  # not scored — excluded
+                make_kra_score(80.0),  # good
             ],
         )
 
@@ -324,7 +323,9 @@ class TestProbationLogic:
         svc = make_service()
         today = date.today()
         # Join date 21 months ago (approximate via days)
-        join_date = date(today.year - 2, today.month, today.day) + timedelta(days=30 * 3)
+        join_date = date(today.year - 2, today.month, today.day) + timedelta(
+            days=30 * 3
+        )
         # More precise: subtract exactly 21 months
         year = today.year
         month = today.month - 21
@@ -649,7 +650,7 @@ class TestDetectAnnualTrigger:
         appraisal = make_appraisal(
             is_quarterly=False,
             kra_scores=[
-                make_kra_score(65.0),   # fair
+                make_kra_score(65.0),  # fair
                 make_kra_score(80.0),
                 make_kra_score(85.0),
                 make_kra_score(90.0),

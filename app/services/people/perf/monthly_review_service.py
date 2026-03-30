@@ -12,7 +12,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.people.perf.monthly_review import MonthlyReview
@@ -64,7 +64,7 @@ class MonthlyReviewValidationError(MonthlyReviewServiceError):
 class MonthlyReviewService:
     """Service for managing OHCSF monthly performance reviews."""
 
-    def __init__(self, db: Session, ctx: "WebAuthContext | None" = None) -> None:
+    def __init__(self, db: Session, ctx: WebAuthContext | None = None) -> None:
         self.db = db
         self.ctx = ctx
 

@@ -30,11 +30,11 @@ __all__ = [
 ]
 
 # Thresholds (OHCSF guidelines)
-_FAIR_SCORE_THRESHOLD = Decimal("70")      # Below this = "Fair" rating
+_FAIR_SCORE_THRESHOLD = Decimal("70")  # Below this = "Fair" rating
 _FAIR_KPI_RATIO_THRESHOLD = Decimal("0.5")  # ≥ 50% fair KPIs triggers annual PIP
-_QUARTERLY_BELOW_TRIGGER = 3               # 3 quarters below threshold triggers PIP
-_PROBATION_MONTHS = 21                     # Milestone at 21 months of service
-_PROBATION_WINDOW_DAYS = 30               # Flag within 30 days of milestone
+_QUARTERLY_BELOW_TRIGGER = 3  # 3 quarters below threshold triggers PIP
+_PROBATION_MONTHS = 21  # Milestone at 21 months of service
+_PROBATION_WINDOW_DAYS = 30  # Flag within 30 days of milestone
 
 
 # =============================================================================
@@ -86,16 +86,13 @@ class UnderperformanceService:
             List of dicts with keys:
               employee_id, appraisal_id, fair_count, total_kpis, percentage
         """
-        from app.models.people.perf.appraisal import Appraisal, AppraisalKRAScore
+        from app.models.people.perf.appraisal import Appraisal
 
-        stmt = (
-            select(Appraisal)
-            .where(
-                and_(
-                    Appraisal.organization_id == org_id,
-                    Appraisal.cycle_id == cycle_id,
-                    Appraisal.is_quarterly == False,  # noqa: E712
-                )
+        stmt = select(Appraisal).where(
+            and_(
+                Appraisal.organization_id == org_id,
+                Appraisal.cycle_id == cycle_id,
+                Appraisal.is_quarterly == False,  # noqa: E712
             )
         )
         appraisals = list(self.db.scalars(stmt).all())
@@ -250,10 +247,14 @@ class UnderperformanceService:
         triggering_appraisal_id: UUID | None = None,
     ) -> dict[str, Any]:
         """Create a draft PIP and notify HR and supervisor."""
+        from sqlalchemy import func as sa_func
+
         from app.models.people.hr.employee import Employee
         from app.models.people.perf.pip import PerformanceImprovementPlan
-        from app.models.people.perf.pms_enums import PIPCauseCategory, PIPStatus  # noqa: F401
-        from sqlalchemy import func as sa_func
+        from app.models.people.perf.pms_enums import (  # noqa: F401
+            PIPCauseCategory,
+            PIPStatus,
+        )
 
         employee = self.db.scalar(
             select(Employee).where(
@@ -265,11 +266,14 @@ class UnderperformanceService:
             raise UnderperformanceServiceError(f"Employee {employee_id} not found")
 
         # Generate PIP code
-        count = self.db.scalar(
-            select(sa_func.count(PerformanceImprovementPlan.pip_id)).where(
-                PerformanceImprovementPlan.organization_id == org_id,
+        count = (
+            self.db.scalar(
+                select(sa_func.count(PerformanceImprovementPlan.pip_id)).where(
+                    PerformanceImprovementPlan.organization_id == org_id,
+                )
             )
-        ) or 0
+            or 0
+        )
         pip_code = f"PIP-{date.today().year}-{count + 1:04d}"
 
         pip = PerformanceImprovementPlan(
@@ -319,15 +323,15 @@ class UnderperformanceService:
         Returns a result dict if the employee should be flagged, else None.
         """
         scored_kras = [
-            s for s in appraisal.kra_scores
-            if s.raw_score_percentage is not None
+            s for s in appraisal.kra_scores if s.raw_score_percentage is not None
         ]
         total = len(scored_kras)
         if total == 0:
             return None
 
         fair_count = sum(
-            1 for s in scored_kras
+            1
+            for s in scored_kras
             if Decimal(str(s.raw_score_percentage)) < _FAIR_SCORE_THRESHOLD
         )
         ratio = Decimal(str(fair_count)) / Decimal(str(total))
@@ -386,6 +390,7 @@ class UnderperformanceService:
 
         # Handle end-of-month edge cases (e.g., Jan 31 + 1 month → Feb 28)
         import calendar
+
         max_day = calendar.monthrange(milestone_year, milestone_month)[1]
         milestone_day = min(join_date.day, max_day)
         milestone_date = date(milestone_year, milestone_month, milestone_day)
@@ -397,8 +402,8 @@ class UnderperformanceService:
             return None
 
         # Calculate approximate months of service
-        months_of_service = (
-            (today.year - join_date.year) * 12 + (today.month - join_date.month)
+        months_of_service = (today.year - join_date.year) * 12 + (
+            today.month - join_date.month
         )
 
         return {

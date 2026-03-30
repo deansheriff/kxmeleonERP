@@ -334,7 +334,10 @@ class TestSignSupervisor:
         db = MagicMock()
         service = PerformanceContractService(db)
         contract = self._make_contract()
-        db.scalar.side_effect = [contract, MagicMock(employee_id=contract.supervisor_id)]
+        db.scalar.side_effect = [
+            contract,
+            MagicMock(employee_id=contract.supervisor_id),
+        ]
 
         service.sign_supervisor(
             contract.organization_id,
@@ -350,7 +353,10 @@ class TestSignSupervisor:
         db = MagicMock()
         service = PerformanceContractService(db)
         contract = self._make_contract(employee_signed=True)
-        db.scalar.side_effect = [contract, MagicMock(employee_id=contract.supervisor_id)]
+        db.scalar.side_effect = [
+            contract,
+            MagicMock(employee_id=contract.supervisor_id),
+        ]
 
         service.sign_supervisor(
             contract.organization_id,
@@ -366,7 +372,10 @@ class TestSignSupervisor:
         db = MagicMock()
         service = PerformanceContractService(db)
         contract = self._make_contract(employee_signed=False)
-        db.scalar.side_effect = [contract, MagicMock(employee_id=contract.supervisor_id)]
+        db.scalar.side_effect = [
+            contract,
+            MagicMock(employee_id=contract.supervisor_id),
+        ]
 
         service.sign_supervisor(
             contract.organization_id,
@@ -560,9 +569,9 @@ class TestCreateContract:
 
     def _make_inst_perf(self):
         """Return a minimal institutional performance record (non-DRAFT)."""
-        from app.models.people.perf.pms_enums import InstitutionalPerfStatus
-
         from types import SimpleNamespace
+
+        from app.models.people.perf.pms_enums import InstitutionalPerfStatus
 
         return SimpleNamespace(
             status=InstitutionalPerfStatus.APPRAISED,
@@ -592,7 +601,9 @@ class TestCreateContract:
         added = []
         db.add.side_effect = lambda obj: added.append(obj)
 
-        result = service.create_contract(**self._base_kwargs(org_id, employee.employee_id))
+        result = service.create_contract(
+            **self._base_kwargs(org_id, employee.employee_id)
+        )
 
         assert len(added) == 1
         db.flush.assert_called_once()
@@ -610,7 +621,9 @@ class TestCreateContract:
         # Second scalar call returns None → no institutional perf record
         db.scalar.side_effect = [employee, None]
 
-        with pytest.raises(ContractValidationError, match="Departmental goals must be agreed"):
+        with pytest.raises(
+            ContractValidationError, match="Departmental goals must be agreed"
+        ):
             service.create_contract(**self._base_kwargs(org_id, employee.employee_id))
 
         db.add.assert_not_called()
@@ -631,7 +644,9 @@ class TestCreateContract:
         added = []
         db.add.side_effect = lambda obj: added.append(obj)
 
-        result = service.create_contract(**self._base_kwargs(org_id, employee.employee_id))
+        result = service.create_contract(
+            **self._base_kwargs(org_id, employee.employee_id)
+        )
 
         assert len(added) == 1
         assert result is added[0]
@@ -657,7 +672,10 @@ class TestCreateContract:
 
         with pytest.raises(ContractValidationError, match="70"):
             service.create_contract(
-                **{**self._base_kwargs(org_id, employee.employee_id), "objectives": bad_objectives}
+                **{
+                    **self._base_kwargs(org_id, employee.employee_id),
+                    "objectives": bad_objectives,
+                }
             )
 
         db.add.assert_not_called()
@@ -708,7 +726,10 @@ class TestContractStatusGuards:
         db = MagicMock()
         service = PerformanceContractService(db)
         contract = self._make_contract_with_status(ContractStatus.CANCELLED)
-        db.scalar.side_effect = [contract, MagicMock(employee_id=contract.supervisor_id)]
+        db.scalar.side_effect = [
+            contract,
+            MagicMock(employee_id=contract.supervisor_id),
+        ]
 
         with pytest.raises(ContractStatusError):
             service.sign_supervisor(

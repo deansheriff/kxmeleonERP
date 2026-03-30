@@ -14,13 +14,13 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Date,
     Enum,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     Numeric,
     String,
     Text,
@@ -170,9 +170,7 @@ class InstitutionalPerformance(Base, AuditMixin):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<InstitutionalPerformance {self.institution_type}: {self.status}>"
-        )
+        return f"<InstitutionalPerformance {self.institution_type}: {self.status}>"
 
 
 class InstitutionalCriteriaTemplate(Base):
@@ -208,7 +206,9 @@ class InstitutionalCriteriaTemplate(Base):
 
     # Reuse the enum type already created by InstitutionalPerformance
     institution_type: Mapped[InstitutionType] = mapped_column(
-        Enum(InstitutionType, name="institution_type", schema="perf", create_type=False),
+        Enum(
+            InstitutionType, name="institution_type", schema="perf", create_type=False
+        ),
         nullable=False,
     )
 

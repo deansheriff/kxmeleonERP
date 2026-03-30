@@ -13,11 +13,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-import pytest
-
 from app.services.people.perf.ohcsf_appraisal_service import OHCSFAppraisalService
 from app.services.people.perf.scoring_engine import OHCSFScoringEngine
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,19 +36,27 @@ def make_kra_score_row(
     return SimpleNamespace(
         score_id=uuid4(),
         kra_id=uuid4(),
-        weighted_score=Decimal(str(weighted_score)) if weighted_score is not None else None,
+        weighted_score=Decimal(str(weighted_score))
+        if weighted_score is not None
+        else None,
         raw_score_percentage=(
-            Decimal(str(raw_score_percentage)) if raw_score_percentage is not None else None
+            Decimal(str(raw_score_percentage))
+            if raw_score_percentage is not None
+            else None
         ),
         weightage=Decimal(str(weightage)),
         actual_achievement=(
             Decimal(str(actual_achievement)) if actual_achievement is not None else None
         ),
         outstanding_threshold=(
-            Decimal(str(outstanding_threshold)) if outstanding_threshold is not None else None
+            Decimal(str(outstanding_threshold))
+            if outstanding_threshold is not None
+            else None
         ),
         excellent_threshold=(
-            Decimal(str(excellent_threshold)) if excellent_threshold is not None else None
+            Decimal(str(excellent_threshold))
+            if excellent_threshold is not None
+            else None
         ),
         good_threshold=(
             Decimal(str(good_threshold)) if good_threshold is not None else None
@@ -170,7 +175,9 @@ class TestOHCSFGuidelinesWorkedExample:
 
     def test_kra3_weighted_score(self) -> None:
         """KRA 3: raw=100% × weight=0.20 → weighted score 20.00."""
-        weighted = self._engine.calculate_weighted_score(Decimal("100"), Decimal("0.20"))
+        weighted = self._engine.calculate_weighted_score(
+            Decimal("100"), Decimal("0.20")
+        )
         assert weighted == Decimal("20.00")
 
     def test_objective_composite_equals_81_50(self) -> None:
@@ -208,7 +215,7 @@ class TestComputeObjectiveScore:
         """KRA rows without weighted_score are excluded from the sum."""
         rows = [
             make_kra_score_row(weighted_score=50.00),
-            make_kra_score_row(weighted_score=None),   # not yet scored
+            make_kra_score_row(weighted_score=None),  # not yet scored
             make_kra_score_row(weighted_score=20.00),
         ]
         svc = make_service_with_kra_rows(rows)
@@ -294,7 +301,7 @@ class TestComputeCompetencyScore:
         """Rows without final_rating are excluded from the average."""
         rows = [
             make_competency_row(final_rating=4),
-            make_competency_row(final_rating=None),   # not yet rated
+            make_competency_row(final_rating=None),  # not yet rated
             make_competency_row(final_rating=None),
         ]
         svc = make_service_with_competency_rows(rows)
@@ -372,7 +379,7 @@ class TestProcessScoreCalculation:
 
     def test_process_rating_4_gives_80_percent(self) -> None:
         """Process rating 4 (Good/Excellent) → (4/5)*100 = 80.00 → 10% bucket = 8.00."""
-        process_pct = (Decimal("4") / Decimal("5") * Decimal("100"))
+        process_pct = Decimal("4") / Decimal("5") * Decimal("100")
         process_contribution = self._engine.calculate_appraisal_final(
             objective_composite=Decimal("0"),
             competency_score=Decimal("0"),

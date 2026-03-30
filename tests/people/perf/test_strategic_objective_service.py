@@ -17,17 +17,16 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.models.people.perf.strategic_objective import StrategicObjective
 from app.services.people.perf.strategic_objective_service import (
     StrategicObjectiveNotFoundError,
-    StrategicObjectiveServiceError,
     StrategicObjectiveService,
+    StrategicObjectiveServiceError,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -613,6 +612,6 @@ class TestAlignmentReport:
         report = svc.get_alignment_report(ORG_ID, CYCLE_ID)
 
         assert report["total_objectives"] == 4
-        assert report["aligned_count"] == 2   # obj_a, obj_c
-        assert report["gap_count"] == 2       # obj_b, obj_d
+        assert report["aligned_count"] == 2  # obj_a, obj_c
+        assert report["gap_count"] == 2  # obj_b, obj_d
         assert report["alignment_percentage"] == 50.0

@@ -18,7 +18,6 @@ from app.services.common import PaginationParams, coerce_uuid
 from app.services.people.perf.institutional_service import (
     InstitutionalPerfNotFoundError,
     InstitutionalPerformanceService,
-    InstitutionalServiceError,
     InstitutionalValidationError,
 )
 from app.templates import templates
@@ -82,7 +81,9 @@ class InstitutionalWebService:
             ).all()
         )
 
-        context = base_context(request, auth, "Institutional Performance", "perf", db=db)
+        context = base_context(
+            request, auth, "Institutional Performance", "perf", db=db
+        )
         context["request"] = request
         context.update(
             {
@@ -119,7 +120,10 @@ class InstitutionalWebService:
             context["request"] = request
             context.update({"record": None, "error": "Invalid record ID"})
             return templates.TemplateResponse(
-                request, "people/perf/pms/institutional_detail.html", context, status_code=404
+                request,
+                "people/perf/pms/institutional_detail.html",
+                context,
+                status_code=404,
             )
 
         try:
@@ -129,7 +133,10 @@ class InstitutionalWebService:
             context["request"] = request
             context.update({"record": None, "error": str(e)})
             return templates.TemplateResponse(
-                request, "people/perf/pms/institutional_detail.html", context, status_code=404
+                request,
+                "people/perf/pms/institutional_detail.html",
+                context,
+                status_code=404,
             )
 
         # Parse criteria scores for display
@@ -263,7 +270,9 @@ class InstitutionalWebService:
                 org_id,
                 cycle_id=cycle_id,
                 institution_type=institution_type,
-                department_id=parse_uuid(self._form_text(form_data.get("department_id"))),
+                department_id=parse_uuid(
+                    self._form_text(form_data.get("department_id"))
+                ),
             )
             db.commit()
             return RedirectResponse(

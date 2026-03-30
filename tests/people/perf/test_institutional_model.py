@@ -7,8 +7,6 @@ table configuration, and relationship declarations.
 
 import uuid
 
-import pytest
-
 from app.models.people.perf.institutional_performance import (
     InstitutionalCriteriaTemplate,
     InstitutionalPerformance,
@@ -17,7 +15,6 @@ from app.models.people.perf.pms_enums import (
     InstitutionalPerfStatus,
     InstitutionType,
 )
-
 
 # ---------------------------------------------------------------------------
 # InstitutionalPerformance

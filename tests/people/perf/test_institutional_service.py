@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -29,11 +29,10 @@ from app.models.people.perf.pms_enums import (
 )
 from app.services.people.perf.institutional_service import (
     InstitutionalPerfNotFoundError,
+    InstitutionalPerformanceService,
     InstitutionalServiceError,
     InstitutionalValidationError,
-    InstitutionalPerformanceService,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -203,13 +202,23 @@ class TestCreateForCycle:
         )
 
         entry = result.criteria_scores[0]
-        for key in ("criteria", "weight", "target", "achievement", "raw_score", "weighted_score"):
+        for key in (
+            "criteria",
+            "weight",
+            "target",
+            "achievement",
+            "raw_score",
+            "weighted_score",
+        ):
             assert key in entry, f"Missing key: {key}"
 
     def test_initial_score_fields_are_none(self) -> None:
         """target, achievement, raw_score, weighted_score all start as None."""
         svc = make_service()
-        templates = [make_template("Governance", 50, 1), make_template("Finance", 50, 2)]
+        templates = [
+            make_template("Governance", 50, 1),
+            make_template("Finance", 50, 2),
+        ]
         svc.db.scalars.return_value.all.return_value = templates
 
         result = svc.create_for_cycle(

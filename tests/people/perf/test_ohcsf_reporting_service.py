@@ -21,7 +21,6 @@ from app.services.people.perf.ohcsf_reporting_service import (
     _pct,
 )
 
-
 ORG_ID = uuid4()
 CYCLE_ID = uuid4()
 
@@ -194,7 +193,9 @@ def test_development_needs_by_department_accepts_department_id(
     svc: OHCSFReportingService,
 ) -> None:
     dept_id = uuid4()
-    result = svc.development_needs_by_department(ORG_ID, CYCLE_ID, department_id=dept_id)
+    result = svc.development_needs_by_department(
+        ORG_ID, CYCLE_ID, department_id=dept_id
+    )
     assert isinstance(result, dict)
 
 
@@ -423,7 +424,12 @@ class TestTopPerformersComputation:
         result = svc.bottom_performers(uuid4(), uuid4())
 
         assert len(result) == 1
-        assert set(result[0].keys()) == {"employee_name", "department", "score", "rating_label"}
+        assert set(result[0].keys()) == {
+            "employee_name",
+            "department",
+            "score",
+            "rating_label",
+        }
 
     def test_bottom_performers_empty_rows(self) -> None:
         """No rows → empty list returned."""

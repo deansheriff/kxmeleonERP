@@ -224,7 +224,7 @@ jobs:
             -e TOTP_ENCRYPTION_KEY=QLUJktsTSfZEbST4R-37XmQ0tCkiVCBXZN2Zt053w8g= \
             -e REDIS_URL=redis://ci-redis:6379/0 \
             dotmac-erp:ci \
-            alembic upgrade head
+            alembic upgrade heads
 
       - name: Start application  # pragma: allowlist secret
         run: |
@@ -235,7 +235,7 @@ jobs:
             -e TOTP_ENCRYPTION_KEY=QLUJktsTSfZEbST4R-37XmQ0tCkiVCBXZN2Zt053w8g= \
             -e REDIS_URL=redis://ci-redis:6379/0 \
             -e CELERY_BROKER_URL=redis://ci-redis:6379/0 \
-            -e GUNICORN_WORKERS=2 \
+            -e GUNICORN_WORKERS=1 \
             dotmac-erp:ci \
             gunicorn -c gunicorn.conf.py app.main:app
 
@@ -321,7 +321,7 @@ jobs:
         run: poetry install --no-interaction
 
       - name: Run Alembic migrations
-        run: poetry run alembic upgrade head
+        run: poetry run alembic upgrade heads
 
       - name: Run integration tests
         # -o addopts= clears pytest.ini's "-m not integration" filter

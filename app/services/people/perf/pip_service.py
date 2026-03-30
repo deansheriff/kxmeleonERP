@@ -124,9 +124,7 @@ class PIPService:
     # Public query methods
     # ------------------------------------------------------------------
 
-    def get_pip(
-        self, org_id: UUID, pip_id: UUID
-    ) -> PerformanceImprovementPlan:
+    def get_pip(self, org_id: UUID, pip_id: UUID) -> PerformanceImprovementPlan:
         """Return a PIP by ID scoped to the organisation.
 
         Raises:
@@ -151,16 +149,12 @@ class PIPService:
         )
 
         if employee_id is not None:
-            stmt = stmt.where(
-                PerformanceImprovementPlan.employee_id == employee_id
-            )
+            stmt = stmt.where(PerformanceImprovementPlan.employee_id == employee_id)
         if status is not None:
             stmt = stmt.where(PerformanceImprovementPlan.status == status)
         if search:
             pattern = f"%{search}%"
-            stmt = stmt.where(
-                PerformanceImprovementPlan.pip_code.ilike(pattern)
-            )
+            stmt = stmt.where(PerformanceImprovementPlan.pip_code.ilike(pattern))
 
         return paginate(
             self.db,
@@ -220,9 +214,7 @@ class PIPService:
         )
         return pip
 
-    def activate_pip(
-        self, org_id: UUID, pip_id: UUID
-    ) -> PerformanceImprovementPlan:
+    def activate_pip(self, org_id: UUID, pip_id: UUID) -> PerformanceImprovementPlan:
         """Transition a PIP from DRAFT to ACTIVE.
 
         Raises:
@@ -268,9 +260,7 @@ class PIPService:
                 f"current end date (requested {extension_days} days)"
             )
         if extension_days <= 0:
-            raise PIPValidationError(
-                "New end date must be after the current end date"
-            )
+            raise PIPValidationError("New end date must be after the current end date")
 
         pip.extension_granted = True
         pip.extension_end_date = new_end_date
@@ -350,8 +340,13 @@ class PIPService:
             )
 
         # Create audit trail
-        from app.models.people.perf.appraisal_outcome_action import AppraisalOutcomeAction
-        from app.models.people.perf.pms_enums import OutcomeActionStatus, OutcomeActionType
+        from app.models.people.perf.appraisal_outcome_action import (
+            AppraisalOutcomeAction,
+        )
+        from app.models.people.perf.pms_enums import (
+            OutcomeActionStatus,
+            OutcomeActionType,
+        )
 
         if pip.appraisal_id:
             action = AppraisalOutcomeAction(

@@ -426,7 +426,9 @@ async def assign_mediator(
     """Assign a mediator to an appeal."""
     from app.services.people.perf.web.appeal_web import AppealWebService
 
-    return await AppealWebService().assign_mediator_response(request, auth, db, appeal_id)
+    return await AppealWebService().assign_mediator_response(
+        request, auth, db, appeal_id
+    )
 
 
 @router.post("/appeals/{appeal_id}/mediation-outcome", response_class=HTMLResponse)
@@ -612,9 +614,7 @@ def new_objective_form(
         StrategicObjectiveWebService,
     )
 
-    return StrategicObjectiveWebService().objective_new_form_response(
-        request, auth, db
-    )
+    return StrategicObjectiveWebService().objective_new_form_response(request, auth, db)
 
 
 @router.post("/objectives/new", response_class=HTMLResponse)

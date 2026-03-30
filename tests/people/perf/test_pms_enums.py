@@ -4,8 +4,6 @@ Test suite for PMS (Performance Management System) enums.
 Verifies all enum values exist and have correct string representations.
 """
 
-import pytest
-
 from app.models.people.perf.pms_enums import (
     AppealDecision,
     AppealStatus,
@@ -13,8 +11,8 @@ from app.models.people.perf.pms_enums import (
     ConfirmationRecommendation,
     ContractStatus,
     ContractType,
-    InstitutionType,
     InstitutionalPerfStatus,
+    InstitutionType,
     MonthlyReviewStatus,
     OutcomeActionStatus,
     OutcomeActionType,

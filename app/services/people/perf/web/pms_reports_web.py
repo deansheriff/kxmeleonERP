@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -13,6 +16,8 @@ from app.web.deps import WebAuthContext, base_context
 
 class PMSReportsWebService:
     """Web service for OHCSF PMS reports."""
+
+    ReportData = dict[str, Any] | list[dict[str, Any]]
 
     def reports_hub_response(
         self, request: Request, auth: WebAuthContext, db: Session
@@ -56,12 +61,14 @@ class PMSReportsWebService:
             .order_by(AppraisalCycle.start_date.desc())
         )
 
-        report_data: dict | list = {}
+        report_data: PMSReportsWebService.ReportData = {}
         report_title = "Report"
 
         if active_cycle:
             cycle_id = active_cycle.cycle_id
-            report_map = {
+            report_map: dict[
+                str, tuple[str, Callable[[], PMSReportsWebService.ReportData]]
+            ] = {
                 "rating-summary": (
                     "Rating Summary",
                     lambda: reporting.rating_summary(org_id, cycle_id),

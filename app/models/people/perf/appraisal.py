@@ -202,7 +202,9 @@ class Appraisal(Base, AuditMixin, StatusTrackingMixin, ERPNextSyncMixin):
 
     # Counter-signing & committee
     counter_signer_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("hr.employee.employee_id"), nullable=True,
+        UUID(as_uuid=True),
+        ForeignKey("hr.employee.employee_id"),
+        nullable=True,
     )
     counter_signer_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     counter_signer_comments: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -210,7 +212,9 @@ class Appraisal(Base, AuditMixin, StatusTrackingMixin, ERPNextSyncMixin):
     committee_decision: Mapped[str | None] = mapped_column(String(50), nullable=True)
     committee_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_quarterly: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    quarterly_rating: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    quarterly_rating: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
 
     # Process scoring (10% bucket)
     process_self_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -219,34 +223,56 @@ class Appraisal(Base, AuditMixin, StatusTrackingMixin, ERPNextSyncMixin):
     process_comments: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Composite breakdown
-    objective_weighted_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
-    competency_weighted_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
-    process_weighted_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    objective_weighted_score: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    competency_weighted_score: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    process_weighted_score: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
 
     # Approved absence carryover
-    is_prior_year_carryover: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_prior_year_carryover: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     carryover_source_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("perf.appraisal.appraisal_id"), nullable=True,
+        UUID(as_uuid=True),
+        ForeignKey("perf.appraisal.appraisal_id"),
+        nullable=True,
     )
     absence_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Probation
-    is_probation_appraisal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    confirmation_recommendation: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    is_probation_appraisal: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    confirmation_recommendation: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )
 
     # Secondment
-    is_secondment_appraisal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_secondment_appraisal: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     secondment_org_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    parent_org_notified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    parent_org_notified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     parent_org_notified_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Debrief
     debrief_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     debrief_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    debrief_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    debrief_acknowledged: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
 
     # Reward nomination
-    reward_nominated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reward_nominated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     reward_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     reward_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -364,13 +390,27 @@ class AppraisalKRAScore(Base):
     target_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     achievement_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
-    outstanding_threshold: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    excellent_threshold: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    good_threshold: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    fair_threshold: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    poor_threshold: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    actual_achievement: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    raw_score_percentage: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    outstanding_threshold: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    excellent_threshold: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    good_threshold: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    fair_threshold: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    poor_threshold: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    actual_achievement: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    raw_score_percentage: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(

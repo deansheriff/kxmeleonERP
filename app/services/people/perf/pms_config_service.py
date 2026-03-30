@@ -198,9 +198,7 @@ class PMSConfigService:
 
         if created:
             self.db.flush()
-            logger.info(
-                "Seeded %d OHCSF competencies for org %s", created, org_id
-            )
+            logger.info("Seeded %d OHCSF competencies for org %s", created, org_id)
 
         return created
 
@@ -217,9 +215,7 @@ class PMSConfigService:
         from app.models.people.perf.pms_enums import InstitutionType
 
         # Fetch existing (institution_type) values already seeded for this org
-        existing_stmt = select(
-            InstitutionalCriteriaTemplate.institution_type
-        ).where(
+        existing_stmt = select(InstitutionalCriteriaTemplate.institution_type).where(
             InstitutionalCriteriaTemplate.organization_id == org_id,
         )
         existing_types: set[str] = {

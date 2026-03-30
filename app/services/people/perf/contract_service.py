@@ -132,9 +132,7 @@ class PerformanceContractService:
     # Public query methods
     # ------------------------------------------------------------------
 
-    def get_contract(
-        self, org_id: UUID, contract_id: UUID
-    ) -> PerformanceContract:
+    def get_contract(self, org_id: UUID, contract_id: UUID) -> PerformanceContract:
         """Return a contract by ID scoped to the organisation.
 
         Raises:
@@ -174,9 +172,7 @@ class PerformanceContractService:
             stmt = stmt.where(PerformanceContract.status == status)
         if search:
             pattern = f"%{search}%"
-            stmt = stmt.where(
-                PerformanceContract.contract_code.ilike(pattern)
-            )
+            stmt = stmt.where(PerformanceContract.contract_code.ilike(pattern))
 
         return paginate(
             self.db,
@@ -238,8 +234,10 @@ class PerformanceContractService:
         self._validate_objectives(objectives)
         if competency_ids is not None:
             # competency_ids here is a list of dicts with is_development_focus
-            if isinstance(competency_ids, list) and competency_ids and isinstance(
-                competency_ids[0], dict
+            if (
+                isinstance(competency_ids, list)
+                and competency_ids
+                and isinstance(competency_ids[0], dict)
             ):
                 self._validate_competency_selections(competency_ids)
 
@@ -265,9 +263,7 @@ class PerformanceContractService:
         )
         return contract
 
-    def _get_employee_for_person(
-        self, org_id: UUID, person_id: UUID
-    ) -> UUID | None:
+    def _get_employee_for_person(self, org_id: UUID, person_id: UUID) -> UUID | None:
         """Resolve the actor's employee ID for the organisation."""
         from app.models.people.hr.employee import Employee
 
@@ -292,22 +288,19 @@ class PerformanceContractService:
         actor_employee_id = self._get_employee_for_person(org_id, actor_person_id)
         if actor_employee_id != contract.employee_id:
             raise ContractAuthorizationError("employee-sign")
-        if contract.status not in (ContractStatus.DRAFT, ContractStatus.PENDING_SIGNATURE):
-            raise ContractStatusError(
-                contract.status.value, "PENDING_SIGNATURE"
-            )
+        if contract.status not in (
+            ContractStatus.DRAFT,
+            ContractStatus.PENDING_SIGNATURE,
+        ):
+            raise ContractStatusError(contract.status.value, "PENDING_SIGNATURE")
         contract.employee_signed_date = date.today()
 
         if contract.supervisor_signed_date is not None:
             contract.status = ContractStatus.ACTIVE
-            logger.info(
-                "Contract %s activated — both parties have signed", contract_id
-            )
+            logger.info("Contract %s activated — both parties have signed", contract_id)
         else:
             contract.status = ContractStatus.PENDING_SIGNATURE
-            logger.info(
-                "Contract %s pending supervisor signature", contract_id
-            )
+            logger.info("Contract %s pending supervisor signature", contract_id)
 
         self.db.flush()
         return contract
@@ -324,22 +317,19 @@ class PerformanceContractService:
         actor_employee_id = self._get_employee_for_person(org_id, actor_person_id)
         if actor_employee_id != contract.supervisor_id:
             raise ContractAuthorizationError("supervisor-sign")
-        if contract.status not in (ContractStatus.DRAFT, ContractStatus.PENDING_SIGNATURE):
-            raise ContractStatusError(
-                contract.status.value, "PENDING_SIGNATURE"
-            )
+        if contract.status not in (
+            ContractStatus.DRAFT,
+            ContractStatus.PENDING_SIGNATURE,
+        ):
+            raise ContractStatusError(contract.status.value, "PENDING_SIGNATURE")
         contract.supervisor_signed_date = date.today()
 
         if contract.employee_signed_date is not None:
             contract.status = ContractStatus.ACTIVE
-            logger.info(
-                "Contract %s activated — both parties have signed", contract_id
-            )
+            logger.info("Contract %s activated — both parties have signed", contract_id)
         else:
             contract.status = ContractStatus.PENDING_SIGNATURE
-            logger.info(
-                "Contract %s pending employee signature", contract_id
-            )
+            logger.info("Contract %s pending employee signature", contract_id)
 
         self.db.flush()
         return contract
@@ -357,7 +347,10 @@ class PerformanceContractService:
         """
         contract = self.get_contract(org_id, contract_id)
 
-        if contract.status not in (ContractStatus.DRAFT, ContractStatus.PENDING_SIGNATURE):
+        if contract.status not in (
+            ContractStatus.DRAFT,
+            ContractStatus.PENDING_SIGNATURE,
+        ):
             raise ContractStatusError(contract.status.value, "PENDING_SIGNATURE")
 
         contract.countersigner_id = countersigner_id
@@ -434,8 +427,10 @@ class PerformanceContractService:
             ContractNotFoundError: if the original contract is not found.
         """
         self._validate_objectives(new_objectives)
-        if competency_ids is not None and isinstance(competency_ids, list) and (
-            competency_ids and isinstance(competency_ids[0], dict)
+        if (
+            competency_ids is not None
+            and isinstance(competency_ids, list)
+            and (competency_ids and isinstance(competency_ids[0], dict))
         ):
             self._validate_competency_selections(competency_ids)
 

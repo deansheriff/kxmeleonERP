@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -23,7 +22,6 @@ from app.services.people.perf.monthly_review_service import (
     MonthlyReviewServiceError,
     MonthlyReviewValidationError,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -534,7 +532,9 @@ class TestAcknowledgeReviewStatusGuard:
         """SUBMITTED → ACKNOWLEDGED is the valid transition."""
         review = self._setup_review(MonthlyReviewStatus.SUBMITTED)
 
-        result = self.service.acknowledge_review(review.organization_id, review.review_id)
+        result = self.service.acknowledge_review(
+            review.organization_id, review.review_id
+        )
 
         assert result.status == MonthlyReviewStatus.ACKNOWLEDGED
 

@@ -14,12 +14,11 @@ import pytest
 
 from app.services.people.perf.pip_service import (
     PIPNotFoundError,
+    PIPService,
     PIPServiceError,
     PIPStatusError,
     PIPValidationError,
-    PIPService,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -194,7 +193,8 @@ class TestPIPExtension:
         db = MagicMock()
         service = PIPService(db)
 
-        from app.models.people.perf.pms_enums import PIPStatus, PIPStatus as S
+        from app.models.people.perf.pms_enums import PIPStatus
+        from app.models.people.perf.pms_enums import PIPStatus as S
 
         pip = make_pip(status=PIPStatus.ACTIVE, extension_granted=False)
         pip.end_date = date(2026, 4, 1)

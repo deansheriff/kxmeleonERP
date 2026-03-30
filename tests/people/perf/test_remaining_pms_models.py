@@ -8,13 +8,10 @@ table configuration, and relationship declarations.
 import uuid
 from datetime import date
 
-import pytest
-
-from app.models.people.perf.competency_assessment import CompetencyAssessment
-from app.models.people.perf.strategic_objective import StrategicObjective
 from app.models.people.perf.appraisal_outcome_action import AppraisalOutcomeAction
-from app.models.people.perf.pms_enums import OutcomeActionType, OutcomeActionStatus
-
+from app.models.people.perf.competency_assessment import CompetencyAssessment
+from app.models.people.perf.pms_enums import OutcomeActionStatus, OutcomeActionType
+from app.models.people.perf.strategic_objective import StrategicObjective
 
 # ---------------------------------------------------------------------------
 # CompetencyAssessment

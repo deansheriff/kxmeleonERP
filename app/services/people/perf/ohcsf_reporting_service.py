@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
+from collections.abc import Sequence
 from decimal import Decimal
-from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -91,9 +91,7 @@ class OHCSFReportingService:
             for lbl in _RATING_LABELS
         ]
 
-        logger.info(
-            "rating_summary: org=%s cycle=%s total=%d", org_id, cycle_id, total
-        )
+        logger.info("rating_summary: org=%s cycle=%s total=%d", org_id, cycle_id, total)
         return {"ratings": ratings, "total": total}
 
     # ------------------------------------------------------------------
@@ -436,7 +434,7 @@ class OHCSFReportingService:
             .limit(n)
         )
 
-        rows = self.db.execute(stmt).all()
+        rows = self.db.execute(stmt).tuples().all()
         return self._format_performer_rows(rows)
 
     # ------------------------------------------------------------------
@@ -476,7 +474,7 @@ class OHCSFReportingService:
             .limit(n)
         )
 
-        rows = self.db.execute(stmt).all()
+        rows = self.db.execute(stmt).tuples().all()
         return self._format_performer_rows(rows)
 
     # ------------------------------------------------------------------
@@ -497,23 +495,17 @@ class OHCSFReportingService:
         """
         from app.models.people.perf.appraisal import Appraisal, AppraisalStatus
 
-        stmt = (
-            select(Appraisal.development_needs)
-            .where(
-                Appraisal.organization_id == org_id,
-                Appraisal.cycle_id == cycle_id,
-                Appraisal.status == AppraisalStatus.COMPLETED,
-                Appraisal.development_needs.is_not(None),
-            )
+        stmt = select(Appraisal.development_needs).where(
+            Appraisal.organization_id == org_id,
+            Appraisal.cycle_id == cycle_id,
+            Appraisal.status == AppraisalStatus.COMPLETED,
+            Appraisal.development_needs.is_not(None),
         )
 
-        total_stmt = (
-            select(func.count(Appraisal.appraisal_id))
-            .where(
-                Appraisal.organization_id == org_id,
-                Appraisal.cycle_id == cycle_id,
-                Appraisal.status == AppraisalStatus.COMPLETED,
-            )
+        total_stmt = select(func.count(Appraisal.appraisal_id)).where(
+            Appraisal.organization_id == org_id,
+            Appraisal.cycle_id == cycle_id,
+            Appraisal.status == AppraisalStatus.COMPLETED,
         )
 
         needs_rows = self.db.scalars(stmt).all()
@@ -529,8 +521,7 @@ class OHCSFReportingService:
                         counter[need] += 1
 
         needs_list = [
-            {"need": need, "count": cnt}
-            for need, cnt in counter.most_common()
+            {"need": need, "count": cnt} for need, cnt in counter.most_common()
         ]
 
         return {
@@ -548,7 +539,7 @@ class OHCSFReportingService:
         org_id: UUID,
         cycle_id: UUID,
         *,
-        department_id: Optional[UUID] = None,
+        department_id: UUID | None = None,
     ) -> dict:
         """
         Development needs aggregated per department.
@@ -659,7 +650,6 @@ class OHCSFReportingService:
         from app.models.people.perf.pip import PerformanceImprovementPlan
         from app.models.people.perf.pms_enums import (
             AppealStatus,
-            ContractStatus,
             MonthlyReviewStatus,
             PIPStatus,
         )
@@ -700,7 +690,10 @@ class OHCSFReportingService:
                         )
                     ),
                     MonthlyReview.status.in_(
-                        [MonthlyReviewStatus.ACKNOWLEDGED, MonthlyReviewStatus.SUBMITTED]
+                        [
+                            MonthlyReviewStatus.ACKNOWLEDGED,
+                            MonthlyReviewStatus.SUBMITTED,
+                        ]
                     ),
                 )
             )
@@ -849,7 +842,9 @@ class OHCSFReportingService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _format_performer_rows(rows: list) -> list[dict]:
+    def _format_performer_rows(
+        rows: Sequence[tuple[str | None, str | None, Decimal | None, str | None]],
+    ) -> list[dict]:
         """
         Convert (display_name, department_name, final_score, rating_label) rows
         into the standard performer dict shape.

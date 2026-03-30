@@ -7,8 +7,6 @@ table configuration, and relationship declarations.
 
 import uuid
 
-import pytest
-
 from app.models.people.perf.performance_contract import PerformanceContract
 from app.models.people.perf.pms_enums import ContractStatus, ContractType
 

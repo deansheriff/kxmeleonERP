@@ -117,8 +117,8 @@ class OHCSFScoringEngine:
 
         # Interpolate between adjacent bands
         for i in range(len(_ASCENDING_BANDS) - 1):
-            upper_name = _ASCENDING_BANDS[i]       # e.g. "outstanding"
-            lower_name = _ASCENDING_BANDS[i + 1]   # e.g. "excellent"
+            upper_name = _ASCENDING_BANDS[i]  # e.g. "outstanding"
+            lower_name = _ASCENDING_BANDS[i + 1]  # e.g. "excellent"
 
             upper_thr = thresholds[upper_name]
             lower_thr = thresholds[lower_name]
@@ -142,7 +142,7 @@ class OHCSFScoringEngine:
     ) -> Decimal:
         """Descending KPI: lower actual → higher score (e.g. error rate)."""
         outstanding = thresholds["outstanding"]  # smallest value (best)
-        poor = thresholds["poor"]                # largest value (worst)
+        poor = thresholds["poor"]  # largest value (worst)
 
         # At or below outstanding threshold → 100%
         if actual <= outstanding:
@@ -157,7 +157,7 @@ class OHCSFScoringEngine:
         # Interpolate between adjacent bands (note: bands are in descending
         # threshold order, so "lower" threshold value = better performance)
         for i in range(len(_ASCENDING_BANDS) - 1):
-            better_name = _ASCENDING_BANDS[i]     # lower threshold value = better
+            better_name = _ASCENDING_BANDS[i]  # lower threshold value = better
             worse_name = _ASCENDING_BANDS[i + 1]  # higher threshold value = worse
 
             better_thr = thresholds[better_name]

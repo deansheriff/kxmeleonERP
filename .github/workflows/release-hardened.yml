@@ -80,7 +80,7 @@ jobs:
             -e REDIS_URL=redis://ci-hard-redis:6379/0 \
             -e DOTMAC_DEV_MODE=true \
             dotmac-erp-hardened:ci \
-            alembic upgrade head
+            alembic upgrade heads
 
           # Start app in dev mode (no license file needed for CI)
           docker run -d --name ci-hard-app --network ci-hardened-net \

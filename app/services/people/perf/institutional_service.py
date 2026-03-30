@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -131,7 +131,9 @@ class InstitutionalPerformanceService:
 
         raw_score = raw_score.quantize(Decimal("0.01"))
         # weight is stored as a whole number percentage (e.g. 30 for 30%)
-        weighted_score = (raw_score * weight_d / Decimal("100")).quantize(Decimal("0.01"))
+        weighted_score = (raw_score * weight_d / Decimal("100")).quantize(
+            Decimal("0.01")
+        )
 
         entry = dict(entry)
         entry["raw_score"] = str(raw_score)
@@ -303,7 +305,7 @@ class InstitutionalPerformanceService:
         composite = self._scoring_engine.calculate_composite(weighted_scores)
         _rating_int, rating_label = self._scoring_engine.score_to_rating(composite)
 
-        record.criteria_scores = scored
+        record.criteria_scores = cast(dict[str, Any] | None, scored)
         record.composite_score = composite
         record.rating_label = rating_label
         record.status = InstitutionalPerfStatus.APPRAISED
@@ -369,8 +371,7 @@ class InstitutionalPerformanceService:
 
         self.db.flush()
         logger.info(
-            "Reconciled InstitutionalPerformance %s by %s; "
-            "pre=%.2f adjusted=%s",
+            "Reconciled InstitutionalPerformance %s by %s; pre=%.2f adjusted=%s",
             inst_perf_id,
             reconciled_by_id,
             record.pre_reconciliation_composite or 0,

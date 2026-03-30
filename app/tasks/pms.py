@@ -605,7 +605,9 @@ def pms_probation_check() -> dict[str, Any]:
             results["orgs_checked"] += 1
             try:
                 service = UnderperformanceService(db)
-                milestones = service.check_probation_milestones(org_id=org.organization_id)
+                milestones = service.check_probation_milestones(
+                    org_id=org.organization_id
+                )
 
                 for milestone in milestones:
                     try:
@@ -861,7 +863,11 @@ def pms_pip_review_reminder() -> dict[str, Any]:
         window_end = today + timedelta(days=7)
         notification_service = NotificationService()
 
-        active_pip_statuses = [PIPStatus.ACTIVE, PIPStatus.UNDER_REVIEW, PIPStatus.EXTENDED]
+        active_pip_statuses = [
+            PIPStatus.ACTIVE,
+            PIPStatus.UNDER_REVIEW,
+            PIPStatus.EXTENDED,
+        ]
 
         orgs = db.scalars(
             select(Organization).where(Organization.pms_ohcsf_enabled == True)  # noqa: E712
@@ -872,7 +878,8 @@ def pms_pip_review_reminder() -> dict[str, Any]:
             try:
                 active_pips = db.scalars(
                     select(PerformanceImprovementPlan).where(
-                        PerformanceImprovementPlan.organization_id == org.organization_id,
+                        PerformanceImprovementPlan.organization_id
+                        == org.organization_id,
                         PerformanceImprovementPlan.status.in_(active_pip_statuses),
                     )
                 ).all()
@@ -892,12 +899,16 @@ def pms_pip_review_reminder() -> dict[str, Any]:
                                 if not interval_date_str:
                                     continue
 
-                                interval_date = date.fromisoformat(str(interval_date_str))
+                                interval_date = date.fromisoformat(
+                                    str(interval_date_str)
+                                )
                                 if not (today <= interval_date <= window_end):
                                     continue
 
                                 days_until = (interval_date - today).days
-                                interval_label = f"Review on {interval_date.strftime('%d %b %Y')}"
+                                interval_label = (
+                                    f"Review on {interval_date.strftime('%d %b %Y')}"
+                                )
 
                                 supervisor_person_id = _resolve_person_id(
                                     db, org.organization_id, pip.supervisor_id

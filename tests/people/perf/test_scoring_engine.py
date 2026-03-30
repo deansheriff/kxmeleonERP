@@ -13,7 +13,10 @@ from decimal import Decimal
 
 import pytest
 
-from app.services.people.perf.scoring_engine import OHCSF_RATING_SCALE, OHCSFScoringEngine
+from app.services.people.perf.scoring_engine import (
+    OHCSF_RATING_SCALE,
+    OHCSFScoringEngine,
+)
 
 
 @pytest.fixture
@@ -47,12 +50,16 @@ DESCENDING_THRESHOLDS = {
 class TestRawScore:
     """Tests for calculate_raw_score()."""
 
-    def test_outstanding_achievement_returns_100(self, engine: OHCSFScoringEngine) -> None:
+    def test_outstanding_achievement_returns_100(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Actual >= outstanding threshold → 100%."""
         result = engine.calculate_raw_score(Decimal("90"), ASCENDING_THRESHOLDS)
         assert result == Decimal("100.00")
 
-    def test_at_outstanding_threshold_returns_100(self, engine: OHCSFScoringEngine) -> None:
+    def test_at_outstanding_threshold_returns_100(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Actual exactly at outstanding threshold → 100%."""
         result = engine.calculate_raw_score(Decimal("85"), ASCENDING_THRESHOLDS)
         assert result == Decimal("100.00")
@@ -122,27 +129,37 @@ class TestRawScore:
         result = engine.calculate_raw_score(Decimal("65"), ASCENDING_THRESHOLDS)
         assert result == Decimal("75.00")
 
-    def test_at_exact_good_threshold_returns_80(self, engine: OHCSFScoringEngine) -> None:
+    def test_at_exact_good_threshold_returns_80(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Actual exactly at Good threshold(70) → 80%."""
         result = engine.calculate_raw_score(Decimal("70"), ASCENDING_THRESHOLDS)
         assert result == Decimal("80.00")
 
-    def test_at_exact_fair_threshold_returns_70(self, engine: OHCSFScoringEngine) -> None:
+    def test_at_exact_fair_threshold_returns_70(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Actual exactly at Fair threshold(60) → 70%."""
         result = engine.calculate_raw_score(Decimal("60"), ASCENDING_THRESHOLDS)
         assert result == Decimal("70.00")
 
-    def test_at_exact_excellent_threshold_returns_90(self, engine: OHCSFScoringEngine) -> None:
+    def test_at_exact_excellent_threshold_returns_90(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Actual exactly at Excellent threshold(80) → 90%."""
         result = engine.calculate_raw_score(Decimal("80"), ASCENDING_THRESHOLDS)
         assert result == Decimal("90.00")
 
-    def test_at_exact_poor_threshold_returns_60(self, engine: OHCSFScoringEngine) -> None:
+    def test_at_exact_poor_threshold_returns_60(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Actual exactly at Poor threshold(50) → 60%."""
         result = engine.calculate_raw_score(Decimal("50"), ASCENDING_THRESHOLDS)
         assert result == Decimal("60.00")
 
-    def test_below_poor_threshold_proportional(self, engine: OHCSFScoringEngine) -> None:
+    def test_below_poor_threshold_proportional(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Actual=25 below poor threshold=50 → proportional below 60%."""
         # actual=25, poor=50, proportional: (25/50) * 60 = 30%
         result = engine.calculate_raw_score(Decimal("25"), ASCENDING_THRESHOLDS)
@@ -159,7 +176,9 @@ class TestRawScore:
         result = engine.calculate_raw_score(Decimal("75"), ASCENDING_THRESHOLDS)
         assert result == Decimal("85.00")
 
-    def test_between_excellent_and_outstanding(self, engine: OHCSFScoringEngine) -> None:
+    def test_between_excellent_and_outstanding(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Actual=83 between excellent(80) and outstanding(85) → 96%."""
         # 90 + (3/5)*(100-90) = 90 + 6 = 96
         result = engine.calculate_raw_score(Decimal("83"), ASCENDING_THRESHOLDS)
@@ -171,7 +190,9 @@ class TestRawScore:
         result = engine.calculate_raw_score(Decimal("55"), ASCENDING_THRESHOLDS)
         assert result == Decimal("65.00")
 
-    def test_inverse_thresholds_lower_is_better(self, engine: OHCSFScoringEngine) -> None:
+    def test_inverse_thresholds_lower_is_better(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Error rate: out=0.5, exc=1, good=2, fair=4, poor=6, actual=1.8 → ~82%."""
         # actual=1.8 between good(2) and excellent(1)
         # For descending: lower threshold value = excellent=1, upper = good=2
@@ -185,7 +206,9 @@ class TestRawScore:
         result = engine.calculate_raw_score(Decimal("0.5"), DESCENDING_THRESHOLDS)
         assert result == Decimal("100.00")
 
-    def test_inverse_below_outstanding_threshold(self, engine: OHCSFScoringEngine) -> None:
+    def test_inverse_below_outstanding_threshold(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Error rate better than outstanding threshold → 100%."""
         result = engine.calculate_raw_score(Decimal("0.2"), DESCENDING_THRESHOLDS)
         assert result == Decimal("100.00")
@@ -196,12 +219,16 @@ class TestRawScore:
         result = engine.calculate_raw_score(Decimal("9"), DESCENDING_THRESHOLDS)
         assert result == Decimal("40.00")
 
-    def test_inverse_at_poor_threshold_returns_60(self, engine: OHCSFScoringEngine) -> None:
+    def test_inverse_at_poor_threshold_returns_60(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Error rate exactly at poor threshold → 60%."""
         result = engine.calculate_raw_score(Decimal("6"), DESCENDING_THRESHOLDS)
         assert result == Decimal("60.00")
 
-    def test_inverse_at_fair_threshold_returns_70(self, engine: OHCSFScoringEngine) -> None:
+    def test_inverse_at_fair_threshold_returns_70(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Error rate exactly at fair threshold → 70%."""
         result = engine.calculate_raw_score(Decimal("4"), DESCENDING_THRESHOLDS)
         assert result == Decimal("70.00")
@@ -255,7 +282,9 @@ class TestComposite:
         result = engine.calculate_composite([Decimal("72.50")])
         assert result == Decimal("72.50")
 
-    def test_composite_empty_list_returns_zero(self, engine: OHCSFScoringEngine) -> None:
+    def test_composite_empty_list_returns_zero(
+        self, engine: OHCSFScoringEngine
+    ) -> None:
         """Empty list of weighted scores → 0.00."""
         result = engine.calculate_composite([])
         assert result == Decimal("0.00")

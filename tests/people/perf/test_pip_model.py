@@ -8,8 +8,6 @@ table configuration, and relationship declarations.
 import uuid
 from datetime import date
 
-import pytest
-
 from app.models.people.perf.pip import PerformanceImprovementPlan
 from app.models.people.perf.pms_enums import PIPCauseCategory, PIPOutcome, PIPStatus
 
@@ -34,7 +32,9 @@ class TestPIPInstantiation:
             end_date=date(2026, 4, 1),
             reason="Consistent failure to meet KPIs",
             cause_category=PIPCauseCategory.SKILLS,
-            improvement_areas=[{"area": "Time management", "target": "Submit reports on time"}],
+            improvement_areas=[
+                {"area": "Time management", "target": "Submit reports on time"}
+            ],
         )
 
         assert pip.organization_id == org_id
@@ -118,7 +118,9 @@ class TestPIPTableConfig:
 
     def test_table_name(self):
         """Table name is 'performance_improvement_plan'."""
-        assert PerformanceImprovementPlan.__tablename__ == "performance_improvement_plan"
+        assert (
+            PerformanceImprovementPlan.__tablename__ == "performance_improvement_plan"
+        )
 
     def test_schema(self):
         """Table is in the 'perf' schema."""
@@ -180,7 +182,10 @@ class TestPIPFields:
 
     def test_review_intervals_accepts_json(self):
         """review_intervals accepts a JSON-serialisable value."""
-        intervals = [{"week": 2, "type": "check-in"}, {"week": 6, "type": "formal-review"}]
+        intervals = [
+            {"week": 2, "type": "check-in"},
+            {"week": 6, "type": "formal-review"},
+        ]
         pip = PerformanceImprovementPlan(review_intervals=intervals)
         assert pip.review_intervals == intervals
 

@@ -13,7 +13,7 @@ from datetime import date
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
-from starlette.datastructures import UploadFile
+from starlette.datastructures import FormData, UploadFile
 
 from app.models.people.perf.pms_enums import MonthlyReviewStatus
 from app.services.common import PaginationParams, coerce_uuid
@@ -26,10 +26,10 @@ from .base import parse_date, parse_uuid
 logger = logging.getLogger(__name__)
 
 
-def _get_form_str(form: object, key: str, default: str = "") -> str:
+def _get_form_str(form: FormData | None, key: str, default: str = "") -> str:
     if form is None:
         return default
-    value = form.get(key, default)  # type: ignore[union-attr]
+    value = form.get(key, default)
     if isinstance(value, UploadFile) or value is None:
         return default
     return str(value).strip()
@@ -124,9 +124,7 @@ class MonthlyReviewWebService:
         try:
             review = svc.get_review(org_id, coerce_uuid(review_id))
         except Exception:
-            return RedirectResponse(
-                url="/people/perf/pms/reviews", status_code=303
-            )
+            return RedirectResponse(url="/people/perf/pms/reviews", status_code=303)
 
         context = base_context(
             request,
@@ -194,9 +192,7 @@ class MonthlyReviewWebService:
             pagination=PaginationParams(limit=200),
         ).items
 
-        context = base_context(
-            request, auth, "New Monthly Review", "perf", db=db
-        )
+        context = base_context(request, auth, "New Monthly Review", "perf", db=db)
         context["request"] = request
         context.update(
             {
@@ -304,9 +300,7 @@ class MonthlyReviewWebService:
         svc = MonthlyReviewService(db)
 
         try:
-            reviewer_feedback = (
-                _get_form_str(form_data, "reviewer_feedback") or None
-            )
+            reviewer_feedback = _get_form_str(form_data, "reviewer_feedback") or None
             agreed_actions = _get_form_str(form_data, "agreed_actions") or None
             challenges = _get_form_str(form_data, "challenges") or None
             support_required = _get_form_str(form_data, "support_required") or None
@@ -357,9 +351,7 @@ class MonthlyReviewWebService:
             db.commit()
         except Exception as e:
             db.rollback()
-            logger.warning(
-                "Acknowledge review failed for %s: %s", review_id, e
-            )
+            logger.warning("Acknowledge review failed for %s: %s", review_id, e)
             return RedirectResponse(
                 url=f"/people/perf/pms/reviews/{review_id}?error=ack_failed",
                 status_code=303,

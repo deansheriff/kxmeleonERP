@@ -115,7 +115,9 @@ class TestGetAppeal:
 
 
 class TestFileAppeal:
-    def _make_service_with_no_existing_appeal_and_no_appraisal(self) -> AppraisalAppealService:
+    def _make_service_with_no_existing_appeal_and_no_appraisal(
+        self,
+    ) -> AppraisalAppealService:
         """Service whose DB returns None for both existing appeal check and appraisal fetch."""
         db = MagicMock()
         db.scalar.return_value = None
@@ -208,8 +210,10 @@ class TestFileAppeal:
         service = AppraisalAppealService(db)
 
         # completed on a Monday; filing on the following Wednesday = 8 working days later
-        completion_date = date(2026, 2, 2)   # Monday
-        filed_date = date(2026, 2, 11)        # Wednesday (7 working days later: T W Th F M T W)
+        completion_date = date(2026, 2, 2)  # Monday
+        filed_date = date(
+            2026, 2, 11
+        )  # Wednesday (7 working days later: T W Th F M T W)
 
         mock_appraisal = MagicMock(spec=Appraisal)
         mock_appraisal.completed_on = completion_date
@@ -233,8 +237,8 @@ class TestFileAppeal:
         db = MagicMock()
         service = AppraisalAppealService(db)
 
-        completion_date = date(2026, 2, 2)   # Monday
-        filed_date = date(2026, 2, 6)         # Friday — 5 working days inclusive
+        completion_date = date(2026, 2, 2)  # Monday
+        filed_date = date(2026, 2, 6)  # Friday — 5 working days inclusive
 
         mock_appraisal = MagicMock(spec=Appraisal)
         mock_appraisal.completed_on = completion_date
@@ -317,7 +321,9 @@ class TestAssignMediator:
         db.scalar.return_value = None
 
         with pytest.raises(AppealNotFoundError):
-            service.assign_mediator(uuid.uuid4(), uuid.uuid4(), mediator_id=uuid.uuid4())
+            service.assign_mediator(
+                uuid.uuid4(), uuid.uuid4(), mediator_id=uuid.uuid4()
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -600,9 +606,7 @@ class TestListAppeals:
         service = AppraisalAppealService(db)
 
         # paginate is called via db.scalar and db.scalars — mock the result
-        with patch(
-            "app.services.people.perf.appeal_service.paginate"
-        ) as mock_paginate:
+        with patch("app.services.people.perf.appeal_service.paginate") as mock_paginate:
             expected = PaginatedResult(items=[], total=0, offset=0, limit=50)
             mock_paginate.return_value = expected
 
@@ -619,7 +623,9 @@ class TestListAppeals:
         service = AppraisalAppealService(db)
 
         with patch("app.services.people.perf.appeal_service.paginate") as mock_paginate:
-            mock_paginate.return_value = PaginatedResult(items=[], total=0, offset=0, limit=25)
+            mock_paginate.return_value = PaginatedResult(
+                items=[], total=0, offset=0, limit=25
+            )
 
             result = service.list_appeals(
                 uuid.uuid4(),

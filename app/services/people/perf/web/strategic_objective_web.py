@@ -183,12 +183,16 @@ class StrategicObjectiveWebService:
                 cycle_id=cycle_id,
                 objective_code=objective_code,
                 description=description,
-                department_id=parse_uuid(self._form_text(form_data.get("department_id"))),
+                department_id=parse_uuid(
+                    self._form_text(form_data.get("department_id"))
+                ),
                 parent_objective_id=parse_uuid(
                     self._form_text(form_data.get("parent_objective_id"))
                 ),
-                source_document=self._form_text(form_data.get("source_document")) or None,
-                target_description=self._form_text(form_data.get("target_description")) or None,
+                source_document=self._form_text(form_data.get("source_document"))
+                or None,
+                target_description=self._form_text(form_data.get("target_description"))
+                or None,
                 weight=parse_decimal(self._form_text(form_data.get("weight"))),
             )
             db.commit()

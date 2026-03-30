@@ -102,7 +102,9 @@ class AppraisalAppealService:
 
     def _resolution_deadline(self, cycle_year: int) -> date:
         """Return the Feb-28 deadline for a given cycle year."""
-        return date(cycle_year, self.RESOLUTION_DEADLINE_MONTH, self.RESOLUTION_DEADLINE_DAY)
+        return date(
+            cycle_year, self.RESOLUTION_DEADLINE_MONTH, self.RESOLUTION_DEADLINE_DAY
+        )
 
     # ------------------------------------------------------------------
     # Public query methods
@@ -175,7 +177,9 @@ class AppraisalAppealService:
 
         stmt = select(AppraisalAppeal).where(
             AppraisalAppeal.organization_id == org_id,
-            AppraisalAppeal.status.notin_([AppealStatus.RESOLVED, AppealStatus.DISMISSED]),
+            AppraisalAppeal.status.notin_(
+                [AppealStatus.RESOLVED, AppealStatus.DISMISSED]
+            ),
         )
         return list(self.db.scalars(stmt).all())
 
@@ -220,7 +224,9 @@ class AppraisalAppealService:
         existing_stmt = select(AppraisalAppeal).where(
             AppraisalAppeal.organization_id == org_id,
             AppraisalAppeal.appraisal_id == appraisal_id,
-            AppraisalAppeal.status.notin_([AppealStatus.RESOLVED, AppealStatus.DISMISSED]),
+            AppraisalAppeal.status.notin_(
+                [AppealStatus.RESOLVED, AppealStatus.DISMISSED]
+            ),
         )
         existing = self.db.scalar(existing_stmt)
         if existing is not None:
@@ -237,7 +243,9 @@ class AppraisalAppealService:
             )
         )
         if appraisal is not None and appraisal.completed_on is not None:
-            working_days_elapsed = calculate_workdays(appraisal.completed_on, filed_date)
+            working_days_elapsed = calculate_workdays(
+                appraisal.completed_on, filed_date
+            )
             if working_days_elapsed > self.FILING_WINDOW_WORKING_DAYS:
                 raise AppealValidationError(
                     f"Appeal must be filed within {self.FILING_WINDOW_WORKING_DAYS} "
@@ -438,5 +446,7 @@ class AppraisalAppealService:
         appeal = self._get_or_raise(org_id, appeal_id)
         appeal.communicated_date = date.today()
         self.db.flush()
-        logger.info("Appeal %s outcome communicated on %s", appeal_id, appeal.communicated_date)
+        logger.info(
+            "Appeal %s outcome communicated on %s", appeal_id, appeal.communicated_date
+        )
         return appeal

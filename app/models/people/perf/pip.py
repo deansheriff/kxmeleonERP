@@ -12,12 +12,12 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Date,
     Enum,
     ForeignKey,
     Index,
-    JSON,
     String,
     Text,
     UniqueConstraint,

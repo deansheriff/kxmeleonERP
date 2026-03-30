@@ -5,6 +5,7 @@ Usage:
     from app.services.people.perf.web import perf_web_service
 """
 
+from .appeal_web import AppealWebService
 from .base import (
     FEEDBACK_TYPES,
     KPI_MEASUREMENT_TYPES,
@@ -17,7 +18,6 @@ from .base import (
     parse_kpi_status,
     parse_uuid,
 )
-from .appeal_web import AppealWebService
 from .contract_web import ContractWebService
 from .cycle_web import CycleWebService
 from .institutional_web import InstitutionalWebService

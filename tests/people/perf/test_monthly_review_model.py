@@ -8,10 +8,10 @@ table configuration, and relationship declarations.
 import uuid
 from datetime import date
 
-import pytest
-
 from app.models.people.perf.monthly_review import MonthlyReview
-from app.models.people.perf.performance_contract import PerformanceContract  # noqa: F401 — registers mapper
+from app.models.people.perf.performance_contract import (
+    PerformanceContract,  # noqa: F401 — registers mapper
+)
 from app.models.people.perf.pms_enums import MonthlyReviewStatus
 
 

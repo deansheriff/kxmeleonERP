@@ -11,11 +11,11 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    JSON,
     Date,
     Enum,
     ForeignKey,
     Index,
-    JSON,
     Text,
     UniqueConstraint,
     func,

@@ -19,7 +19,6 @@ from app.services.common import PaginationParams, coerce_uuid
 from app.services.people.perf.pip_service import (
     PIPNotFoundError,
     PIPService,
-    PIPServiceError,
     PIPStatusError,
     PIPValidationError,
 )
@@ -71,7 +70,9 @@ class PIPWebService:
             pagination=pagination,
         )
 
-        context = base_context(request, auth, "Performance Improvement Plans", "perf", db=db)
+        context = base_context(
+            request, auth, "Performance Improvement Plans", "perf", db=db
+        )
         context["request"] = request
         context.update(
             {
@@ -86,9 +87,7 @@ class PIPWebService:
                 "has_next": result.has_next,
             }
         )
-        return templates.TemplateResponse(
-            request, "people/perf/pms/pips.html", context
-        )
+        return templates.TemplateResponse(request, "people/perf/pms/pips.html", context)
 
     def pip_detail_response(
         self,
@@ -120,9 +119,7 @@ class PIPWebService:
                 request, "people/perf/pms/pip_detail.html", context, status_code=404
             )
 
-        context = base_context(
-            request, auth, f"PIP {pip.pip_code}", "perf", db=db
-        )
+        context = base_context(request, auth, f"PIP {pip.pip_code}", "perf", db=db)
         context["request"] = request
         success = request.query_params.get("saved")
         context.update(
@@ -155,7 +152,9 @@ class PIPWebService:
             EmployeeFilters(is_active=True), PaginationParams(limit=500)
         ).items
 
-        context = base_context(request, auth, "New Performance Improvement Plan", "perf", db=db)
+        context = base_context(
+            request, auth, "New Performance Improvement Plan", "perf", db=db
+        )
         context["request"] = request
         context.update(
             {
@@ -195,11 +194,15 @@ class PIPWebService:
 
             # Parse improvement areas from form (simple text areas)
             areas_text = self._form_text(form_data.get("improvement_areas"))
-            improvement_areas = [
-                {"area": line.strip(), "target": ""}
-                for line in areas_text.splitlines()
-                if line.strip()
-            ] if areas_text else []
+            improvement_areas = (
+                [
+                    {"area": line.strip(), "target": ""}
+                    for line in areas_text.splitlines()
+                    if line.strip()
+                ]
+                if areas_text
+                else []
+            )
 
             pip = svc.create_pip(
                 org_id,
@@ -212,7 +215,8 @@ class PIPWebService:
                 reason=self._form_text(form_data.get("reason")),
                 cause_category=self._form_text(form_data.get("cause_category")),
                 improvement_areas=improvement_areas,
-                support_measures=self._form_text(form_data.get("support_measures")) or None,
+                support_measures=self._form_text(form_data.get("support_measures"))
+                or None,
             )
             db.commit()
             return RedirectResponse(
@@ -381,7 +385,9 @@ class PIPWebService:
             try:
                 outcome = PIPOutcome(outcome_str)
             except ValueError as exc:
-                raise PIPValidationError(f"Invalid outcome value: {outcome_str}") from exc
+                raise PIPValidationError(
+                    f"Invalid outcome value: {outcome_str}"
+                ) from exc
             notes = str(form_data.get("notes", "")).strip()
             if not notes:
                 raise PIPValidationError("Notes are required")

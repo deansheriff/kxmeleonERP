@@ -139,9 +139,7 @@ def test_institutional_weights_criteria_are_positive() -> None:
 def test_institutional_weights_criteria_names_non_empty() -> None:
     for inst_type, criteria in OHCSF_INSTITUTIONAL_WEIGHTS.items():
         for name, _weight in criteria:
-            assert name.strip(), (
-                f"Empty criteria name in {inst_type}"
-            )
+            assert name.strip(), f"Empty criteria name in {inst_type}"
 
 
 def test_institutional_weights_entries_are_tuples_of_two() -> None:

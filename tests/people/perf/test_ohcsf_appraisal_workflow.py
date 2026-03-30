@@ -10,16 +10,18 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from app.models.people.perf.appraisal import Appraisal, AppraisalKRAScore, AppraisalStatus
+from app.models.people.perf.appraisal import (
+    Appraisal,
+    AppraisalStatus,
+)
 from app.models.people.perf.pms_enums import CommitteeDecision
 from app.services.people.perf.ohcsf_appraisal_service import (
-    CascadeUpViolation,
     OHCSF_STATUS_TRANSITIONS,
+    CascadeUpViolation,
     OHCSFAppraisalError,
     OHCSFAppraisalNotFoundError,
     OHCSFAppraisalService,
@@ -84,7 +86,9 @@ class TestErrorHierarchy:
         assert isinstance(err, OHCSFAppraisalError)
 
     def test_status_error_is_base_error(self) -> None:
-        err = OHCSFAppraisalStatusError(AppraisalStatus.DRAFT, AppraisalStatus.COMPLETED)
+        err = OHCSFAppraisalStatusError(
+            AppraisalStatus.DRAFT, AppraisalStatus.COMPLETED
+        )
         assert isinstance(err, OHCSFAppraisalError)
 
     def test_cascade_up_is_base_error(self) -> None:
@@ -92,7 +96,9 @@ class TestErrorHierarchy:
         assert isinstance(err, OHCSFAppraisalError)
 
     def test_status_error_stores_statuses(self) -> None:
-        err = OHCSFAppraisalStatusError(AppraisalStatus.DRAFT, AppraisalStatus.COMPLETED)
+        err = OHCSFAppraisalStatusError(
+            AppraisalStatus.DRAFT, AppraisalStatus.COMPLETED
+        )
         assert err.current == AppraisalStatus.DRAFT
         assert err.target == AppraisalStatus.COMPLETED
 
@@ -125,10 +131,15 @@ class TestStatusTransitions:
         assert expected.issubset(set(OHCSF_STATUS_TRANSITIONS.keys()))
 
     def test_draft_can_move_to_self_assessment(self) -> None:
-        assert AppraisalStatus.SELF_ASSESSMENT in OHCSF_STATUS_TRANSITIONS[AppraisalStatus.DRAFT]
+        assert (
+            AppraisalStatus.SELF_ASSESSMENT
+            in OHCSF_STATUS_TRANSITIONS[AppraisalStatus.DRAFT]
+        )
 
     def test_draft_can_be_cancelled(self) -> None:
-        assert AppraisalStatus.CANCELLED in OHCSF_STATUS_TRANSITIONS[AppraisalStatus.DRAFT]
+        assert (
+            AppraisalStatus.CANCELLED in OHCSF_STATUS_TRANSITIONS[AppraisalStatus.DRAFT]
+        )
 
     def test_self_assessment_to_pending_review(self) -> None:
         assert (
@@ -138,7 +149,8 @@ class TestStatusTransitions:
 
     def test_self_assessment_can_return_to_draft(self) -> None:
         assert (
-            AppraisalStatus.DRAFT in OHCSF_STATUS_TRANSITIONS[AppraisalStatus.SELF_ASSESSMENT]
+            AppraisalStatus.DRAFT
+            in OHCSF_STATUS_TRANSITIONS[AppraisalStatus.SELF_ASSESSMENT]
         )
 
     def test_pending_review_to_under_review(self) -> None:
@@ -411,7 +423,10 @@ class TestSubmitManagerReview:
         svc, ap = self._setup(AppraisalStatus.DRAFT)
         with pytest.raises(OHCSFAppraisalStatusError):
             svc.submit_manager_review_ohcsf(
-                ORG_ID, ap.appraisal_id, manager_overall_rating=3, manager_summary="Bad flow"
+                ORG_ID,
+                ap.appraisal_id,
+                manager_overall_rating=3,
+                manager_summary="Bad flow",
             )
 
     def test_sets_process_rating(self) -> None:
@@ -450,16 +465,12 @@ class TestSubmitCountersign:
 
     def test_transitions_to_countersigned(self) -> None:
         svc, ap = self._setup()
-        svc.submit_countersign(
-            ORG_ID, ap.appraisal_id, counter_signer_id=uuid.uuid4()
-        )
+        svc.submit_countersign(ORG_ID, ap.appraisal_id, counter_signer_id=uuid.uuid4())
         assert ap.status == AppraisalStatus.COUNTERSIGNED
 
     def test_sets_counter_signer_date(self) -> None:
         svc, ap = self._setup()
-        svc.submit_countersign(
-            ORG_ID, ap.appraisal_id, counter_signer_id=uuid.uuid4()
-        )
+        svc.submit_countersign(ORG_ID, ap.appraisal_id, counter_signer_id=uuid.uuid4())
         assert ap.counter_signer_date == date.today()
 
     def test_sets_counter_signer_id(self) -> None:
@@ -607,8 +618,7 @@ class TestAnnualRatingCalculation:
         # First scalars call: sub_cycle_ids
         # Second scalars call: appraisals
         appraisals = [
-            self._make_completed_appraisal(q_cycle_ids[i], scores[i])
-            for i in range(4)
+            self._make_completed_appraisal(q_cycle_ids[i], scores[i]) for i in range(4)
         ]
 
         scalars_mock = MagicMock()

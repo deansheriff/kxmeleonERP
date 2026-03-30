@@ -17,21 +17,24 @@ from __future__ import annotations
 import logging
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.people.perf.appraisal import Appraisal, AppraisalKRAScore, AppraisalStatus
+from app.models.people.perf.appraisal import (
+    Appraisal,
+    AppraisalKRAScore,
+    AppraisalStatus,
+)
 from app.models.people.perf.appraisal_cycle import AppraisalCycle
 from app.models.people.perf.competency_assessment import CompetencyAssessment
 from app.models.people.perf.pms_enums import CommitteeDecision
 from app.services.people.perf.scoring_engine import OHCSFScoringEngine
-from app.services.common import PaginatedResult, PaginationParams
 
 if TYPE_CHECKING:
-    from app.web.deps import WebAuthContext
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +46,10 @@ TWO_DP = Decimal("0.01")
 
 OHCSF_STATUS_TRANSITIONS: dict[AppraisalStatus, set[AppraisalStatus]] = {
     AppraisalStatus.DRAFT: {AppraisalStatus.SELF_ASSESSMENT, AppraisalStatus.CANCELLED},
-    AppraisalStatus.SELF_ASSESSMENT: {AppraisalStatus.PENDING_REVIEW, AppraisalStatus.DRAFT},
+    AppraisalStatus.SELF_ASSESSMENT: {
+        AppraisalStatus.PENDING_REVIEW,
+        AppraisalStatus.DRAFT,
+    },
     AppraisalStatus.PENDING_REVIEW: {AppraisalStatus.UNDER_REVIEW},
     AppraisalStatus.UNDER_REVIEW: {
         AppraisalStatus.PENDING_COUNTERSIGN,
@@ -147,14 +153,17 @@ class OHCSFAppraisalService:
 
         # Count their incomplete appraisals in this cycle
         terminal_statuses = {AppraisalStatus.COMPLETED, AppraisalStatus.CANCELLED}
-        incomplete_count = self.db.scalar(
-            select(func.count(Appraisal.appraisal_id)).where(
-                Appraisal.organization_id == org_id,
-                Appraisal.cycle_id == cycle_id,
-                Appraisal.employee_id.in_(direct_report_ids),
-                Appraisal.status.not_in(terminal_statuses),
+        incomplete_count = (
+            self.db.scalar(
+                select(func.count(Appraisal.appraisal_id)).where(
+                    Appraisal.organization_id == org_id,
+                    Appraisal.cycle_id == cycle_id,
+                    Appraisal.employee_id.in_(direct_report_ids),
+                    Appraisal.status.not_in(terminal_statuses),
+                )
             )
-        ) or 0
+            or 0
+        )
 
         if incomplete_count > 0:
             raise CascadeUpViolation(incomplete_count)
@@ -284,10 +293,10 @@ class OHCSFAppraisalService:
         *,
         self_overall_rating: int,
         self_summary: str,
-        achievements: Optional[str] = None,
-        challenges: Optional[str] = None,
-        development_needs: Optional[str] = None,
-        kra_ratings: Optional[list[dict]] = None,
+        achievements: str | None = None,
+        challenges: str | None = None,
+        development_needs: str | None = None,
+        kra_ratings: list[dict] | None = None,
     ) -> Appraisal:
         """Employee submits self-assessment; transitions to PENDING_REVIEW.
 
@@ -301,7 +310,9 @@ class OHCSFAppraisalService:
             AppraisalStatus.DRAFT,
             AppraisalStatus.SELF_ASSESSMENT,
         ):
-            raise OHCSFAppraisalStatusError(appraisal.status, AppraisalStatus.PENDING_REVIEW)
+            raise OHCSFAppraisalStatusError(
+                appraisal.status, AppraisalStatus.PENDING_REVIEW
+            )
 
         self._check_cascade_up(org_id, appraisal.cycle_id, appraisal.employee_id)
 
@@ -340,10 +351,10 @@ class OHCSFAppraisalService:
         *,
         manager_overall_rating: int,
         manager_summary: str,
-        manager_recommendations: Optional[str] = None,
-        kra_ratings: Optional[list[dict]] = None,
-        competency_ratings: Optional[list[dict]] = None,
-        process_rating: Optional[int] = None,
+        manager_recommendations: str | None = None,
+        kra_ratings: list[dict] | None = None,
+        competency_ratings: list[dict] | None = None,
+        process_rating: int | None = None,
     ) -> Appraisal:
         """Manager submits review; calculates composite scores; transitions to PENDING_COUNTERSIGN."""
         appraisal = self._get_or_404(org_id, appraisal_id)
@@ -379,8 +390,11 @@ class OHCSFAppraisalService:
         objective_score = self._compute_objective_score(appraisal_id, org_id)
         competency_score = self._compute_competency_score(appraisal_id, org_id)
         process_score = (
-            (Decimal(str(appraisal.process_final_rating)) / Decimal("5") * Decimal("100"))
-            .quantize(TWO_DP, rounding=ROUND_HALF_UP)
+            (
+                Decimal(str(appraisal.process_final_rating))
+                / Decimal("5")
+                * Decimal("100")
+            ).quantize(TWO_DP, rounding=ROUND_HALF_UP)
             if appraisal.process_final_rating
             else Decimal("0.00")
         )
@@ -413,7 +427,7 @@ class OHCSFAppraisalService:
         appraisal_id: UUID,
         *,
         counter_signer_id: UUID,
-        comments: Optional[str] = None,
+        comments: str | None = None,
     ) -> Appraisal:
         """Countersigner endorses the appraisal; transitions to COUNTERSIGNED."""
         appraisal = self._get_or_404(org_id, appraisal_id)
@@ -439,8 +453,8 @@ class OHCSFAppraisalService:
         appraisal_id: UUID,
         *,
         decision: CommitteeDecision,
-        notes: Optional[str] = None,
-        adjusted_rating: Optional[int] = None,
+        notes: str | None = None,
+        adjusted_rating: int | None = None,
     ) -> Appraisal:
         """Committee reviews countersigned appraisal; transitions to COMPLETED."""
         appraisal = self._get_or_404(org_id, appraisal_id)
@@ -448,7 +462,9 @@ class OHCSFAppraisalService:
         # Accept from COUNTERSIGNED (auto-advance) or PENDING_COMMITTEE
         if appraisal.status == AppraisalStatus.COUNTERSIGNED:
             # Validate COUNTERSIGNED → PENDING_COMMITTEE first
-            self._validate_transition(appraisal.status, AppraisalStatus.PENDING_COMMITTEE)
+            self._validate_transition(
+                appraisal.status, AppraisalStatus.PENDING_COMMITTEE
+            )
         elif appraisal.status == AppraisalStatus.PENDING_COMMITTEE:
             self._validate_transition(appraisal.status, AppraisalStatus.COMPLETED)
         else:
@@ -507,7 +523,9 @@ class OHCSFAppraisalService:
         )
         if sub_cycle is None:
             logger.warning(
-                "No quarterly sub-cycle found for cycle=%s quarter=%s", cycle_id, quarter
+                "No quarterly sub-cycle found for cycle=%s quarter=%s",
+                cycle_id,
+                quarter,
             )
             return []
 
@@ -608,7 +626,11 @@ class OHCSFAppraisalService:
 
         quarterly_scores: list[dict] = []
         for ap in appraisals:
-            score = ap.quarterly_rating if ap.quarterly_rating is not None else ap.final_score
+            score = (
+                ap.quarterly_rating
+                if ap.quarterly_rating is not None
+                else ap.final_score
+            )
             if score is not None:
                 quarterly_scores.append(
                     {

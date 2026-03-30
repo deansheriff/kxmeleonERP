@@ -55,9 +55,7 @@ class TestPMSMonthlyReviewReminder:
             result = pms.pms_monthly_review_reminder()
 
         assert result["reminders_sent"] == 1
-        resolve_person.assert_called_once_with(
-            mock_db, org_id, supervisor_employee_id
-        )
+        resolve_person.assert_called_once_with(mock_db, org_id, supervisor_employee_id)
         call = notification_service.create_if_not_sent_since.call_args.kwargs
         assert call["recipient_id"] == supervisor_person_id
         assert call["since"] == pms._window_start(date.today().replace(day=1))
@@ -108,9 +106,7 @@ class TestPMSProbationCheck:
             result = pms.pms_probation_check()
 
         assert result["notifications_sent"] == 1
-        resolve_person.assert_called_once_with(
-            mock_db, org_id, manager_employee_id
-        )
+        resolve_person.assert_called_once_with(mock_db, org_id, manager_employee_id)
         call = notification_service.create_if_not_sent_since.call_args.kwargs
         assert call["recipient_id"] == manager_person_id
         assert call["entity_id"] == employee_id

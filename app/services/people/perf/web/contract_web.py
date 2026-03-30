@@ -13,7 +13,7 @@ import logging
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
-from starlette.datastructures import UploadFile
+from starlette.datastructures import FormData, UploadFile
 
 from app.models.people.perf.pms_enums import ContractStatus, ContractType
 from app.services.common import PaginationParams, coerce_uuid
@@ -27,10 +27,10 @@ from .base import parse_uuid
 logger = logging.getLogger(__name__)
 
 
-def _get_form_str(form: object, key: str, default: str = "") -> str:
+def _get_form_str(form: FormData | None, key: str, default: str = "") -> str:
     if form is None:
         return default
-    value = form.get(key, default)  # type: ignore[union-attr]
+    value = form.get(key, default)
     if isinstance(value, UploadFile) or value is None:
         return default
     return str(value).strip()
@@ -133,9 +133,7 @@ class ContractWebService:
         try:
             contract = svc.get_contract(org_id, coerce_uuid(contract_id))
         except Exception:
-            return RedirectResponse(
-                url="/people/perf/pms/contracts", status_code=303
-            )
+            return RedirectResponse(url="/people/perf/pms/contracts", status_code=303)
 
         # Fetch linked monthly reviews for the detail view
         reviews = review_svc.list_reviews(
@@ -191,9 +189,7 @@ class ContractWebService:
             PaginationParams(limit=500),
         ).items
 
-        context = base_context(
-            request, auth, "New Performance Contract", "perf", db=db
-        )
+        context = base_context(request, auth, "New Performance Contract", "perf", db=db)
         context["request"] = request
         context.update(
             {
@@ -357,9 +353,7 @@ class ContractWebService:
             db.commit()
         except Exception as e:
             db.rollback()
-            logger.warning(
-                "Supervisor sign failed for contract %s: %s", contract_id, e
-            )
+            logger.warning("Supervisor sign failed for contract %s: %s", contract_id, e)
             return RedirectResponse(
                 url=f"/people/perf/pms/contracts/{contract_id}?error=sign_failed",
                 status_code=303,

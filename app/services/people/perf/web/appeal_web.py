@@ -17,7 +17,6 @@ from app.models.people.perf.pms_enums import AppealDecision, AppealStatus
 from app.services.common import PaginationParams, coerce_uuid
 from app.services.people.perf.appeal_service import (
     AppealNotFoundError,
-    AppealServiceError,
     AppealValidationError,
     AppraisalAppealService,
 )
@@ -207,7 +206,8 @@ class AppealWebService:
                 employee_id=employee_id,
                 filed_date=filed_date,
                 reason=self._form_text(form_data.get("reason")),
-                requested_outcome=self._form_text(form_data.get("requested_outcome")) or None,
+                requested_outcome=self._form_text(form_data.get("requested_outcome"))
+                or None,
             )
             db.commit()
             return RedirectResponse(
@@ -241,9 +241,7 @@ class AppealWebService:
                 EmployeeFilters(), PaginationParams(limit=500)
             ).items
 
-            context = base_context(
-                request, auth, "File an Appeal", "perf", db=db
-            )
+            context = base_context(request, auth, "File an Appeal", "perf", db=db)
             context["request"] = request
             context.update(
                 {
@@ -329,7 +327,9 @@ class AppealWebService:
             )
         except Exception:
             db.rollback()
-            logger.exception("Failed to record mediation outcome for appeal %s", appeal_id)
+            logger.exception(
+                "Failed to record mediation outcome for appeal %s", appeal_id
+            )
             return RedirectResponse(
                 url=f"/people/perf/pms/appeals/{appeal_id}?error=An+unexpected+error+occurred",
                 status_code=303,
@@ -352,7 +352,9 @@ class AppealWebService:
             try:
                 decision = AppealDecision(decision_str)
             except ValueError as exc:
-                raise AppealValidationError(f"Invalid decision value: {decision_str}") from exc
+                raise AppealValidationError(
+                    f"Invalid decision value: {decision_str}"
+                ) from exc
             notes = str(form_data.get("notes", "")).strip()
             if not notes:
                 raise AppealValidationError("Notes are required")
@@ -377,7 +379,9 @@ class AppealWebService:
             )
         except Exception:
             db.rollback()
-            logger.exception("Failed to record committee decision for appeal %s", appeal_id)
+            logger.exception(
+                "Failed to record committee decision for appeal %s", appeal_id
+            )
             return RedirectResponse(
                 url=f"/people/perf/pms/appeals/{appeal_id}?error=An+unexpected+error+occurred",
                 status_code=303,

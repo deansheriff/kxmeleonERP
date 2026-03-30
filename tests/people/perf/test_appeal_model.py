@@ -8,8 +8,6 @@ table configuration, and relationship declarations.
 import uuid
 from datetime import date
 
-import pytest
-
 from app.models.people.perf.appraisal_appeal import AppraisalAppeal
 from app.models.people.perf.pms_enums import AppealDecision, AppealStatus
 

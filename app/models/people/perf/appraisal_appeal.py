@@ -79,22 +79,22 @@ class AppraisalAppeal(Base, AuditMixin):
         Text,
         nullable=False,
     )
-    requested_outcome: Mapped[Optional[str]] = mapped_column(
+    requested_outcome: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
     # Mediation stage
-    mediator_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    mediator_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("hr.employee.employee_id"),
         nullable=True,
     )
-    mediation_date: Mapped[Optional[date]] = mapped_column(
+    mediation_date: Mapped[date | None] = mapped_column(
         Date,
         nullable=True,
     )
-    mediation_outcome: Mapped[Optional[str]] = mapped_column(
+    mediation_outcome: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
@@ -105,38 +105,38 @@ class AppraisalAppeal(Base, AuditMixin):
     )
 
     # Committee stage
-    committee_referral_date: Mapped[Optional[date]] = mapped_column(
+    committee_referral_date: Mapped[date | None] = mapped_column(
         Date,
         nullable=True,
     )
-    committee_hearing_date: Mapped[Optional[date]] = mapped_column(
+    committee_hearing_date: Mapped[date | None] = mapped_column(
         Date,
         nullable=True,
     )
-    committee_decision: Mapped[Optional[AppealDecision]] = mapped_column(
+    committee_decision: Mapped[AppealDecision | None] = mapped_column(
         Enum(AppealDecision, name="appeal_decision", schema="perf"),
         nullable=True,
     )
-    committee_notes: Mapped[Optional[str]] = mapped_column(
+    committee_notes: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
-    adjusted_rating: Mapped[Optional[int]] = mapped_column(
+    adjusted_rating: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="Final adjusted rating granted by committee (1-5)",
     )
 
     # Resolution
-    resolution_date: Mapped[Optional[date]] = mapped_column(
+    resolution_date: Mapped[date | None] = mapped_column(
         Date,
         nullable=True,
     )
-    resolution_notes: Mapped[Optional[str]] = mapped_column(
+    resolution_notes: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
-    communicated_date: Mapped[Optional[date]] = mapped_column(
+    communicated_date: Mapped[date | None] = mapped_column(
         Date,
         nullable=True,
         comment="Date outcome was formally communicated to employee",
@@ -147,7 +147,7 @@ class AppraisalAppeal(Base, AuditMixin):
         nullable=False,
         server_default=func.now(),
     )
-    updated_at: Mapped[Optional[datetime]] = mapped_column(
+    updated_at: Mapped[datetime | None] = mapped_column(
         nullable=True,
         onupdate=func.now(),
     )
