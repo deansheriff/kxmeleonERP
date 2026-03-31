@@ -15,6 +15,7 @@
 
 {% block content %}
 {% set can_edit_person = can_edit_person if can_edit_person is defined else false %}
+{% set fd = form_data or {} %}
 <div class="w-full max-w-none">
     {# Error alert #}
     {% if error %}
@@ -45,18 +46,38 @@
 
     <form id="employee-form" method="post" action="/people/hr/employees/{% if employee %}{{ employee.employee_id }}/edit{% else %}new{% endif %}" class="space-y-6"
         x-data='{
-            activeTab: "personal",
+            activeTab: {{ (fd["current_tab"] if "current_tab" in fd else "personal") | tojson }},
             loadingTab: null,
             selectedDesignationIsNysc: false,
-            nyscStartDate: {{ (employee.nysc_start_date.isoformat() if employee and employee.nysc_start_date else form_data.nysc_start_date | default("", true)) | tojson }},
-            nyscEndDate: {{ (employee.nysc_end_date.isoformat() if employee and employee.nysc_end_date else form_data.nysc_end_date | default("", true)) | tojson }},
+            nyscStartDate: {{ ((fd["nysc_start_date"] if "nysc_start_date" in fd else (employee.nysc_start_date.isoformat() if employee and employee.nysc_start_date else ""))) | tojson }},
+            nyscEndDate: {{ ((fd["nysc_end_date"] if "nysc_end_date" in fd else (employee.nysc_end_date.isoformat() if employee and employee.nysc_end_date else ""))) | tojson }},
+            stateKey: {{ ("employee-form-state:" ~ ((employee.employee_id | string) if employee else "new")) | tojson }},
             switchTab(tab) {
                 if (this.activeTab === tab || this.loadingTab) return;
                 this.loadingTab = tab;
                 window.setTimeout(() => {
                     this.activeTab = tab;
+                    this.persistState();
                     this.loadingTab = null;
                 }, 220);
+            },
+            persistState() {
+                const payload = {
+                    activeTab: this.activeTab,
+                    scrollY: window.scrollY || 0
+                };
+                window.sessionStorage.setItem(this.stateKey, JSON.stringify(payload));
+            },
+            restoreState() {
+                try {
+                    const saved = window.sessionStorage.getItem(this.stateKey);
+                    if (!saved) return;
+                    const payload = JSON.parse(saved);
+                    if (payload.activeTab) this.activeTab = payload.activeTab;
+                    if (typeof payload.scrollY === "number") {
+                        window.setTimeout(() => window.scrollTo(0, payload.scrollY), 0);
+                    }
+                } catch (e) {}
             },
             updateDesignationMeta() {
                 const select = this.$refs.designationSelect;
@@ -68,8 +89,9 @@
                 }
             }
         }'
-        x-init="updateDesignationMeta()">
+        x-init="restoreState(); updateDesignationMeta()">
         {{ request.state.csrf_form | safe }}
+        <input type="hidden" name="current_tab" :value="activeTab">
 
         {% set nigeria_states = nigeria_states if nigeria_states is defined else [
             "Abia",
@@ -110,29 +132,37 @@
             "Zamfara",
             "FCT",
         ] %}
-        {% set tin_value = form_data.tin | default(tax_profile.tin if tax_profile else '', true) %}
-        {% set tax_state_value = form_data.tax_state | default(tax_profile.tax_state if tax_profile else '', true) %}
-        {% set rsa_pin_value = form_data.rsa_pin | default(tax_profile.rsa_pin if tax_profile else '', true) %}
-        {% set selected_pfa = form_data.pfa_code | default(tax_profile.pfa_code if tax_profile else '', true) %}
-        {% set pension_rate_value = form_data.pension_rate | default(tax_profile.pension_rate if tax_profile else '', true) %}
-        {% set nhf_value = form_data.nhf_number | default(tax_profile.nhf_number if tax_profile else '', true) %}
+        {% set tin_value = fd["tin"] if "tin" in fd else (tax_profile.tin if tax_profile else "") %}
+        {% set tax_state_value = fd["tax_state"] if "tax_state" in fd else (tax_profile.tax_state if tax_profile else "") %}
+        {% set rsa_pin_value = fd["rsa_pin"] if "rsa_pin" in fd else (tax_profile.rsa_pin if tax_profile else "") %}
+        {% set selected_pfa = fd["pfa_code"] if "pfa_code" in fd else (tax_profile.pfa_code if tax_profile else "") %}
+        {% set pension_rate_value = fd["pension_rate"] if "pension_rate" in fd else (tax_profile.pension_rate if tax_profile else "") %}
+        {% set nhf_value = fd["nhf_number"] if "nhf_number" in fd else (tax_profile.nhf_number if tax_profile else "") %}
         {% set pfa_choices = pfas if pfas is defined else [] %}
+        {% set personal_email_value = fd["personal_email"] if "personal_email" in fd else (employee.personal_email if employee and employee.personal_email and employee.personal_email | string | lower not in ["none", "null"] else "") %}
+        {% set personal_phone_value = fd["personal_phone"] if "personal_phone" in fd else (employee.personal_phone if employee and employee.personal_phone and employee.personal_phone | string | lower not in ["none", "null"] else "") %}
+        {% set emergency_contact_name_value = fd["emergency_contact_name"] if "emergency_contact_name" in fd else (employee.emergency_contact_name if employee and employee.emergency_contact_name and employee.emergency_contact_name | string | lower not in ["none", "null"] else "") %}
+        {% set emergency_contact_phone_value = fd["emergency_contact_phone"] if "emergency_contact_phone" in fd else (employee.emergency_contact_phone if employee and employee.emergency_contact_phone and employee.emergency_contact_phone | string | lower not in ["none", "null"] else "") %}
+        {% set bank_name_value = fd["bank_name"] if "bank_name" in fd else (employee.bank_name if employee and employee.bank_name and employee.bank_name | string | lower not in ["none", "null"] else "") %}
+        {% set bank_account_name_value = fd["bank_account_name"] if "bank_account_name" in fd else (employee.bank_account_name if employee and employee.bank_account_name and employee.bank_account_name | string | lower not in ["none", "null"] else "") %}
+        {% set bank_account_number_value = fd["bank_account_number"] if "bank_account_number" in fd else (employee.bank_account_number if employee and employee.bank_account_number and employee.bank_account_number | string | lower not in ["none", "null"] else "") %}
+        {% set bank_branch_code_value = fd["bank_branch_code"] if "bank_branch_code" in fd else (employee.bank_branch_code if employee and employee.bank_branch_code and employee.bank_branch_code | string | lower not in ["none", "null"] else "") %}
 
         <div class="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
-                <button type="button" @click="switchTab('personal')"
+                <button type="button" data-tab-trigger="personal" @click="switchTab('personal')"
                     :class="activeTab === 'personal' && !loadingTab ? 'bg-violet-600 text-white shadow-sm' : 'bg-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'"
                     class="rounded-xl px-4 py-3 text-left text-sm font-medium transition">
                     <span class="block">Personal Information</span>
                     <span class="mt-1 block text-xs" :class="activeTab === 'personal' && !loadingTab ? 'text-violet-100' : 'text-slate-500 dark:text-slate-400'">Profile and emergency details</span>
                 </button>
-                <button type="button" @click="switchTab('employment')"
+                <button type="button" data-tab-trigger="employment" @click="switchTab('employment')"
                     :class="activeTab === 'employment' && !loadingTab ? 'bg-violet-600 text-white shadow-sm' : 'bg-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'"
                     class="rounded-xl px-4 py-3 text-left text-sm font-medium transition">
                     <span class="block">Employment Details</span>
                     <span class="mt-1 block text-xs" :class="activeTab === 'employment' && !loadingTab ? 'text-violet-100' : 'text-slate-500 dark:text-slate-400'">Job setup and banking</span>
                 </button>
-                <button type="button" @click="switchTab('statutory')"
+                <button type="button" data-tab-trigger="statutory" @click="switchTab('statutory')"
                     :class="activeTab === 'statutory' && !loadingTab ? 'bg-violet-600 text-white shadow-sm' : 'bg-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'"
                     class="rounded-xl px-4 py-3 text-left text-sm font-medium transition">
                     <span class="block">Tax, Pension & NHF</span>
@@ -174,25 +204,31 @@
                 <div class="card-body space-y-4 px-6 pb-6">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="first_name" class="form-label{% if not employee %} required{% endif %}">First Name <span class="text-rose-500">*</span></label>
+                            <label for="first_name" class="form-label{% if not employee or can_edit_person %} required{% endif %}">First Name{% if not employee or can_edit_person %} <span class="text-rose-500">*</span>{% endif %}</label>
                             <input type="text" name="first_name" id="first_name"
-                                value="{{ person.first_name if person else form_data.first_name | default('', true) }}"
+                                value="{{ fd['first_name'] if 'first_name' in fd else (person.first_name if person else '') }}"
+                                data-tab="personal"
+                                placeholder="Enter first name"
                                 {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}required class="form-input w-full {% if errors.first_name %}border-red-500{% endif %}"{% endif %}>
                             {% if errors.first_name %}<p class="text-sm text-red-500 mt-1">{{ errors.first_name }}</p>{% endif %}
                         </div>
                         <div>
-                            <label for="last_name" class="form-label{% if not employee %} required{% endif %}">Last Name <span class="text-rose-500">*</span></label>
+                            <label for="last_name" class="form-label{% if not employee or can_edit_person %} required{% endif %}">Last Name{% if not employee or can_edit_person %} <span class="text-rose-500">*</span>{% endif %}</label>
                             <input type="text" name="last_name" id="last_name"
-                                value="{{ person.last_name if person else form_data.last_name | default('', true) }}"
+                                value="{{ fd['last_name'] if 'last_name' in fd else (person.last_name if person else '') }}"
+                                data-tab="personal"
+                                placeholder="Enter last name"
                                 {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}required class="form-input w-full {% if errors.last_name %}border-red-500{% endif %}"{% endif %}>
                             {% if errors.last_name %}<p class="text-sm text-red-500 mt-1">{{ errors.last_name }}</p>{% endif %}
                         </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="email" class="form-label{% if not employee %} required{% endif %}">Email <span class="text-rose-500">*</span></label>
+                            <label for="email" class="form-label{% if not employee or can_edit_person %} required{% endif %}">Email{% if not employee or can_edit_person %} <span class="text-rose-500">*</span>{% endif %}</label>
                             <input type="email" name="email" id="email"
-                                value="{{ person.email if person else form_data.email | default('', true) }}"
+                                value="{{ fd['email'] if 'email' in fd else (person.email if person else '') }}"
+                                data-tab="personal"
+                                placeholder="Enter work email"
                                 {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}required class="form-input w-full {% if errors.email %}border-red-500{% endif %}"{% endif %}>
                             {% if errors.email %}<p class="text-sm text-red-500 mt-1">{{ errors.email }}</p>{% endif %}
                             {% if employee and not can_edit_person %}<p class="text-xs text-slate-500 mt-1">Personal info is managed in the Person record.</p>{% endif %}
@@ -200,25 +236,75 @@
                         <div>
                             <label for="phone" class="form-label">Phone</label>
                             <input type="text" name="phone" id="phone"
-                                value="{{ person.phone if person else form_data.phone | default('', true) }}"
+                                value="{{ fd['phone'] if 'phone' in fd else (person.phone if person else '') }}"
+                                placeholder="Enter phone number"
                                 {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}>
                         </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label for="date_of_birth" class="form-label">Date of Birth</label><input type="date" name="date_of_birth" id="date_of_birth" value="{{ person.date_of_birth.isoformat() if person and person.date_of_birth else form_data.date_of_birth | default('', true) }}" {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}></div>
-                        <div><label for="gender" class="form-label">Gender</label><select name="gender" id="gender" class="form-input w-full" {% if employee and not can_edit_person %}disabled{% endif %}><option value="">Select gender</option>{% for g in genders %}<option value="{{ g }}" {{ 'selected' if (person and person.gender.value == g) or (form_data.gender == g) }}>{{ g | replace('_', ' ') | title }}</option>{% endfor %}</select></div>
+                        <div>
+                            <label for="date_of_birth" class="form-label">Date of Birth</label>
+                            <input
+                                type="date"
+                                name="date_of_birth"
+                                id="date_of_birth"
+                                value="{{ fd['date_of_birth'] if 'date_of_birth' in fd else (person.date_of_birth.isoformat() if person and person.date_of_birth else '') }}"
+                                {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}>
+                        </div>
+                        <div>
+                            <label for="gender" class="form-label">Gender</label>
+                            {% set selected_gender = fd["gender"] if "gender" in fd else (person.gender.value if person and person.gender else "") %}
+                            <select name="gender" id="gender" class="form-input w-full" {% if employee and not can_edit_person %}disabled{% endif %}>
+                                <option value="">Select gender</option>
+                                {% for g in genders %}
+                                <option value="{{ g }}" {{ "selected" if selected_gender == g }}>
+                                    {{ g | replace('_', ' ') | title }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label for="address_line1" class="form-label">Address Line 1</label><input type="text" name="address_line1" id="address_line1" value="{{ person.address_line1 if person else form_data.address_line1 | default('', true) }}" {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}></div>
-                        <div><label for="address_line2" class="form-label">Address Line 2</label><input type="text" name="address_line2" id="address_line2" value="{{ person.address_line2 if person else form_data.address_line2 | default('', true) }}" {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}></div>
+                        <div>
+                            <label for="address_line1" class="form-label">Address Line 1</label>
+                            <input type="text" name="address_line1" id="address_line1"
+                                value="{{ fd['address_line1'] if 'address_line1' in fd else (person.address_line1 if person else '') }}"
+                                {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}>
+                        </div>
+                        <div>
+                            <label for="address_line2" class="form-label">Address Line 2</label>
+                            <input type="text" name="address_line2" id="address_line2"
+                                value="{{ fd['address_line2'] if 'address_line2' in fd else (person.address_line2 if person else '') }}"
+                                {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}>
+                        </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label for="city" class="form-label">City</label><input type="text" name="city" id="city" value="{{ person.city if person else form_data.city | default('', true) }}" {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}></div>
-                        <div><label for="region" class="form-label">State/Region</label><input type="text" name="region" id="region" value="{{ person.region if person else form_data.region | default('', true) }}" {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}></div>
+                        <div>
+                            <label for="city" class="form-label">City</label>
+                            <input type="text" name="city" id="city"
+                                value="{{ fd['city'] if 'city' in fd else (person.city if person else '') }}"
+                                {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}>
+                        </div>
+                        <div>
+                            <label for="region" class="form-label">State/Region</label>
+                            <input type="text" name="region" id="region"
+                                value="{{ fd['region'] if 'region' in fd else (person.region if person else '') }}"
+                                {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}>
+                        </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label for="postal_code" class="form-label">Postal Code</label><input type="text" name="postal_code" id="postal_code" value="{{ person.postal_code if person else form_data.postal_code | default('', true) }}" {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}></div>
-                        <div><label for="country_code" class="form-label">Country Code</label><input type="text" name="country_code" id="country_code" value="{{ person.country_code if person else form_data.country_code | default('', true) }}" {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full" placeholder="US"{% endif %}></div>
+                        <div>
+                            <label for="postal_code" class="form-label">Postal Code</label>
+                            <input type="text" name="postal_code" id="postal_code"
+                                value="{{ fd['postal_code'] if 'postal_code' in fd else (person.postal_code if person else '') }}"
+                                {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full"{% endif %}>
+                        </div>
+                        <div>
+                            <label for="country_code" class="form-label">Country Code</label>
+                            <input type="text" name="country_code" id="country_code"
+                                value="{{ fd['country_code'] if 'country_code' in fd else (person.country_code if person else '') }}"
+                                {% if employee and not can_edit_person %}readonly class="form-input w-full bg-slate-50 dark:bg-slate-800"{% else %}class="form-input w-full" placeholder="Enter country code"{% endif %}>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -230,14 +316,14 @@
                 <div class="card-body space-y-4 px-6 pb-6" x-show="expanded" x-collapse>
                     <p class="text-sm text-slate-500 dark:text-slate-400">Personal contact info separate from work email/phone on Person record.</p>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label for="personal_email" class="form-label">Personal Email</label><input type="email" name="personal_email" id="personal_email" value="{{ employee.personal_email if employee else form_data.personal_email | default('', true) }}" class="form-input w-full" placeholder="personal@example.com"></div>
-                        <div><label for="personal_phone" class="form-label">Personal Phone</label><input type="text" name="personal_phone" id="personal_phone" value="{{ employee.personal_phone if employee else form_data.personal_phone | default('', true) }}" class="form-input w-full" placeholder="+234 xxx xxx xxxx"></div>
+                        <div><label for="personal_email" class="form-label">Personal Email</label><input type="email" name="personal_email" id="personal_email" value="{{ personal_email_value }}" class="form-input w-full" placeholder="personal@example.com"></div>
+                        <div><label for="personal_phone" class="form-label">Personal Phone</label><input type="text" name="personal_phone" id="personal_phone" value="{{ personal_phone_value }}" class="form-input w-full" placeholder="+234 xxx xxx xxxx"></div>
                     </div>
                     <div class="pt-2 border-t border-slate-200 dark:border-slate-700">
                         <p class="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Emergency Contact</p>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><label for="emergency_contact_name" class="form-label">Contact Name</label><input type="text" name="emergency_contact_name" id="emergency_contact_name" value="{{ employee.emergency_contact_name if employee else form_data.emergency_contact_name | default('', true) }}" class="form-input w-full" placeholder="Full name"></div>
-                            <div><label for="emergency_contact_phone" class="form-label">Contact Phone</label><input type="text" name="emergency_contact_phone" id="emergency_contact_phone" value="{{ employee.emergency_contact_phone if employee else form_data.emergency_contact_phone | default('', true) }}" class="form-input w-full" placeholder="+234 xxx xxx xxxx"></div>
+                            <div><label for="emergency_contact_name" class="form-label">Contact Name</label><input type="text" name="emergency_contact_name" id="emergency_contact_name" value="{{ emergency_contact_name_value }}" class="form-input w-full" placeholder="Full name"></div>
+                            <div><label for="emergency_contact_phone" class="form-label">Contact Phone</label><input type="text" name="emergency_contact_phone" id="emergency_contact_phone" value="{{ emergency_contact_phone_value }}" class="form-input w-full" placeholder="+234 xxx xxx xxxx"></div>
                         </div>
                     </div>
                 </div>
@@ -254,7 +340,7 @@
                     <div>
                         <label for="employee_code" class="form-label">Employee Code</label>
                         <input type="text" name="employee_code" id="employee_code"
-                            value="{{ employee.employee_code if employee else form_data.employee_code | default('', true) }}"
+                            value="{{ fd['employee_code'] if 'employee_code' in fd else (employee.employee_code if employee else '') }}"
                             placeholder="Auto-generated if empty"
                             class="form-input w-full {% if errors.employee_code %}border-red-500{% endif %}">
                         {% if errors.employee_code %}
@@ -262,10 +348,12 @@
                         {% endif %}
                     </div>
                     <div>
-                        <label for="date_of_joining" class="form-label{% if not employee %} required{% endif %}">Date of Joining <span class="text-rose-500">*</span></label>
+                        <label for="date_of_joining" class="form-label required">Date of Joining <span class="text-rose-500">*</span></label>
                         <input type="date" name="date_of_joining" id="date_of_joining"
-                            value="{{ employee.date_of_joining.isoformat() if employee and employee.date_of_joining else form_data.date_of_joining | default('', true) }}"
-                            {% if not employee %}required{% endif %}
+                            value="{{ fd['date_of_joining'] if 'date_of_joining' in fd else (employee.date_of_joining.isoformat() if employee and employee.date_of_joining else '') }}"
+                            required
+                            data-tab="employment"
+                            placeholder="Select date of joining"
                             class="form-input w-full {% if errors.date_of_joining %}border-red-500{% endif %}">
                         {% if errors.date_of_joining %}
                         <p class="text-sm text-red-500 mt-1">{{ errors.date_of_joining }}</p>
@@ -276,11 +364,12 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label for="department_id" class="form-label">Department</label>
+                        {% set selected_department_id = fd["department_id"] if "department_id" in fd else (employee.department_id | string if employee and employee.department_id else "") %}
                         <select name="department_id" id="department_id" class="form-input w-full">
-                            <option value="">Select Department</option>
+                            <option value="">Select department</option>
                             {% for dept in departments %}
                             <option value="{{ dept.department_id }}"
-                                {{ 'selected' if (employee and employee.department_id == dept.department_id) or (form_data.department_id == dept.department_id | string) }}>
+                                {{ "selected" if (dept.department_id | string) == selected_department_id }}>
                                 {{ dept.department_name }}
                             </option>
                             {% endfor %}
@@ -288,12 +377,13 @@
                     </div>
                     <div>
                         <label for="designation_id" class="form-label">Designation</label>
+                        {% set selected_designation_id = fd["designation_id"] if "designation_id" in fd else (employee.designation_id | string if employee and employee.designation_id else "") %}
                         <select name="designation_id" id="designation_id" class="form-input w-full" x-ref="designationSelect" @change="updateDesignationMeta()">
-                            <option value="">Select Designation</option>
+                            <option value="">Select designation</option>
                             {% for desig in designations %}
                             <option value="{{ desig.designation_id }}"
                                 data-is-nysc="{{ 'true' if desig.designation_name and desig.designation_name.upper().endswith('(NYSC)') else 'false' }}"
-                                {{ 'selected' if (employee and employee.designation_id == desig.designation_id) or (form_data.designation_id == desig.designation_id | string) }}>
+                                {{ "selected" if (desig.designation_id | string) == selected_designation_id }}>
                                 {{ desig.designation_name }}
                             </option>
                             {% endfor %}
@@ -328,7 +418,7 @@
                     <div>
                         <label for="employment_type_id" class="form-label">Contract Type</label>
                         <select name="employment_type_id" id="employment_type_id" class="form-input w-full">
-                            <option value="">Select Employment Type</option>
+                            <option value="">Select employment type</option>
                             {% for emp_type in employment_types %}
                             <option value="{{ emp_type.employment_type_id }}"
                                 {{ 'selected' if (employee and employee.employment_type_id == emp_type.employment_type_id) or (form_data.employment_type_id == emp_type.employment_type_id | string) }}>
@@ -340,7 +430,7 @@
                     <div>
                         <label for="grade_id" class="form-label">Grade</label>
                         <select name="grade_id" id="grade_id" class="form-input w-full">
-                            <option value="">Select Grade</option>
+                            <option value="">Select grade</option>
                             {% for grade in grades %}
                             <option value="{{ grade.grade_id }}"
                                 {{ 'selected' if (employee and employee.grade_id == grade.grade_id) or (form_data.grade_id == grade.grade_id | string) }}>
@@ -363,7 +453,7 @@
                     <div>
                         <label for="salary_mode" class="form-label">Salary Mode</label>
                         <select name="salary_mode" id="salary_mode" class="form-input w-full">
-                            <option value="">Select Salary Mode</option>
+                            <option value="">Select salary mode</option>
                             {% for mode in salary_modes %}
                             <option value="{{ mode }}"
                                 {{ 'selected' if (employee and employee.salary_mode and employee.salary_mode.value == mode) or (form_data.salary_mode == mode) }}>
@@ -378,7 +468,7 @@
                     <div>
                         <label for="reports_to_id" class="form-label">Reports To</label>
                         <select name="reports_to_id" id="reports_to_id" class="form-input w-full">
-                            <option value="">Select Manager</option>
+                            <option value="">Select manager</option>
                             {% for mgr in managers %}
                             <option value="{{ mgr.employee_id }}"
                                 {{ 'selected' if (employee and employee.reports_to_id == mgr.employee_id) or (form_data.reports_to_id == mgr.employee_id | string) }}>
@@ -390,7 +480,7 @@
                     <div>
                         <label for="cost_center_id" class="form-label">Cost Center</label>
                         <select name="cost_center_id" id="cost_center_id" class="form-input w-full">
-                            <option value="">Select Cost Center</option>
+                            <option value="">Select cost center</option>
                             {% for cc in cost_centers %}
                             <option value="{{ cc.cost_center_id }}"
                                 {{ 'selected' if (employee and employee.cost_center_id == cc.cost_center_id) or (form_data.cost_center_id == cc.cost_center_id | string) }}>
@@ -405,7 +495,7 @@
                     <div>
                         <label for="expense_approver_id" class="form-label">Expense Approver</label>
                         <select name="expense_approver_id" id="expense_approver_id" class="form-input w-full">
-                            <option value="">Select Expense Approver</option>
+                            <option value="">Select expense approver</option>
                             {% for mgr in managers %}
                             <option value="{{ mgr.employee_id }}"
                                 {{ 'selected' if (employee and employee.expense_approver_id == mgr.employee_id) or (form_data.expense_approver_id == mgr.employee_id | string) }}>
@@ -418,7 +508,7 @@
                     <div>
                         <label for="linked_person_id" class="form-label">Linked User Account</label>
                         <select name="linked_person_id" id="linked_person_id" class="form-input w-full">
-                            <option value="">No linked user</option>
+                            <option value="">Select linked user account</option>
                             {% for user in user_accounts %}
                             <option value="{{ user.person_id }}"
                                 {{ 'selected' if (employee and employee.person_id == user.person_id) or (form_data.linked_person_id == user.person_id | string) }}>
@@ -434,7 +524,7 @@
                     <div>
                         <label for="assigned_location_id" class="form-label">Assigned Branch</label>
                         <select name="assigned_location_id" id="assigned_location_id" class="form-input w-full">
-                            <option value="">Select Branch</option>
+                            <option value="">Select assigned branch</option>
                             {% for loc in locations %}
                             <option value="{{ loc.location_id }}"
                                 {{ 'selected' if (employee and employee.assigned_location_id == loc.location_id) or (form_data.assigned_location_id == loc.location_id | string) }}>
@@ -446,7 +536,7 @@
                     <div>
                         <label for="default_shift_type_id" class="form-label">Default Shift Type</label>
                         <select name="default_shift_type_id" id="default_shift_type_id" class="form-input w-full">
-                            <option value="">Select Shift Type</option>
+                            <option value="">Select default shift type</option>
                             {% for shift in shift_types %}
                             <option value="{{ shift.shift_type_id }}"
                                 {{ 'selected' if (employee and employee.default_shift_type_id == shift.shift_type_id) or (form_data.default_shift_type_id == shift.shift_type_id | string) }}>
@@ -497,12 +587,12 @@
                 </div>
                 <div class="card-body space-y-4 px-6 pb-6" x-show="expanded" x-collapse>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label for="bank_name" class="form-label">Bank Name</label><input type="text" name="bank_name" id="bank_name" value="{{ employee.bank_name if employee else form_data.bank_name | default('', true) }}" class="form-input w-full"></div>
-                        <div><label for="bank_account_name" class="form-label">Account Name</label><input type="text" name="bank_account_name" id="bank_account_name" value="{{ employee.bank_account_name if employee else form_data.bank_account_name | default('', true) }}" class="form-input w-full"></div>
+                        <div><label for="bank_name" class="form-label">Bank Name</label><input type="text" name="bank_name" id="bank_name" value="{{ bank_name_value }}" class="form-input w-full"></div>
+                        <div><label for="bank_account_name" class="form-label">Account Name</label><input type="text" name="bank_account_name" id="bank_account_name" value="{{ bank_account_name_value }}" class="form-input w-full"></div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label for="bank_account_number" class="form-label">Account Number</label><input type="text" name="bank_account_number" id="bank_account_number" value="{{ employee.bank_account_number if employee else form_data.bank_account_number | default('', true) }}" class="form-input w-full font-mono"></div>
-                        <div><label for="bank_branch_code" class="form-label">Bank Code / Sort Code</label><input type="text" name="bank_branch_code" id="bank_branch_code" value="{{ employee.bank_branch_code if employee else form_data.bank_branch_code | default('', true) }}" class="form-input w-full font-mono"></div>
+                        <div><label for="bank_account_number" class="form-label">Account Number</label><input type="text" name="bank_account_number" id="bank_account_number" value="{{ bank_account_number_value }}" class="form-input w-full font-mono"></div>
+                        <div><label for="bank_branch_code" class="form-label">Bank Code / Sort Code</label><input type="text" name="bank_branch_code" id="bank_branch_code" value="{{ bank_branch_code_value }}" class="form-input w-full font-mono"></div>
                     </div>
                 </div>
             </div>
@@ -521,14 +611,14 @@
                             <div><h4 class="text-sm font-medium text-slate-900 dark:text-white">Tax Identification</h4><p class="text-sm text-slate-500 dark:text-slate-400">TIN and tax state for PAYE filings.</p></div>
                             <div class="grid grid-cols-1 md:grid-cols-2 md:gap-x-8 gap-y-5">
                                 <div><label for="tin" class="form-label">Tax Identification Number (TIN)</label><input type="text" name="tin" id="tin" value="{{ tin_value }}" placeholder="12345678-0001" class="form-input font-mono placeholder-slate-400/70 dark:placeholder-slate-500/70" style="width: 14rem;"></div>
-                                <div><label for="tax_state" class="form-label">Tax State</label><select name="tax_state" id="tax_state" class="form-select" style="width: 14rem;"><option value="">Select state</option>{% for state in nigeria_states %}<option value="{{ state }}" {{ 'selected' if tax_state_value == state }}>{{ state }}</option>{% endfor %}</select><p class="text-xs text-slate-500 dark:text-slate-400 mt-1">State where PAYE returns are remitted.</p></div>
+                                <div><label for="tax_state" class="form-label">Tax State</label><select name="tax_state" id="tax_state" class="form-select" style="width: 14rem;"><option value="">Select tax state</option>{% for state in nigeria_states %}<option value="{{ state }}" {{ 'selected' if tax_state_value == state }}>{{ state }}</option>{% endfor %}</select><p class="text-xs text-slate-500 dark:text-slate-400 mt-1">State where PAYE returns are remitted.</p></div>
                             </div>
                         </div>
                         <div class="space-y-5">
                             <div><h4 class="text-sm font-medium text-slate-900 dark:text-white">Pension Information</h4><p class="text-sm text-slate-500 dark:text-slate-400">RSA PIN and pension rate.</p></div>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                                 <div><label for="rsa_pin" class="form-label">RSA PIN</label><input type="text" name="rsa_pin" id="rsa_pin" value="{{ rsa_pin_value }}" placeholder="PEN100012345678" class="form-input font-mono placeholder-slate-400/70 dark:placeholder-slate-500/70" style="width: 14rem;"><p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Retirement Savings Account PIN from the employee's PFA.</p></div>
-                                <div><label for="pfa_code" class="form-label">Pension Fund Administrator (PFA)</label><select name="pfa_code" id="pfa_code" class="form-select" style="width: 14rem;"><option value="">Select PFA</option>{% for pfa in pfa_choices %}<option value="{{ pfa.pfa_code }}" {{ 'selected' if selected_pfa == pfa.pfa_code }}>{{ pfa.pfa_name }}{% if pfa.short_name %} ({{ pfa.short_name }}){% endif %}</option>{% endfor %}</select></div>
+                                <div><label for="pfa_code" class="form-label">Pension Fund Administrator (PFA)</label><select name="pfa_code" id="pfa_code" class="form-select" style="width: 14rem;"><option value="">Select pension fund administrator</option>{% for pfa in pfa_choices %}<option value="{{ pfa.pfa_code }}" {{ 'selected' if selected_pfa == pfa.pfa_code }}>{{ pfa.pfa_name }}{% if pfa.short_name %} ({{ pfa.short_name }}){% endif %}</option>{% endfor %}</select></div>
                             </div>
                             <div><label for="pension_rate" class="form-label">Pension Rate</label><input type="number" name="pension_rate" id="pension_rate" value="{{ pension_rate_value }}" step="0.0001" min="0" class="form-input" style="width: 14rem;"><p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Enter as a decimal (e.g., 0.08 for 8%).</p></div>
                         </div>
@@ -549,7 +639,7 @@
                class="btn btn-secondary">
                 Cancel
             </a>
-            <button id="employee-submit" type="button" class="btn btn-primary">
+            <button id="employee-submit" type="submit" class="btn btn-primary">
                 {% if employee %}Update{% else %}Create{% endif %} Employee
             </button>
         </div>
@@ -559,76 +649,81 @@
 <script>
     (function() {
         const form = document.getElementById("employee-form");
-        const btn = document.getElementById("employee-submit");
-        if (!form || !btn) return;
+        if (!form) return;
+        const stateKey = "employee-form-state:" + {{ ((employee.employee_id | string) if employee else "new") | tojson }};
+        const currentTabInput = form.querySelector('input[name="current_tab"]');
+        const tabButtons = Array.from(
+            document.querySelectorAll("[data-tab-trigger]")
+        );
 
-        btn.addEventListener("click", async function(event) {
-            event.preventDefault();
-
-            // Let the browser enforce required fields first.
-            if (!form.checkValidity()) {
-                form.reportValidity();
-                return;
+        function activateTab(tab) {
+            const button = document.querySelector(`[data-tab-trigger="${tab}"]`);
+            if (button) {
+                button.click();
+                if (currentTabInput) currentTabInput.value = tab;
             }
+        }
 
-            // Disable button to prevent double-submit
-            btn.disabled = true;
-            btn.textContent = 'Saving...';
+        function persistState() {
+            const payload = {
+                activeTab: currentTabInput ? currentTabInput.value : "personal",
+                scrollY: window.scrollY || 0,
+            };
+            window.sessionStorage.setItem(stateKey, JSON.stringify(payload));
+        }
 
-            const tokenInput = form.querySelector('input[name="csrf_token"]');
-            const tokenMeta = document.querySelector('meta[name="csrf-token"]');
-            const token = (tokenInput && tokenInput.value) || (tokenMeta && tokenMeta.getAttribute('content')) || '';
-            const headers = token ? { 'X-CSRF-Token': token } : {};
-            const body = new FormData(form);
+        tabButtons.forEach(function(button) {
+            button.addEventListener("click", function() {
+                const tab = button.getAttribute("data-tab-trigger") || "personal";
+                if (currentTabInput) currentTabInput.value = tab;
+                window.setTimeout(persistState, 250);
+            });
+        });
 
-            try {
-                const response = await fetch(form.action, {
-                    method: "POST",
-                    body,
-                    headers,
-                    credentials: "include",
-                    redirect: "follow",
-                });
-
-                // Success only when backend redirects to employee detail page.
-                if (response.redirected) {
-                    const url = new URL(response.url, window.location.origin);
-                    const createdOrUpdated = /^\/people\/hr\/employees\/[0-9a-fA-F-]+$/.test(url.pathname);
-                    if (createdOrUpdated) {
-                        url.searchParams.set('saved', '1');
-                        window.location.href = url.toString();
-                        return;
-                    }
+        try {
+            const saved = window.sessionStorage.getItem(stateKey);
+            if (saved) {
+                const payload = JSON.parse(saved);
+                if (payload.activeTab) {
+                    activateTab(payload.activeTab);
                 }
+                if (typeof payload.scrollY === "number") {
+                    window.setTimeout(function() {
+                        window.scrollTo(0, payload.scrollY);
+                    }, 250);
+                }
+            }
+        } catch (e) {}
 
-                // For server-rendered validation responses, render returned HTML.
-                const contentType = response.headers.get("content-type") || "";
-                if (response.ok && contentType.includes("text/html")) {
-                    const html = await response.text();
-                    document.open();
-                    document.write(html);
-                    document.close();
+        form.addEventListener("submit", function(event) {
+            if (currentTabInput) {
+                const invalidField = form.querySelector(":invalid");
+                if (invalidField instanceof HTMLElement) {
+                    const tab = invalidField.getAttribute("data-tab");
+                    if (tab) activateTab(tab);
+                    event.preventDefault();
+                    invalidField.reportValidity();
                     return;
                 }
-
-                // Handle error responses
-                let errorMsg = `Update failed (status ${response.status})`;
-                try {
-                    const text = await response.text();
-                    if (text) errorMsg += `: ${text.substring(0, 100)}`;
-                } catch (e) {}
-
-                console.error("Employee update failed", response.status, errorMsg);
-                window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: errorMsg, type: 'error' } }));
-                btn.disabled = false;
-                btn.textContent = '{% if employee %}Update{% else %}Create{% endif %} Employee';
-            } catch (err) {
-                console.error("Employee update failed", err);
-                window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: "Update failed: " + err.message, type: 'error' } }));
-                btn.disabled = false;
-                btn.textContent = '{% if employee %}Update{% else %}Create{% endif %} Employee';
             }
+            persistState();
         });
+
+        form.addEventListener(
+            "invalid",
+            function(event) {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            const tab = target.getAttribute("data-tab");
+            if (tab) {
+                activateTab(tab);
+            }
+            },
+            true
+        );
+
+        window.addEventListener("beforeunload", persistState);
     })();
 </script>
+
 {% endblock %}

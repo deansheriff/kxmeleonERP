@@ -13,6 +13,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 from starlette.datastructures import UploadFile
@@ -117,7 +118,23 @@ class HRWebService:
         return f"{scheme}://{host}".rstrip("/")
 
     @staticmethod
+    async def _request_form(request: Request) -> Any:
+        """Return parsed POST form data, ignoring template-only CSRF HTML."""
+        form = getattr(request.state, "csrf_form", None)
+        if form is None or isinstance(form, str):
+            return await request.form()
+        return form
+
+    @staticmethod
     def _clean_person_text(value: str | None) -> str | None:
+        cleaned = (value or "").strip()
+        if not cleaned or cleaned.lower() in {"none", "null"}:
+            return None
+        return cleaned
+
+    @staticmethod
+    def _clean_optional_text(value: str | None) -> str | None:
+        """Normalize optional string values coming from forms or persisted text."""
         cleaned = (value or "").strip()
         if not cleaned or cleaned.lower() in {"none", "null"}:
             return None
@@ -217,27 +234,45 @@ class HRWebService:
         else:
             gender = person.gender.value if person.gender else None
 
-        payload = PersonUpdate(
-            first_name=self._clean_person_text(self._form_str(form, "first_name")),
-            last_name=self._clean_person_text(self._form_str(form, "last_name")),
-            email=self._clean_person_text(self._form_str(form, "email")),
-            phone=self._clean_person_text(self._form_str(form, "phone")),
-            date_of_birth=self._parse_date(self._form_str(form, "date_of_birth")),
-            gender=gender,
-            address_line1=self._clean_person_text(
+        payload_data: dict[str, Any] = {
+            "first_name": self._clean_person_text(self._form_str(form, "first_name")),
+            "last_name": self._clean_person_text(self._form_str(form, "last_name")),
+            "email": self._clean_person_text(self._form_str(form, "email")),
+            "phone": self._clean_person_text(self._form_str(form, "phone")),
+            "date_of_birth": self._parse_date(self._form_str(form, "date_of_birth")),
+            "gender": gender,
+            "address_line1": self._clean_person_text(
                 self._form_str(form, "address_line1")
             ),
-            address_line2=self._clean_person_text(
+            "address_line2": self._clean_person_text(
                 self._form_str(form, "address_line2")
             ),
-            city=self._clean_person_text(self._form_str(form, "city")),
-            region=self._clean_person_text(self._form_str(form, "region")),
-            postal_code=self._clean_person_text(self._form_str(form, "postal_code")),
-            country_code=(
+            "city": self._clean_person_text(self._form_str(form, "city")),
+            "region": self._clean_person_text(self._form_str(form, "region")),
+            "postal_code": self._clean_person_text(self._form_str(form, "postal_code")),
+            "country_code": (
                 self._clean_person_text(self._form_str(form, "country_code")) or ""
             ).upper()
             or None,
-        )
+        }
+
+        try:
+            payload = PersonUpdate.model_validate(payload_data)
+        except PydanticValidationError as exc:
+            invalid_fields = {err["loc"][0] for err in exc.errors() if err.get("loc")}
+            if "email" in invalid_fields:
+                logger.warning(
+                    "Skipping linked person email update because email failed validation",
+                    extra={
+                        "employee_id": str(employee.employee_id),
+                        "person_id": str(person.id),
+                        "submitted_email": payload_data.get("email"),
+                    },
+                )
+                payload_data.pop("email", None)
+                payload = PersonUpdate.model_validate(payload_data)
+            else:
+                raise
 
         for key, value in payload.model_dump(exclude_unset=True).items():
             setattr(person, key, value)
@@ -510,9 +545,7 @@ class HRWebService:
         db: Session,
     ) -> RedirectResponse | HTMLResponse:
         """Handle new employee form submission."""
-        form = getattr(request.state, "csrf_form", None)
-        if form is None:
-            form = await request.form()
+        form = await self._request_form(request)
 
         # Person fields
         first_name = self._form_str(form, "first_name")
@@ -539,6 +572,7 @@ class HRWebService:
         default_shift_type_id = self._form_str(form, "default_shift_type_id")
         linked_person_id = self._form_str(form, "linked_person_id")
         cost_center_id = self._form_str(form, "cost_center_id")
+        current_tab = self._form_str(form, "current_tab")
         date_of_joining = self._form_str(form, "date_of_joining")
         probation_end_date = self._form_str(form, "probation_end_date")
         confirmation_date = self._form_str(form, "confirmation_date")
@@ -547,15 +581,29 @@ class HRWebService:
         notes = self._form_str(form, "notes")
         status = self._form_str(form, "status") or "DRAFT"
         # Personal contact & emergency
-        personal_email = self._form_str(form, "personal_email")
-        personal_phone = self._form_str(form, "personal_phone")
-        emergency_contact_name = self._form_str(form, "emergency_contact_name")
-        emergency_contact_phone = self._form_str(form, "emergency_contact_phone")
+        personal_email = self._clean_optional_text(
+            self._form_str(form, "personal_email")
+        )
+        personal_phone = self._clean_optional_text(
+            self._form_str(form, "personal_phone")
+        )
+        emergency_contact_name = self._clean_optional_text(
+            self._form_str(form, "emergency_contact_name")
+        )
+        emergency_contact_phone = self._clean_optional_text(
+            self._form_str(form, "emergency_contact_phone")
+        )
         # Bank details
-        bank_name = self._form_str(form, "bank_name")
-        bank_account_name = self._form_str(form, "bank_account_name")
-        bank_account_number = self._form_str(form, "bank_account_number")
-        bank_branch_code = self._form_str(form, "bank_branch_code")
+        bank_name = self._clean_optional_text(self._form_str(form, "bank_name"))
+        bank_account_name = self._clean_optional_text(
+            self._form_str(form, "bank_account_name")
+        )
+        bank_account_number = self._clean_optional_text(
+            self._form_str(form, "bank_account_number")
+        )
+        bank_branch_code = self._clean_optional_text(
+            self._form_str(form, "bank_branch_code")
+        )
         ctc_raw = self._form_str(form, "ctc")
         salary_mode_raw = self._form_str(form, "salary_mode")
         ctc = self._parse_decimal(ctc_raw)
@@ -620,6 +668,7 @@ class HRWebService:
                     "default_shift_type_id": default_shift_type_id,
                     "linked_person_id": linked_person_id,
                     "cost_center_id": cost_center_id,
+                    "current_tab": current_tab,
                     "date_of_joining": date_of_joining,
                     "probation_end_date": probation_end_date,
                     "confirmation_date": confirmation_date,
@@ -872,10 +921,10 @@ class HRWebService:
             nysc_start_date=nysc_start_value,
             nysc_end_date=nysc_end_value,
             status=status_enum,
-            personal_email=personal_email or None,
-            personal_phone=personal_phone or None,
-            emergency_contact_name=emergency_contact_name or None,
-            emergency_contact_phone=emergency_contact_phone or None,
+            personal_email=personal_email,
+            personal_phone=personal_phone,
+            emergency_contact_name=emergency_contact_name,
+            emergency_contact_phone=emergency_contact_phone,
             bank_name=bank_name,
             bank_account_name=bank_account_name,
             bank_account_number=bank_account_number,
@@ -912,9 +961,7 @@ class HRWebService:
         svc = EmployeeService(db, org_id)
         employee = svc.get_employee(coerce_uuid(employee_id))
 
-        form = getattr(request.state, "csrf_form", None)
-        if form is None:
-            form = await request.form()
+        form = await self._request_form(request)
 
         employee_code = self._form_str(form, "employee_code")
         department_id = self._form_str(form, "department_id")
@@ -927,6 +974,7 @@ class HRWebService:
         default_shift_type_id = self._form_str(form, "default_shift_type_id")
         linked_person_id = self._form_str(form, "linked_person_id")
         cost_center_id = self._form_str(form, "cost_center_id")
+        current_tab = self._form_str(form, "current_tab")
         date_of_joining = self._form_str(form, "date_of_joining")
         probation_end_date = self._form_str(form, "probation_end_date")
         confirmation_date = self._form_str(form, "confirmation_date")
@@ -935,15 +983,29 @@ class HRWebService:
         notes = self._form_str(form, "notes")
         status = self._form_str(form, "status")
         # Personal contact & emergency
-        personal_email = self._form_str(form, "personal_email")
-        personal_phone = self._form_str(form, "personal_phone")
-        emergency_contact_name = self._form_str(form, "emergency_contact_name")
-        emergency_contact_phone = self._form_str(form, "emergency_contact_phone")
+        personal_email = self._clean_optional_text(
+            self._form_str(form, "personal_email")
+        )
+        personal_phone = self._clean_optional_text(
+            self._form_str(form, "personal_phone")
+        )
+        emergency_contact_name = self._clean_optional_text(
+            self._form_str(form, "emergency_contact_name")
+        )
+        emergency_contact_phone = self._clean_optional_text(
+            self._form_str(form, "emergency_contact_phone")
+        )
         # Bank details
-        bank_name = self._form_str(form, "bank_name")
-        bank_account_name = self._form_str(form, "bank_account_name")
-        bank_account_number = self._form_str(form, "bank_account_number")
-        bank_branch_code = self._form_str(form, "bank_branch_code")
+        bank_name = self._clean_optional_text(self._form_str(form, "bank_name"))
+        bank_account_name = self._clean_optional_text(
+            self._form_str(form, "bank_account_name")
+        )
+        bank_account_number = self._clean_optional_text(
+            self._form_str(form, "bank_account_number")
+        )
+        bank_branch_code = self._clean_optional_text(
+            self._form_str(form, "bank_branch_code")
+        )
         ctc_raw = self._form_str(form, "ctc")
         salary_mode_raw = self._form_str(form, "salary_mode")
         ctc = self._parse_decimal(ctc_raw)
@@ -967,44 +1029,80 @@ class HRWebService:
             nysc_end_date=nysc_end_date,
         )
         if nysc_errors:
+            form_data_payload = {
+                "employee_code": employee_code,
+                "department_id": department_id,
+                "designation_id": designation_id,
+                "employment_type_id": employment_type_id,
+                "grade_id": grade_id,
+                "reports_to_id": reports_to_id,
+                "expense_approver_id": expense_approver_id,
+                "assigned_location_id": assigned_location_id,
+                "default_shift_type_id": default_shift_type_id,
+                "linked_person_id": linked_person_id,
+                "cost_center_id": cost_center_id,
+                "current_tab": current_tab,
+                "date_of_joining": date_of_joining,
+                "probation_end_date": probation_end_date,
+                "confirmation_date": confirmation_date,
+                "nysc_start_date": nysc_start_date,
+                "nysc_end_date": nysc_end_date,
+                "notes": notes,
+                "status": status,
+                "personal_email": personal_email,
+                "personal_phone": personal_phone,
+                "emergency_contact_name": emergency_contact_name,
+                "emergency_contact_phone": emergency_contact_phone,
+                "bank_name": bank_name,
+                "bank_account_name": bank_account_name,
+                "bank_account_number": bank_account_number,
+                "bank_branch_code": bank_branch_code,
+                "ctc": ctc_raw,
+                "salary_mode": salary_mode_raw,
+            }
+
+            # Preserve linked Person + statutory inputs when present in the submitted form.
+            for key in (
+                "first_name",
+                "last_name",
+                "email",
+                "phone",
+                "date_of_birth",
+                "gender",
+                "address_line1",
+                "address_line2",
+                "city",
+                "region",
+                "postal_code",
+                "country_code",
+                "tin",
+                "tax_state",
+                "rsa_pin",
+                "pfa_code",
+                "pension_rate",
+                "nhf_number",
+            ):
+                if key in form:
+                    form_data_payload[key] = self._form_str(form, key)
+
             return self.employee_edit_form_response(
                 request,
                 auth,
                 db,
                 str(employee_id),
                 error="NYSC start and end dates are required for NYSC designations.",
-                form_data={
-                    "employee_code": employee_code,
-                    "department_id": department_id,
-                    "designation_id": designation_id,
-                    "employment_type_id": employment_type_id,
-                    "grade_id": grade_id,
-                    "reports_to_id": reports_to_id,
-                    "expense_approver_id": expense_approver_id,
-                    "assigned_location_id": assigned_location_id,
-                    "default_shift_type_id": default_shift_type_id,
-                    "linked_person_id": linked_person_id,
-                    "cost_center_id": cost_center_id,
-                    "date_of_joining": date_of_joining,
-                    "probation_end_date": probation_end_date,
-                    "confirmation_date": confirmation_date,
-                    "nysc_start_date": nysc_start_date,
-                    "nysc_end_date": nysc_end_date,
-                    "notes": notes,
-                    "status": status,
-                    "personal_email": personal_email,
-                    "personal_phone": personal_phone,
-                    "emergency_contact_name": emergency_contact_name,
-                    "emergency_contact_phone": emergency_contact_phone,
-                    "bank_name": bank_name,
-                    "bank_account_name": bank_account_name,
-                    "bank_account_number": bank_account_number,
-                    "bank_branch_code": bank_branch_code,
-                    "ctc": ctc_raw,
-                    "salary_mode": salary_mode_raw,
-                },
+                form_data=form_data_payload,
                 errors=nysc_errors,
             )
+
+        logger.info(
+            "Employee edit submit received",
+            extra={
+                "employee_id": str(employee_id),
+                "assigned_location_id": assigned_location_id or None,
+                "current_tab": current_tab or None,
+            },
+        )
 
         provided_fields = {
             "employee_number",
@@ -1061,14 +1159,14 @@ class HRWebService:
             nysc_start_date=nysc_start_value,
             nysc_end_date=nysc_end_value,
             status=status_enum,
-            personal_email=personal_email or None,
-            personal_phone=personal_phone or None,
-            emergency_contact_name=emergency_contact_name or None,
-            emergency_contact_phone=emergency_contact_phone or None,
-            bank_name=bank_name or None,
-            bank_account_name=bank_account_name or None,
-            bank_account_number=bank_account_number or None,
-            bank_sort_code=bank_branch_code or None,
+            personal_email=personal_email,
+            personal_phone=personal_phone,
+            emergency_contact_name=emergency_contact_name,
+            emergency_contact_phone=emergency_contact_phone,
+            bank_name=bank_name,
+            bank_account_name=bank_account_name,
+            bank_account_number=bank_account_number,
+            bank_sort_code=bank_branch_code,
             ctc=ctc,
             salary_mode=salary_mode,
             notes=notes or None,
@@ -1087,6 +1185,19 @@ class HRWebService:
         svc.update_employee(coerce_uuid(employee_id), data)
         self._update_tax_profile(auth=auth, db=db, employee=employee, form=form)
         db.commit()
+
+        refreshed_employee = svc.get_employee(coerce_uuid(employee_id))
+        logger.info(
+            "Employee edit persisted",
+            extra={
+                "employee_id": str(employee_id),
+                "assigned_location_id": (
+                    str(getattr(refreshed_employee, "assigned_location_id", None))
+                    if getattr(refreshed_employee, "assigned_location_id", None)
+                    else None
+                ),
+            },
+        )
 
         return RedirectResponse(
             url=f"/people/hr/employees/{employee_id}?saved=1",
@@ -1116,9 +1227,7 @@ class HRWebService:
         db: Session,
     ) -> RedirectResponse:
         """Suspend an employee."""
-        form = getattr(request.state, "csrf_form", None)
-        if form is None:
-            form = await request.form()
+        form = await self._request_form(request)
         reason = self._form_str(form, "reason")
 
         org_id = coerce_uuid(auth.organization_id)
@@ -1152,9 +1261,7 @@ class HRWebService:
         db: Session,
     ) -> RedirectResponse | HTMLResponse:
         """Record employee resignation."""
-        form = getattr(request.state, "csrf_form", None)
-        if form is None:
-            form = await request.form()
+        form = await self._request_form(request)
         date_of_leaving = self._form_str(form, "date_of_leaving")
 
         org_id = coerce_uuid(auth.organization_id)
@@ -1189,9 +1296,7 @@ class HRWebService:
         db: Session,
     ) -> RedirectResponse | HTMLResponse:
         """Rehire a previously separated employee."""
-        form = getattr(request.state, "csrf_form", None)
-        if form is None:
-            form = await request.form()
+        form = await self._request_form(request)
         date_of_rejoining = self._form_str(form, "date_of_rejoining")
         notes = self._form_str(form, "notes")
 
@@ -1227,9 +1332,7 @@ class HRWebService:
         db: Session,
     ) -> RedirectResponse | HTMLResponse:
         """Terminate an employee."""
-        form = getattr(request.state, "csrf_form", None)
-        if form is None:
-            form = await request.form()
+        form = await self._request_form(request)
         date_of_leaving = self._form_str(form, "date_of_leaving")
         reason = self._form_str(form, "reason")
 
@@ -1272,10 +1375,6 @@ class HRWebService:
         db: Session,
     ) -> RedirectResponse | HTMLResponse:
         """Enable/disable a user credential linked to an employee."""
-        form = getattr(request.state, "csrf_form", None)
-        if form is None:
-            form = await request.form()
-
         org_id = coerce_uuid(auth.organization_id)
         svc = EmployeeService(db, org_id)
         employee = svc.get_employee(employee_id)
@@ -1620,7 +1719,7 @@ class HRWebService:
             "user_accounts": user_accounts,
             "statuses": [s.value for s in EmployeeStatus],
             "salary_modes": [m.value for m in SalaryMode],
-            "genders": [g.value for g in Gender],
+            "genders": self._gender_options(),
             "error": error,
             "errors": errors or {},
             "form_data": form_data or {},
@@ -1673,6 +1772,11 @@ class HRWebService:
             return SalaryMode(value.upper())
         except ValueError:
             return None
+
+    @staticmethod
+    def _gender_options() -> list[str]:
+        """Return selectable gender values for employee forms."""
+        return [g.value for g in Gender if g != Gender.unknown]
 
     @staticmethod
     def _list_pfas(db: Session) -> list[PFADirectory]:
@@ -1806,7 +1910,7 @@ class HRWebService:
             "tax_profile": tax_profile,
             "statuses": [s.value for s in EmployeeStatus],
             "salary_modes": [m.value for m in SalaryMode],
-            "genders": [g.value for g in Gender],
+            "genders": self._gender_options(),
             "error": error,
             "errors": errors or {},
             "form_data": form_data or {},

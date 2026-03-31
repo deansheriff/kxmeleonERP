@@ -86,6 +86,58 @@ async def test_update_employee_response_updates_linked_person_with_people_write(
 
 
 @pytest.mark.asyncio
+async def test_update_employee_response_uses_request_form_when_csrf_state_is_html(
+    db_session, person, monkeypatch
+):
+    service = HRWebService()
+    employee_id = uuid4()
+    employee = SimpleNamespace(employee_id=employee_id, person_id=person.id)
+
+    monkeypatch.setattr(
+        "app.services.people.hr.web.employee_web.EmployeeService.get_employee",
+        lambda self, _employee_id: employee,
+    )
+    monkeypatch.setattr(
+        "app.services.people.hr.web.employee_web.EmployeeService.update_employee",
+        lambda self, _employee_id, _data: employee,
+    )
+    monkeypatch.setattr(
+        HRWebService,
+        "_update_tax_profile",
+        lambda self, *, auth, db, employee, form: None,
+    )
+
+    request = _make_request({})
+    request.state.csrf_form = '<input type="hidden" name="csrf_token" value="token">'
+
+    async def _request_form():
+        return {
+            "first_name": "Fallback",
+            "last_name": "Reader",
+            "email": f"fallback-{uuid4().hex[:8]}@example.com",
+            "city": "Ibadan",
+            "country_code": "NG",
+        }
+
+    request.form = _request_form
+    auth = _make_auth(person.id, person.organization_id, ["people:write"])
+
+    response = await service.update_employee_response(
+        request=request,
+        employee_id=employee_id,
+        auth=auth,
+        db=db_session,
+    )
+
+    db_session.refresh(person)
+    assert response.status_code == 303
+    assert person.first_name == "Fallback"
+    assert person.last_name == "Reader"
+    assert person.city == "Ibadan"
+    assert person.country_code == "NG"
+
+
+@pytest.mark.asyncio
 async def test_update_employee_response_keeps_linked_person_read_only_without_people_write(
     db_session, person, monkeypatch
 ):
