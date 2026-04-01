@@ -227,7 +227,7 @@ jobs:
             alembic upgrade heads
 
       - name: Start application  # pragma: allowlist secret
-        run: |
+        run: |  # pragma: allowlist secret
           docker run -d --name ci-app --network ci-net \
             -e DATABASE_URL=postgresql+psycopg://postgres:postgres@ci-db:5432/dotmac_erp_ci \
             -e SECRET_KEY=ci-test-secret-key-not-for-production \

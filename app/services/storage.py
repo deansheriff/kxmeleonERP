@@ -195,12 +195,10 @@ class S3StorageService:
         """Lazy import of minio.error.S3Error for exception handling."""
         try:
             from minio.error import S3Error
+            return cast(type[Exception], S3Error)
         except ModuleNotFoundError:  # pragma: no cover
             # Allow unit tests to run without the optional `minio` dependency.
-            S3Error = _FallbackS3Error
-
-        # minio is untyped, so mypy treats S3Error as Any unless we cast.
-        return cast(type[Exception], S3Error)
+            return _FallbackS3Error
 
 
 def get_storage() -> S3StorageService:

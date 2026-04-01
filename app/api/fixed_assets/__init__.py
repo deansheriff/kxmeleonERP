@@ -23,10 +23,10 @@ from app.services.feature_flags import FEATURE_FIXED_ASSETS, require_feature
 from app.services.fixed_assets import (
     AssetInput,
     DisposalInput,
+    FAPostingAdapter,
     asset_disposal_service,
     asset_service,
     depreciation_service,
-    fa_posting_adapter,
 )
 
 router = APIRouter(
@@ -253,7 +253,7 @@ def post_asset_acquisition(
     db: Session = Depends(get_db),
 ):
     """Post asset acquisition to GL."""
-    result = fa_posting_adapter.post_asset_acquisition(
+    result = FAPostingAdapter.post_asset_acquisition(
         db=db,
         organization_id=organization_id,
         asset_id=asset_id,
@@ -337,7 +337,7 @@ def post_depreciation(
     db: Session = Depends(get_db),
 ):
     """Post depreciation run to GL."""
-    result = fa_posting_adapter.post_depreciation_run(
+    result = FAPostingAdapter.post_depreciation_run(
         db=db,
         organization_id=organization_id,
         run_id=run_id,
@@ -409,7 +409,7 @@ def post_disposal(
     db: Session = Depends(get_db),
 ):
     """Post asset disposal to GL."""
-    result = fa_posting_adapter.post_asset_disposal(
+    result = FAPostingAdapter.post_asset_disposal(
         db=db,
         organization_id=organization_id,
         disposal_id=disposal_id,

@@ -21,9 +21,9 @@ from app.services.auth_dependencies import require_tenant_permission
 from app.services.feature_flags import FEATURE_LEASES, require_feature
 from app.services.finance.lease import (
     LeaseContractInput,
+    LeasePostingAdapter,
     lease_calculation_service,
     lease_contract_service,
-    lease_posting_adapter,
 )
 
 router = APIRouter(
@@ -403,7 +403,7 @@ def post_initial_recognition(
     db: Session = Depends(get_db),
 ):
     """Post initial lease recognition to GL."""
-    result = lease_posting_adapter.post_initial_recognition(
+    result = LeasePostingAdapter.post_initial_recognition(
         db=db,
         organization_id=organization_id,
         lease_id=lease_id,
@@ -429,7 +429,7 @@ def post_interest_accrual(
     db: Session = Depends(get_db),
 ):
     """Post lease interest accrual to GL."""
-    result = lease_posting_adapter.post_interest_accrual(
+    result = LeasePostingAdapter.post_interest_accrual(
         db=db,
         organization_id=organization_id,
         lease_id=lease_id,
@@ -457,7 +457,7 @@ def post_lease_payment(
     db: Session = Depends(get_db),
 ):
     """Post lease payment to GL."""
-    result = lease_posting_adapter.post_lease_payment(
+    result = LeasePostingAdapter.post_lease_payment(
         db=db,
         organization_id=organization_id,
         lease_id=lease_id,
@@ -487,7 +487,7 @@ def post_rou_depreciation(
     db: Session = Depends(get_db),
 ):
     """Post ROU asset depreciation to GL."""
-    result = lease_posting_adapter.post_rou_depreciation(
+    result = LeasePostingAdapter.post_rou_depreciation(
         db=db,
         organization_id=organization_id,
         lease_id=lease_id,

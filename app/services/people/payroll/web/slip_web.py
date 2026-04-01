@@ -28,8 +28,8 @@ from app.models.people.payroll.salary_slip import (
 from app.models.people.payroll.salary_structure import SalaryStructure
 from app.services.common import coerce_uuid
 from app.services.people.payroll import (
+    PayrollGLAdapter,
     SalarySlipInput,
-    payroll_gl_adapter,
     salary_slip_service,
 )
 from app.services.people.payroll.paye_calculator import PAYECalculator
@@ -860,7 +860,7 @@ class SlipWebService:
         post_date = parse_date(posting_date) or date.today()
 
         try:
-            payroll_gl_adapter.post_salary_slip(
+            PayrollGLAdapter.post_salary_slip(
                 db=db,
                 organization_id=org_id,
                 slip_id=coerce_uuid(slip_id),

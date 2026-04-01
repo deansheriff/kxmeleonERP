@@ -53,9 +53,9 @@ from app.schemas.people.payroll import (
 )
 from app.services.common import PaginationParams
 from app.services.people.payroll import (
+    PayrollGLAdapter,
     PayrollService,
     SalarySlipInput,
-    payroll_gl_adapter,
     salary_slip_service,
 )
 
@@ -598,7 +598,7 @@ def post_salary_slip(
     db: Session = Depends(get_db),
 ):
     """Post a salary slip to GL."""
-    result = payroll_gl_adapter.post_salary_slip(
+    result = PayrollGLAdapter.post_salary_slip(
         db=db,
         organization_id=data.organization_id,
         slip_id=slip_id,
@@ -623,7 +623,7 @@ def reverse_salary_slip(
     db: Session = Depends(get_db),
 ):
     """Reverse a posted salary slip."""
-    result = payroll_gl_adapter.reverse_salary_slip_posting(
+    result = PayrollGLAdapter.reverse_salary_slip_posting(
         db=db,
         organization_id=organization_id,
         slip_id=slip_id,

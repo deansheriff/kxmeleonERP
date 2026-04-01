@@ -21,11 +21,11 @@ from app.schemas.finance.common import ListResponse, PostingResultSchema
 from app.services.auth_dependencies import require_tenant_permission
 from app.services.finance.cons import (
     ConsolidationRunInput,
+    CONSPostingAdapter,
     EliminationInput,
     IntercompanyBalanceInput,
     LegalEntityInput,
     OwnershipInput,
-    cons_posting_adapter,
     consolidation_service,
     intercompany_service,
     legal_entity_service,
@@ -881,7 +881,7 @@ def post_elimination_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Elimination entry not found")
 
-    result = cons_posting_adapter.post_elimination_entry(
+    result = CONSPostingAdapter.post_elimination_entry(
         db=db,
         group_id=organization_id,
         run_id=entry.consolidation_run_id,
@@ -907,7 +907,7 @@ def post_all_eliminations(
     db: Session = Depends(get_db),
 ):
     """Post all elimination entries for a run to GL."""
-    results = cons_posting_adapter.post_all_eliminations(
+    results = CONSPostingAdapter.post_all_eliminations(
         db=db,
         group_id=organization_id,
         run_id=run_id,
