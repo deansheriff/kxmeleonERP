@@ -747,6 +747,34 @@ def health_check():
     return {"status": "ok"}
 
 
+@app.get("/health/monitoring")
+def monitoring_health():
+    """Report status of external monitoring integrations (Loki, Sentry/GlitchTip).
+
+    Returns per-integration health with delivery stats so operators can detect
+    silent failures (e.g. Loki handler dying after a connection timeout).
+    """
+    from app.monitoring import get_monitoring_status
+
+    status = get_monitoring_status()
+
+    # Determine overall health: Loki healthy if enabled and no sustained failures
+    loki = status["loki"]
+    loki_healthy = not loki["enabled"] or loki["consecutive_failures"] < 5
+    sentry_healthy = not status["sentry"]["enabled"] or status["sentry"].get(
+        "dsn_configured", False
+    )
+
+    overall = "healthy" if (loki_healthy and sentry_healthy) else "degraded"
+    code = 200 if overall == "healthy" else 503
+
+    return Response(
+        content=JSONResponse(content={"status": overall, "integrations": status}).body,
+        status_code=code,
+        media_type="application/json",
+    )
+
+
 @app.get("/health/live")
 def liveness_probe():
     """Liveness probe - checks if the process is running.
