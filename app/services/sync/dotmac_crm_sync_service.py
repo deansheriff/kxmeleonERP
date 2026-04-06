@@ -1460,10 +1460,13 @@ class DotMacCRMSyncService:
         required_by_bucket: dict[tuple[UUID, UUID], Decimal] = {}
         for resolved in resolved_items:
             bucket = (resolved["item_id"], resolved["warehouse_id"])
-            required_by_bucket[bucket] = required_by_bucket.get(
-                bucket,
-                Decimal("0"),
-            ) + resolved["requested_qty"]
+            required_by_bucket[bucket] = (
+                required_by_bucket.get(
+                    bucket,
+                    Decimal("0"),
+                )
+                + resolved["requested_qty"]
+            )
 
         for (item_id, warehouse_id), required_qty in required_by_bucket.items():
             available_qty = InventoryTransactionService.get_current_balance(
