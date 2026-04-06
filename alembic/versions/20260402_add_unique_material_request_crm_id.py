@@ -53,4 +53,3 @@ def downgrade() -> None:
             schema="inv",
             type_="unique",
         )
-
