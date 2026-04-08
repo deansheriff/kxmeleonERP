@@ -1113,9 +1113,7 @@ class ExpenseClaimMixin(ExpenseServiceBase):
             )
         )
         self.db.execute(
-            sa_delete(ExpenseClaimAction).where(
-                ExpenseClaimAction.claim_id == claim_id
-            )
+            sa_delete(ExpenseClaimAction).where(ExpenseClaimAction.claim_id == claim_id)
         )
         for item in claim.items:
             self.db.delete(item)
