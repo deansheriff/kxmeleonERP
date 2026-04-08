@@ -23,6 +23,8 @@ JOB_DURATION = Histogram(
     "Background job duration",
     ["task", "status"],
 )
+
+
 JOB_RUNS = Counter(
     "job_runs_total",
     "Background job executions",
@@ -40,7 +42,6 @@ INTEGRATION_REQUEST_DURATION = Histogram(
     ["integration", "operation", "status"],
 )
 
-# Loki log delivery counters — enables rate() / increase() alerting in Grafana.
 LOKI_LOGS_SENT = Counter(
     "loki_logs_sent_total",
     "Log records successfully pushed to Loki",
@@ -49,6 +50,9 @@ LOKI_LOGS_DROPPED = Counter(
     "loki_logs_dropped_total",
     "Log records dropped (Loki unreachable, queue full, or HTTP error)",
 )
+
+
+_ID_TOKEN_RE = re.compile(r"\b(?:[0-9a-f]{8,}|[0-9]{3,})\b", re.IGNORECASE)
 
 
 def observe_job(task_name: str, status: str, duration: float) -> None:
@@ -95,6 +99,3 @@ def normalize_metric_label(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9_]+", "_", scrubbed)
     normalized = normalized.strip("_")
     return normalized or "unknown"
-
-
-_ID_TOKEN_RE = re.compile(r"\b(?:[0-9a-f]{8,}|[0-9]{3,})\b", re.IGNORECASE)

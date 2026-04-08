@@ -52,6 +52,7 @@ from app.services.finance.banking.bank_directory import BankDirectoryService
 from app.services.people.attendance import AttendanceService
 from app.services.people.attendance.attendance_service import AttendanceServiceError
 from app.services.people.expense import ExpenseService
+from app.services.people.expense.expense_service import ExpenseServiceError
 from app.services.people.hr.employees import EmployeeService
 from app.services.people.hr.employee_types import EmployeeFilters
 from app.services.people.hr.info_change_service import InfoChangeService
@@ -2068,20 +2069,28 @@ class SelfServiceWebService:
                 )
             )
 
-        svc.update_claim(
-            org_id,
-            claim_id,
-            recipient_bank_code=recipient_bank_code,
-            recipient_bank_name=recipient_bank_name,
-            recipient_account_number=recipient_account_number,
-            recipient_name=recipient_name,
-            requested_approver_id=requested_approver_id,
-            project_id=project_id,
-            ticket_id=ticket_id,
-            task_id=task_id,
-            vehicle_id=vehicle_id,
-            cost_center_id=cost_center_id,
-        )
+        try:
+            svc.update_claim(
+                org_id,
+                claim_id,
+                recipient_bank_code=recipient_bank_code,
+                recipient_bank_name=recipient_bank_name,
+                recipient_account_number=recipient_account_number,
+                recipient_name=recipient_name,
+                requested_approver_id=requested_approver_id,
+                project_id=project_id,
+                ticket_id=ticket_id,
+                task_id=task_id,
+                vehicle_id=vehicle_id,
+                cost_center_id=cost_center_id,
+            )
+        except ExpenseServiceError as exc:
+            from urllib.parse import quote_plus
+
+            return RedirectResponse(
+                url=f"/people/self/expenses/claims/{claim_id}/edit?error={quote_plus(str(exc))}",
+                status_code=302,
+            )
 
         for item in items:
             if item.get("remove"):

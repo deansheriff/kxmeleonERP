@@ -1094,8 +1094,28 @@ class ExpenseClaimMixin(ExpenseServiceBase):
         claim = self.get_claim(org_id, claim_id)
         if claim.status != ExpenseClaimStatus.DRAFT:
             raise ExpenseClaimStatusError(claim.status.value, "delete")
+
+        from sqlalchemy import delete as sa_delete
+
+        from app.models.expense.expense_claim_approval_step import (
+            ExpenseClaimApprovalStep,
+        )
+        from app.models.expense.limit_rule import ExpenseLimitEvaluation
+
         self.db.execute(
-            select(ExpenseClaimItem).where(ExpenseClaimItem.claim_id == claim_id)
+            sa_delete(ExpenseLimitEvaluation).where(
+                ExpenseLimitEvaluation.claim_id == claim_id
+            )
+        )
+        self.db.execute(
+            sa_delete(ExpenseClaimApprovalStep).where(
+                ExpenseClaimApprovalStep.claim_id == claim_id
+            )
+        )
+        self.db.execute(
+            sa_delete(ExpenseClaimAction).where(
+                ExpenseClaimAction.claim_id == claim_id
+            )
         )
         for item in claim.items:
             self.db.delete(item)

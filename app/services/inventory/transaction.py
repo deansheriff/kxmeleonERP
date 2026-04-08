@@ -585,9 +585,15 @@ class InventoryTransactionService(ListResponseMixin):
                         transaction_id=transaction.transaction_id,
                     )
                     item.average_cost = wac_result.new_wac
+                except ValueError as exc:
+                    logger.warning(
+                        "WAC ledger issue skipped for item %s: %s", itm_id, exc
+                    )
                 except Exception:
                     logger.exception(
-                        "Failed updating WAC ledger on issue; continuing with legacy average cost."
+                        "Failed updating WAC ledger on issue for item %s; "
+                        "average cost unchanged.",
+                        itm_id,
                     )
 
         if InventoryTransactionService._is_real_time_valuation_enabled(db):
