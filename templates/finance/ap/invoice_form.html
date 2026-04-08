@@ -873,6 +873,25 @@
                             <span class="total-value text-xs text-slate-400" x-text="formatCurrency(inclusiveTaxAmount)"></span>
                         </div>
                     </template>
+                    {% if wht_codes %}
+                    <div class="total-row">
+                        <span class="total-label">
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">WHT</label>
+                            <select name="wht_code_id" x-model="form.wht_code_id"
+                                    @change="calculateWht()"
+                                    class="form-select form-select-sm ml-2 max-w-[160px] inline-block">
+                                <option value="">None</option>
+                                {% for wht in wht_codes %}
+                                <option value="{{ wht.tax_code_id }}"
+                                    data-rate="{{ wht.tax_rate }}">{{ wht.tax_code }} ({{ wht.rate_display }}%)</option>
+                                {% endfor %}
+                            </select>
+                        </span>
+                        <span class="total-value font-mono text-amber-600 dark:text-amber-400"
+                              x-show="whtAmount > 0"
+                              x-text="'-' + formatCurrency(whtAmount)"></span>
+                    </div>
+                    {% endif %}
                     <div class="total-row total-final">
                         <span class="total-label">Total</span>
                         <span class="total-value" x-text="formatCurrency(total)"></span>
@@ -976,8 +995,11 @@ function invoiceForm() {
             po_id: selectedPO?.po_id || '',
             lines: [
                 { item_id: '', item_search: '', item_open: false, expense_account_id: '', description: '', quantity: 1, unit_price: 0, amount: 0, tax_code_id: '', tax_amount: 0 }
-            ]
+            ],
+            wht_code_id: '',
         },
+        whtAmount: 0,
+        whtCodes: {{ wht_codes | tojson | safe if wht_codes is defined else '[]' }},
         functionalCurrency: '{{ default_currency_code }}',
         paymentTermsDays: selectedSupplier?.payment_terms_days || 30,
 
@@ -1072,6 +1094,20 @@ function invoiceForm() {
             return this.subtotal + this.exclusiveTaxAmount;
         },
 
+        calculateWht() {
+            if (!this.form.wht_code_id) {
+                this.whtAmount = 0;
+                return;
+            }
+            const code = this.whtCodes.find(c => c.tax_code_id === this.form.wht_code_id);
+            if (!code) {
+                this.whtAmount = 0;
+                return;
+            }
+            const rate = code.tax_rate < 1 ? code.tax_rate : code.tax_rate / 100;
+            this.whtAmount = parseFloat((this.subtotal * rate).toFixed(2));
+        },
+
         formatCurrency(amount) {
             const currency = this.form.currency_code || '{{ default_currency_code }}';
             return new Intl.NumberFormat('en-US', {
@@ -1104,6 +1140,15 @@ function invoiceForm() {
                         this.calculateLineAmount(idx);
                     }
                 });
+            }
+
+            // Auto-select WHT code from supplier config
+            if (item.withholding_tax_applicable && item.withholding_tax_code_id) {
+                this.form.wht_code_id = item.withholding_tax_code_id;
+                this.calculateWht();
+            } else {
+                this.form.wht_code_id = '';
+                this.whtAmount = 0;
             }
         },
 

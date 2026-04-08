@@ -106,6 +106,7 @@ class SupplierInvoiceInput:
     is_intercompany: bool = False
     intercompany_org_id: UUID | None = None
     correlation_id: str | None = None
+    wht_code_id: UUID | None = None
 
 
 class SupplierInvoiceService(ListResponseMixin):
@@ -191,6 +192,12 @@ class SupplierInvoiceService(ListResponseMixin):
             else None
         )
 
+        wht_code_id = (
+            coerce_uuid(payload.get("wht_code_id"))
+            if payload.get("wht_code_id")
+            else None
+        )
+
         return SupplierInvoiceInput(
             supplier_id=require_uuid(payload.get("supplier_id"), "Supplier"),
             invoice_type=SupplierInvoiceType.STANDARD,
@@ -205,6 +212,7 @@ class SupplierInvoiceService(ListResponseMixin):
             exchange_rate=exchange_rate,
             supplier_invoice_number=payload.get("invoice_number") or None,
             lines=lines,
+            wht_code_id=wht_code_id,
         )
 
     @staticmethod
@@ -395,11 +403,30 @@ class SupplierInvoiceService(ListResponseMixin):
 
         total_amount = subtotal + tax_total
 
+        # Calculate WHT if applicable
+        wht_amount = Decimal("0")
+        wht_code_id = input.wht_code_id
+        if not wht_code_id:
+            # Auto-detect from supplier config
+            supplier = db.get(Supplier, supplier_id)
+            if (
+                supplier
+                and getattr(supplier, "withholding_tax_applicable", False)
+                and getattr(supplier, "withholding_tax_code_id", None)
+            ):
+                wht_code_id = supplier.withholding_tax_code_id
+        if wht_code_id:
+            wht_amount, _net = TaxCalculationService.calculate_wht(
+                db, org_id, subtotal, wht_code_id, input.invoice_date
+            )
+
         # Handle credit notes (negative amounts)
         if input.invoice_type == SupplierInvoiceType.CREDIT_NOTE:
             total_amount = -abs(total_amount)
             subtotal = -abs(subtotal)
             tax_total = -abs(tax_total)
+            if wht_amount:
+                wht_amount = -abs(wht_amount)
 
         # Calculate functional currency amount
         exchange_rate = input.exchange_rate or Decimal("1.0")
@@ -434,6 +461,8 @@ class SupplierInvoiceService(ListResponseMixin):
             is_prepayment=input.is_prepayment,
             is_intercompany=input.is_intercompany,
             intercompany_org_id=input.intercompany_org_id,
+            withholding_tax_amount=wht_amount,
+            withholding_tax_code_id=wht_code_id,
             created_by_user_id=user_id,
             correlation_id=input.correlation_id or str(uuid_lib.uuid4()),
         )

@@ -431,12 +431,37 @@ class InvoiceWebService:
             ).all()
         ]
 
+        # Get WHT codes for withholding tax selection
+        from app.models.finance.tax.tax_code import TaxType
+
+        wht_codes = [
+            {
+                "tax_code_id": str(wht.tax_code_id),
+                "tax_code": wht.tax_code,
+                "tax_name": wht.tax_name,
+                "tax_rate": float(wht.tax_rate),
+                "rate_display": float(
+                    (wht.tax_rate * 100).quantize(Decimal("0.01"))
+                )
+                if wht.tax_rate < 1
+                else float(wht.tax_rate),
+            }
+            for wht in db.scalars(
+                select(TaxCode).where(
+                    TaxCode.organization_id == org_id,
+                    TaxCode.is_active == True,
+                    TaxCode.tax_type == TaxType.WITHHOLDING,
+                )
+            ).all()
+        ]
+
         context = {
             "suppliers_list": suppliers_list,
             "expense_accounts": expense_accounts,
             "asset_accounts": asset_accounts,
             "items_list": items_list,
             "tax_codes": tax_codes,
+            "wht_codes": wht_codes,
             "asset_categories": asset_categories,
             "fleet_vehicles": fleet_vehicles,
             "organization_id": organization_id,

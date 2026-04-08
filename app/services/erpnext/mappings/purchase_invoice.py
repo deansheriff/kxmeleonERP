@@ -133,6 +133,17 @@ class PurchaseInvoiceMapping(DocTypeMapping):
                     source="project",
                     target="_project_source_name",
                 ),
+                # Withholding tax
+                FieldMapping(
+                    source="tax_withholding_category",
+                    target="_wht_category",
+                ),
+                FieldMapping(
+                    source="base_tax_withholding_net_total",
+                    target="_wht_net_total",
+                    transformer=parse_decimal,
+                    default=0,
+                ),
             ],
         )
 

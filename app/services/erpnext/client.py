@@ -803,6 +803,8 @@ class ERPNextClient:
                 "project",
                 "company",
                 "modified",
+                "tax_withholding_category",
+                "base_tax_withholding_net_total",
             ],
             order_by="posting_date asc",
         ):
