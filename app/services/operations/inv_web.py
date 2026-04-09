@@ -16,7 +16,7 @@ from math import ceil
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 from starlette.datastructures import UploadFile
 
@@ -24,6 +24,7 @@ from app.services.common_filters import build_active_filters
 from app.services.finance.platform.currency_context import get_currency_context
 from app.services.finance.platform.org_context import org_context_service
 from app.services.inventory.material_request_web import MaterialRequestWebService
+from app.services.inventory.return_web import InventoryReturnWebService
 from app.templates import templates
 from app.web.deps import WebAuthContext, base_context
 
@@ -160,6 +161,9 @@ class OperationsInventoryWebService:
         default_warehouse_id = (
             _safe_form_text(_form_value(form_data, "default_warehouse_id")) or None
         )
+        transfer_to_warehouse_id = (
+            _safe_form_text(_form_value(form_data, "transfer_to_warehouse_id")) or None
+        )
         project_id = _safe_form_text(_form_value(form_data, "project_id")) or None
         ticket_id = _safe_form_text(_form_value(form_data, "ticket_id")) or None
         requested_by_id = (
@@ -183,6 +187,7 @@ class OperationsInventoryWebService:
                 request_type=request_type,
                 schedule_date=schedule_date,
                 default_warehouse_id=default_warehouse_id,
+                transfer_to_warehouse_id=transfer_to_warehouse_id,
                 project_id=project_id,
                 ticket_id=ticket_id,
                 requested_by_id=requested_by_id,
@@ -229,7 +234,7 @@ class OperationsInventoryWebService:
         )
         return templates.TemplateResponse(
             request, "inventory/material_request_report.html", context
-        )
+            )
 
     def material_request_detail_response(
         self,
@@ -248,7 +253,7 @@ class OperationsInventoryWebService:
             return RedirectResponse("/inventory/material-requests", status_code=302)
         return templates.TemplateResponse(
             request, "inventory/material_request_detail.html", context
-        )
+            )
 
     def edit_material_request_form_response(
         self,
@@ -273,7 +278,7 @@ class OperationsInventoryWebService:
             return RedirectResponse("/inventory/material-requests", status_code=302)
         return templates.TemplateResponse(
             request, "inventory/material_request_form.html", context
-        )
+            )
 
     def update_material_request_response(
         self,
@@ -297,6 +302,9 @@ class OperationsInventoryWebService:
         schedule_date = _safe_form_text(_form_value(form_data, "schedule_date")) or None
         default_warehouse_id = (
             _safe_form_text(_form_value(form_data, "default_warehouse_id")) or None
+        )
+        transfer_to_warehouse_id = (
+            _safe_form_text(_form_value(form_data, "transfer_to_warehouse_id")) or None
         )
         project_id = _safe_form_text(_form_value(form_data, "project_id")) or None
         ticket_id = _safe_form_text(_form_value(form_data, "ticket_id")) or None
@@ -322,6 +330,7 @@ class OperationsInventoryWebService:
                 request_type=request_type,
                 schedule_date=schedule_date,
                 default_warehouse_id=default_warehouse_id,
+                transfer_to_warehouse_id=transfer_to_warehouse_id,
                 project_id=project_id,
                 ticket_id=ticket_id,
                 requested_by_id=requested_by_id,
@@ -348,6 +357,106 @@ class OperationsInventoryWebService:
             return templates.TemplateResponse(
                 request, "inventory/material_request_form.html", context
             )
+
+    def new_inventory_return_form_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> HTMLResponse:
+        """Render return-to-store form."""
+        context = base_context(request, auth, "Return to Store", "transactions")
+        context.update(
+            InventoryReturnWebService.form_context(db, self._org_id_str(auth))
+        )
+        return templates.TemplateResponse(request, "inventory/return_form.html", context)
+
+    def create_inventory_return_response(
+        self,
+        request: Request,
+        form_data: dict,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> HTMLResponse | RedirectResponse:
+        """Create a return-to-store record and post stock."""
+        org_id = auth.organization_id
+        user_id = auth.user_id
+        if org_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        material_request_id = (
+            _safe_form_text(_form_value(form_data, "material_request_id")) or None
+        )
+        item_id = _safe_form_text(_form_value(form_data, "item_id"))
+        source_warehouse_id = _safe_form_text(
+            _form_value(form_data, "source_warehouse_id")
+        )
+        destination_warehouse_id = _safe_form_text(
+            _form_value(form_data, "destination_warehouse_id")
+        )
+        quantity = _safe_form_text(_form_value(form_data, "quantity"))
+        return_date = _safe_form_text(_form_value(form_data, "return_date"))
+        reason = _safe_form_text(_form_value(form_data, "reason"))
+        reference = _safe_form_text(_form_value(form_data, "reference")) or None
+        remarks = _safe_form_text(_form_value(form_data, "remarks")) or None
+        lot_number = _safe_form_text(_form_value(form_data, "lot_number")) or None
+        serial_numbers = (
+            _safe_form_text(_form_value(form_data, "serial_numbers")) or None
+        )
+        try:
+            inventory_return = InventoryReturnWebService.create_from_form(
+                db=db,
+                organization_id=org_id,
+                user_id=user_id,
+                material_request_id=material_request_id,
+                item_id=item_id,
+                source_warehouse_id=source_warehouse_id,
+                destination_warehouse_id=destination_warehouse_id,
+                quantity=quantity,
+                return_date=return_date,
+                reason=reason,
+                reference=reference,
+                remarks=remarks,
+                lot_number=lot_number,
+                serial_numbers_text=serial_numbers,
+            )
+            db.commit()
+            return RedirectResponse(
+                f"/inventory/returns/{inventory_return.return_id}",
+                status_code=303,
+            )
+        except Exception as e:
+            db.rollback()
+            context = base_context(request, auth, "Return to Store", "transactions")
+            context.update(
+                InventoryReturnWebService.form_context(db, self._org_id_str(auth))
+            )
+            context["error"] = str(e)
+            return templates.TemplateResponse(
+                request, "inventory/return_form.html", context
+            )
+
+    def inventory_return_detail_response(
+        self,
+        request: Request,
+        return_id: str,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> HTMLResponse | RedirectResponse:
+        """Inventory return detail page."""
+        context = base_context(request, auth, "Inventory Return", "transactions")
+        context.update(
+            InventoryReturnWebService.detail_context(
+                db, self._org_id_str(auth), return_id
+            )
+        )
+        if not context.get("inventory_return"):
+            return RedirectResponse("/inventory/transactions", status_code=302)
+        return templates.TemplateResponse(
+            request, "inventory/return_detail.html", context
+        )
 
     def submit_material_request_response(
         self,
@@ -507,14 +616,18 @@ class OperationsInventoryWebService:
         search: str | None = None,
         warehouse: str | None = None,
         page: int = 1,
+        limit: int = 50,
+        sort: str | None = "count_date",
+        sort_dir: str | None = "desc",
     ) -> HTMLResponse:
         """Stock counts list page."""
         from app.models.inventory.inventory_count import CountStatus, InventoryCount
+        from app.models.inventory.inventory_count_line import InventoryCountLine
         from app.models.inventory.warehouse import Warehouse
 
         context = base_context(request, auth, "Stock Counts", "counts")
         org_id = auth.organization_id
-        per_page = 50
+        per_page = limit
 
         # Summary stats (unfiltered)
         base_filter = InventoryCount.organization_id == org_id
@@ -549,8 +662,52 @@ class OperationsInventoryWebService:
             or 0
         )
 
+        variance_subquery = (
+            select(
+                InventoryCountLine.count_id.label("count_id"),
+                func.coalesce(
+                    func.sum(InventoryCountLine.variance_value), 0
+                ).label("total_variance_value"),
+            )
+            .group_by(InventoryCountLine.count_id)
+            .subquery()
+        )
+
+        warehouse_sort = func.coalesce(Warehouse.warehouse_name, "All Warehouses")
+        variance_sort = func.coalesce(variance_subquery.c.total_variance_value, 0)
+        type_sort = case(
+            (InventoryCount.is_cycle_count.is_(True), 0),
+            (InventoryCount.is_full_count.is_(True), 1),
+            else_=2,
+        )
+        sort_columns = {
+            "count_number": InventoryCount.count_number,
+            "count_date": InventoryCount.count_date,
+            "warehouse": warehouse_sort,
+            "total_items": InventoryCount.total_items,
+            "variance": variance_sort,
+            "status": InventoryCount.status,
+            "type": type_sort,
+        }
+        sort_key = sort if sort in sort_columns else "count_date"
+        sort_direction = "asc" if sort_dir == "asc" else "desc"
+        order_column = sort_columns[sort_key]
+        order_by_clause = (
+            order_column.asc() if sort_direction == "asc" else order_column.desc()
+        )
+
         # Build filtered query
-        stmt = select(InventoryCount).where(base_filter)
+        stmt = (
+            select(
+                InventoryCount,
+                variance_sort.label("total_variance_value"),
+            )
+            .outerjoin(
+                variance_subquery, variance_subquery.c.count_id == InventoryCount.count_id
+            )
+            .outerjoin(Warehouse, Warehouse.warehouse_id == InventoryCount.warehouse_id)
+            .where(base_filter)
+        )
         if status:
             try:
                 stmt = stmt.where(InventoryCount.status == CountStatus(status))
@@ -580,11 +737,15 @@ class OperationsInventoryWebService:
 
         stmt = (
             stmt.options(selectinload(InventoryCount.warehouse))
-            .order_by(InventoryCount.created_at.desc())
+            .order_by(order_by_clause, InventoryCount.created_at.desc())
             .offset((page - 1) * per_page)
             .limit(per_page)
         )
-        counts = list(db.scalars(stmt).all())
+        count_rows = db.execute(stmt).all()
+        counts = []
+        for count, total_variance_value in count_rows:
+            count.total_variance_value = total_variance_value or 0
+            counts.append(count)
 
         # Warehouses for filter dropdown
         warehouses = list(
@@ -627,8 +788,12 @@ class OperationsInventoryWebService:
                 "status": status or "",
                 "warehouse": warehouse or "",
                 "page": page,
+                "limit": per_page,
+                "filtered_total": filtered_total,
                 "total_pages": total_pages,
                 "active_filters": active_filters,
+                "sort": sort_key,
+                "sort_dir": sort_direction,
             }
         )
         return templates.TemplateResponse(request, "inventory/counts.html", context)

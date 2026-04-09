@@ -23,7 +23,7 @@
                         <th scope="col">Code</th>
                         <th scope="col" class="text-right">Approved Count</th>
                         <th scope="col" class="text-right">Rejected Count</th>
-                        <th scope="col" class="text-right">Approved Amount</th>
+                        <th scope="col" class="text-right">Paid Amount</th>
                         <th scope="col" class="text-right">Weekly Budget</th>
                         <th scope="col" class="text-right">Max Per Claim</th>
                         <th scope="col">Last Activity</th>
@@ -38,7 +38,7 @@
                         <td class="font-mono text-slate-700 dark:text-slate-300">{{ approver.employee_code }}</td>
                         <td class="text-right font-mono">{{ approver.approved_count }}</td>
                         <td class="text-right font-mono">{{ approver.rejected_count }}</td>
-                        <td class="text-right font-mono">{{ "{:,.2f}".format(approver.approved_amount) }} {{ approver.currency_code }}</td>
+                        <td class="text-right font-mono">{{ "{:,.2f}".format(approver.paid_amount) }} {{ approver.currency_code }}</td>
                         <td class="text-right font-mono">
                             {% if approver.weekly_budget %}
                                 {{ "{:,.2f}".format(approver.weekly_budget) }} {{ approver.currency_code }}

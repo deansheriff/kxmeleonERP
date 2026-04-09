@@ -81,6 +81,7 @@ class MaterialRequest(Base):
         Index("idx_material_request_requested_by", "requested_by_id"),
         Index("idx_material_request_project", "project_id"),
         Index("idx_material_request_ticket", "ticket_id"),
+        Index("idx_material_request_transfer_to_wh", "transfer_to_warehouse_id"),
         Index("idx_material_request_erpnext", "erpnext_id"),
         {"schema": "inv"},
     )
@@ -120,6 +121,11 @@ class MaterialRequest(Base):
     )
 
     default_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("inv.warehouse.warehouse_id"),
+        nullable=True,
+    )
+    transfer_to_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("inv.warehouse.warehouse_id"),
         nullable=True,

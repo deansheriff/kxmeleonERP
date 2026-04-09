@@ -1,0 +1,225 @@
+{% extends "inventory/base_inventory.html" %}
+{% from "components/macros.html" import icon_svg %}
+
+{% block page_title %}Return to Store{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .inventory-form-page .card-header {
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 0;
+    }
+
+    .inventory-form-page .card-header + .p-6,
+    .inventory-form-page .card-header + .grid {
+        padding: 1.25rem 1.5rem;
+    }
+
+    @media (max-width: 640px) {
+        .inventory-form-page .card-header {
+            padding: 1rem;
+        }
+
+        .inventory-form-page .card-header + .p-6,
+        .inventory-form-page .card-header + .grid {
+            padding: 1rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/inventory/items" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Inventory</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/inventory/transactions" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Transactions</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">Return to Store</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="inventory-form-page max-w-3xl mx-auto pb-12" x-data="inventoryReturnForm()">
+    <p class="mb-6 text-sm text-slate-500 dark:text-slate-400">
+        Record items being returned back into stock. Material request is optional; item and warehouse movement are always captured.
+    </p>
+
+    {% if error %}
+    <div class="mb-6 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-300">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/inventory/returns/new" class="space-y-6">
+        {{ request.state.csrf_form | safe }}
+        <div class="card">
+            <div class="card-header border-b border-slate-100 dark:border-slate-700">
+                <div class="flex items-center gap-4">
+                    <div class="card-icon bg-cyan-50 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400">
+                        {{ icon_svg("arrow-uturn-left", "h-5 w-5", stroke_width="1.5") }}
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-900 dark:text-white font-display">Return Details</h2>
+                        <p class="text-sm text-slate-500 dark:text-slate-400">Capture the item, origin, and destination of the return.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid gap-6 p-6 sm:grid-cols-2">
+                <div class="sm:col-span-2">
+                    <label class="form-label">Material Request</label>
+                    <div class="relative" data-typeahead-url="/inventory/returns/material-requests/search" data-typeahead-min="2" data-typeahead-limit="8">
+                        <input
+                            type="text"
+                            name="material_request_name"
+                            placeholder="Optional. Search request number or requester..."
+                            autocomplete="off"
+                            class="form-input"
+                            data-typeahead-input
+                        >
+                        <input
+                            type="hidden"
+                            name="material_request_id"
+                            x-model="materialRequestId"
+                            data-typeahead-hidden
+                        >
+                        <div data-typeahead-results></div>
+                    </div>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Optional. Link the return to an issued material request when available.</p>
+                </div>
+
+                <div class="sm:col-span-2">
+                    <label class="form-label required">Item</label>
+                    <div class="relative" data-typeahead-url="/inventory/returns/items/search" data-typeahead-min="2" data-typeahead-limit="8">
+                        <input
+                            type="text"
+                            name="item_name"
+                            placeholder="Search item code, name, or barcode..."
+                            autocomplete="off"
+                            class="form-input"
+                            data-typeahead-input
+                        >
+                        <input
+                            type="hidden"
+                            name="item_id"
+                            x-model="itemId"
+                            @change="syncSelectedItem($event)"
+                            data-typeahead-hidden
+                            required
+                        >
+                        <div data-typeahead-results></div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="form-label required">Source Warehouse</label>
+                    <select name="source_warehouse_id" required class="form-select">
+                        <option value="">Select warehouse</option>
+                        {% for wh in warehouses %}
+                        <option value="{{ wh.warehouse_id }}">{{ wh.warehouse_code }} - {{ wh.warehouse_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Where the item is coming back from.</p>
+                </div>
+
+                <div>
+                    <label class="form-label required">Destination Warehouse</label>
+                    <select name="destination_warehouse_id" required class="form-select">
+                        <option value="">Select warehouse</option>
+                        {% for wh in warehouses %}
+                        <option value="{{ wh.warehouse_id }}">{{ wh.warehouse_code }} - {{ wh.warehouse_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Stock will be added back to this warehouse.</p>
+                </div>
+
+                <div>
+                    <label class="form-label required">Quantity</label>
+                    <input type="number" name="quantity" required min="0.0001" step="any" placeholder="0" class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label required">Return Date</label>
+                    <input type="date" name="return_date" value="{{ today }}" required class="form-input">
+                </div>
+
+                <div class="sm:col-span-2">
+                    <label class="form-label required">Reason</label>
+                    <textarea name="reason" rows="2" required placeholder="Why is this item being returned?" class="form-input resize-none"></textarea>
+                </div>
+
+                <div>
+                    <label class="form-label">Reference</label>
+                    <input type="text" name="reference" placeholder="Gate pass, note number, etc." class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label">Remarks</label>
+                    <input type="text" name="remarks" placeholder="Optional remarks" class="form-input">
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header border-b border-slate-100 dark:border-slate-700">
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white font-display">Tracking Details</h3>
+            </div>
+            <div class="grid gap-6 p-6 sm:grid-cols-2">
+                <div>
+                    <label class="form-label" :class="{ 'required': selectedItem.track_lots }">Lot Number</label>
+                    <input type="text" name="lot_number" :required="selectedItem.track_lots" placeholder="Optional unless item requires lots" class="form-input">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="form-label" :class="{ 'required': selectedItem.track_serial_numbers }">Serial Numbers</label>
+                    <textarea
+                        name="serial_numbers"
+                        rows="4"
+                        :required="selectedItem.track_serial_numbers"
+                        placeholder="Optional unless item requires serials. Enter one serial per line."
+                        class="form-input font-mono resize-y"
+                    ></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-3 border-t border-slate-200 pt-6 dark:border-slate-700">
+            <a href="/inventory/transactions" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">
+                {{ icon_svg("check", "w-4 h-4 mr-2") }}
+                Record Return
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+function inventoryReturnForm() {
+    return {
+        materialRequestId: '',
+        itemId: '',
+        selectedItem: {
+            track_lots: false,
+            track_serial_numbers: false
+        },
+        syncSelectedItem(event) {
+            const hidden = event.target;
+            const raw = hidden.getAttribute('data-typeahead-item');
+            if (!raw) {
+                this.selectedItem = { track_lots: false, track_serial_numbers: false };
+                return;
+            }
+            try {
+                const item = JSON.parse(raw);
+                this.selectedItem = {
+                    track_lots: Boolean(item.track_lots),
+                    track_serial_numbers: Boolean(item.track_serial_numbers)
+                };
+            } catch (error) {
+                this.selectedItem = { track_lots: false, track_serial_numbers: false };
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

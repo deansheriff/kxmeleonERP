@@ -137,6 +137,11 @@ class MaterialRequestWebService:
                 wh = db.get(Warehouse, req.default_warehouse_id)
                 if wh:
                     warehouse_name = wh.warehouse_name
+            transfer_to_warehouse_name = None
+            if req.transfer_to_warehouse_id:
+                transfer_wh = db.get(Warehouse, req.transfer_to_warehouse_id)
+                if transfer_wh:
+                    transfer_to_warehouse_name = transfer_wh.warehouse_name
 
             # Get requested by name
             requested_by_name = None
@@ -164,6 +169,7 @@ class MaterialRequestWebService:
                     "total_ordered": _format_currency(total_ordered),
                     "created_at": _format_datetime(req.created_at),
                     "warehouse_name": warehouse_name,
+                    "transfer_to_warehouse_name": transfer_to_warehouse_name,
                     "requested_by_name": requested_by_name,
                 }
             )
@@ -324,6 +330,11 @@ class MaterialRequestWebService:
                     "schedule_date": _format_date(material_request.schedule_date),
                     "default_warehouse_id": str(material_request.default_warehouse_id)
                     if material_request.default_warehouse_id
+                    else "",
+                    "transfer_to_warehouse_id": str(
+                        material_request.transfer_to_warehouse_id
+                    )
+                    if material_request.transfer_to_warehouse_id
                     else "",
                     "project_id": str(material_request.project_id)
                     if material_request.project_id
@@ -515,6 +526,18 @@ class MaterialRequestWebService:
             ).first()
             if wh:
                 default_warehouse_name = f"{wh.warehouse_code} - {wh.warehouse_name}"
+        transfer_to_warehouse_name = None
+        if request.transfer_to_warehouse_id:
+            wh = db.scalars(
+                select(Warehouse).where(
+                    Warehouse.warehouse_id == request.transfer_to_warehouse_id,
+                    Warehouse.organization_id == org_id,
+                )
+            ).first()
+            if wh:
+                transfer_to_warehouse_name = (
+                    f"{wh.warehouse_code} - {wh.warehouse_name}"
+                )
 
         requested_by_name = None
         if request.requested_by_id:
@@ -599,6 +622,8 @@ class MaterialRequestWebService:
                 "status": request.status.value,
                 "schedule_date": _format_date(request.schedule_date),
                 "warehouse_name": default_warehouse_name,
+                "source_warehouse_name": default_warehouse_name,
+                "transfer_to_warehouse_name": transfer_to_warehouse_name,
                 "project_code": project_code,
                 "project_name": project_name,
                 "ticket_number": ticket_number,
@@ -804,6 +829,7 @@ class MaterialRequestWebService:
         request_type: str,
         schedule_date: str | None = None,
         default_warehouse_id: str | None = None,
+        transfer_to_warehouse_id: str | None = None,
         project_id: str | None = None,
         ticket_id: str | None = None,
         requested_by_id: str | None = None,
@@ -824,15 +850,29 @@ class MaterialRequestWebService:
         if schedule_date:
             parsed_date = datetime.strptime(schedule_date, "%Y-%m-%d").date()
 
+        parsed_request_type = MaterialRequestType(request_type)
+        if parsed_request_type != MaterialRequestType.TRANSFER:
+            transfer_to_warehouse_id = None
+        if parsed_request_type == MaterialRequestType.TRANSFER:
+            if not transfer_to_warehouse_id:
+                raise ValueError("Destination warehouse is required for transfers")
+            if default_warehouse_id and default_warehouse_id == transfer_to_warehouse_id:
+                raise ValueError(
+                    "Source and destination warehouses must be different"
+                )
+
         # Create request
         request = MaterialRequest(
             organization_id=organization_id,
             request_number=request_number,
-            request_type=MaterialRequestType(request_type),
+            request_type=parsed_request_type,
             status=MaterialRequestStatus.DRAFT,
             schedule_date=parsed_date,
             default_warehouse_id=coerce_uuid(default_warehouse_id)
             if default_warehouse_id
+            else None,
+            transfer_to_warehouse_id=coerce_uuid(transfer_to_warehouse_id)
+            if transfer_to_warehouse_id
             else None,
             project_id=coerce_uuid(project_id) if project_id else None,
             ticket_id=coerce_uuid(ticket_id) if ticket_id else None,
@@ -862,13 +902,22 @@ class MaterialRequestWebService:
 
                 # Support both qty and requested_qty
                 qty = item_data.get("qty") or item_data.get("requested_qty") or "0"
+                line_warehouse_id = item_data.get("warehouse_id")
+                if (
+                    parsed_request_type == MaterialRequestType.TRANSFER
+                    and line_warehouse_id
+                    and line_warehouse_id == transfer_to_warehouse_id
+                ):
+                    raise ValueError(
+                        f"Item #{seq}: source and destination warehouses must be different"
+                    )
 
                 item = MaterialRequestItem(
                     organization_id=organization_id,
                     request_id=request.request_id,
                     inventory_item_id=coerce_uuid(inv_item_id),
-                    warehouse_id=coerce_uuid(item_data.get("warehouse_id"))
-                    if item_data.get("warehouse_id")
+                    warehouse_id=coerce_uuid(line_warehouse_id)
+                    if line_warehouse_id
                     else None,
                     requested_qty=Decimal(str(qty)),
                     ordered_qty=Decimal("0"),
@@ -890,6 +939,7 @@ class MaterialRequestWebService:
         request_type: str,
         schedule_date: str | None = None,
         default_warehouse_id: str | None = None,
+        transfer_to_warehouse_id: str | None = None,
         project_id: str | None = None,
         ticket_id: str | None = None,
         requested_by_id: str | None = None,
@@ -909,11 +959,27 @@ class MaterialRequestWebService:
         if schedule_date:
             parsed_date = datetime.strptime(schedule_date, "%Y-%m-%d").date()
 
+        parsed_request_type = MaterialRequestType(request_type)
+        if parsed_request_type != MaterialRequestType.TRANSFER:
+            transfer_to_warehouse_id = None
+        if parsed_request_type == MaterialRequestType.TRANSFER:
+            if not transfer_to_warehouse_id:
+                raise ValueError("Destination warehouse is required for transfers")
+            if default_warehouse_id and default_warehouse_id == transfer_to_warehouse_id:
+                raise ValueError(
+                    "Source and destination warehouses must be different"
+                )
+
         # Update request
-        request.request_type = MaterialRequestType(request_type)
+        request.request_type = parsed_request_type
         request.schedule_date = parsed_date
         request.default_warehouse_id = (
             coerce_uuid(default_warehouse_id) if default_warehouse_id else None
+        )
+        request.transfer_to_warehouse_id = (
+            coerce_uuid(transfer_to_warehouse_id)
+            if transfer_to_warehouse_id
+            else None
         )
         request.project_id = coerce_uuid(project_id) if project_id else None
         request.ticket_id = coerce_uuid(ticket_id) if ticket_id else None
@@ -946,13 +1012,22 @@ class MaterialRequestWebService:
 
                 # Support both qty and requested_qty
                 qty = item_data.get("qty") or item_data.get("requested_qty") or "0"
+                line_warehouse_id = item_data.get("warehouse_id")
+                if (
+                    parsed_request_type == MaterialRequestType.TRANSFER
+                    and line_warehouse_id
+                    and line_warehouse_id == transfer_to_warehouse_id
+                ):
+                    raise ValueError(
+                        f"Item #{seq}: source and destination warehouses must be different"
+                    )
 
                 item = MaterialRequestItem(
                     organization_id=organization_id,
                     request_id=request.request_id,
                     inventory_item_id=coerce_uuid(inv_item_id),
-                    warehouse_id=coerce_uuid(item_data.get("warehouse_id"))
-                    if item_data.get("warehouse_id")
+                    warehouse_id=coerce_uuid(line_warehouse_id)
+                    if line_warehouse_id
                     else None,
                     requested_qty=Decimal(str(qty)),
                     ordered_qty=Decimal("0"),
@@ -1180,14 +1255,21 @@ class MaterialRequestWebService:
                         db, organization_id, txn_input, user_id
                     )
                 elif request.request_type == MaterialRequestType.TRANSFER:
-                    # For transfers: issue from source warehouse
-                    # (full transfer support would need to_warehouse on lines)
+                    if not request.transfer_to_warehouse_id:
+                        raise ValueError(
+                            "Destination warehouse is required for transfer requests"
+                        )
+                    if wh_id == request.transfer_to_warehouse_id:
+                        raise ValueError(
+                            "Source and destination warehouses must be different"
+                        )
                     txn_input = TransactionInput(
-                        transaction_type=TransactionType.ISSUE,
+                        transaction_type=TransactionType.TRANSFER,
                         transaction_date=txn_date,
                         fiscal_period_id=fiscal_period.fiscal_period_id,
                         item_id=line.inventory_item_id,
                         warehouse_id=wh_id,
+                        to_warehouse_id=request.transfer_to_warehouse_id,
                         quantity=line.requested_qty,
                         unit_cost=item.average_cost or Decimal("0"),
                         uom=line.uom or item.base_uom or "",
@@ -1197,9 +1279,14 @@ class MaterialRequestWebService:
                         source_document_id=request.request_id,
                         source_document_line_id=line.item_id,
                         reference=request.request_number,
+                        reason_code="MATERIAL_REQUEST_TRANSFER",
                     )
-                    InventoryTransactionService.create_issue(
-                        db, organization_id, txn_input, user_id
+                    InventoryTransactionService.create_transfer(
+                        db,
+                        organization_id,
+                        txn_input,
+                        user_id,
+                        auto_commit=False,
                     )
                 elif request.request_type == MaterialRequestType.MANUFACTURE:
                     # Manufacture requests issue raw materials

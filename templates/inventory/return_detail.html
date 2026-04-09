@@ -1,0 +1,106 @@
+{% extends "inventory/base_inventory.html" %}
+{% from "components/macros.html" import status_badge, icon_svg %}
+
+{% block page_title %}Return {{ inventory_return.return_number }}{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/inventory/items" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Inventory</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/inventory/transactions" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Transactions</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">{{ inventory_return.return_number }}</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="card p-6">
+        <div class="flex items-start justify-between gap-4">
+            <div>
+                <div class="flex items-center gap-3">
+                    <h2 class="text-xl font-semibold text-slate-900 dark:text-white">{{ inventory_return.return_number }}</h2>
+                    {{ status_badge(inventory_return.return_mode.value) }}
+                    {{ status_badge("RETURN") }}
+                </div>
+                <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">{{ inventory_return.reason }}</p>
+            </div>
+            <div class="text-right text-sm text-slate-500 dark:text-slate-400">
+                <p>Date: <span class="font-medium text-slate-900 dark:text-white">{{ inventory_return.return_date | format_date if inventory_return.return_date else '-' }}</span></p>
+                <p>ID: <span class="font-mono text-xs">{{ inventory_return.return_id }}</span></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-2">
+        <div class="card p-6">
+            <h3 class="mb-4 font-semibold text-slate-900 dark:text-white">Return Information</h3>
+            <dl class="space-y-3">
+                <div class="flex justify-between">
+                    <dt class="text-sm text-slate-500 dark:text-slate-400">Item</dt>
+                    <dd class="text-sm text-slate-900 dark:text-white">{{ inventory_return.item.item_code if inventory_return.item else '-' }}{% if inventory_return.item %} - {{ inventory_return.item.item_name }}{% endif %}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm text-slate-500 dark:text-slate-400">Quantity</dt>
+                    <dd class="font-mono text-sm text-slate-900 dark:text-white">{{ '{:,.2f}'.format(inventory_return.quantity or 0) }} {{ inventory_return.uom or '' }}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm text-slate-500 dark:text-slate-400">Source Warehouse</dt>
+                    <dd class="text-sm text-slate-900 dark:text-white">{{ inventory_return.source_warehouse.warehouse_name if inventory_return.source_warehouse else '-' }}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm text-slate-500 dark:text-slate-400">Destination Warehouse</dt>
+                    <dd class="text-sm text-slate-900 dark:text-white">{{ inventory_return.destination_warehouse.warehouse_name if inventory_return.destination_warehouse else '-' }}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm text-slate-500 dark:text-slate-400">Reference</dt>
+                    <dd class="text-sm text-slate-900 dark:text-white">{{ inventory_return.reference or '-' }}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm text-slate-500 dark:text-slate-400">Material Request</dt>
+                    <dd class="text-sm text-slate-900 dark:text-white">
+                        {% if inventory_return.material_request %}
+                        <a href="/inventory/material-requests/{{ inventory_return.material_request.request_id }}" class="text-amber-600 hover:underline">{{ inventory_return.material_request.request_number }}</a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </dd>
+                </div>
+            </dl>
+        </div>
+
+        <div class="card p-6">
+            <h3 class="mb-4 font-semibold text-slate-900 dark:text-white">Tracking</h3>
+            <dl class="space-y-3">
+                <div class="flex justify-between">
+                    <dt class="text-sm text-slate-500 dark:text-slate-400">Lot Number</dt>
+                    <dd class="font-mono text-sm text-slate-900 dark:text-white">{{ inventory_return.lot_number or (inventory_return.lot.lot_number if inventory_return.lot else '-') }}</dd>
+                </div>
+                <div>
+                    <dt class="mb-1 text-sm text-slate-500 dark:text-slate-400">Serial Numbers</dt>
+                    {% if inventory_return.serial_numbers %}
+                    <dd class="rounded-lg bg-slate-50 p-3 font-mono text-sm text-slate-900 dark:bg-slate-800 dark:text-white">
+                        {{ inventory_return.serial_numbers | join(', ') }}
+                    </dd>
+                    {% else %}
+                    <dd class="text-sm text-slate-900 dark:text-white">-</dd>
+                    {% endif %}
+                </div>
+                <div>
+                    <dt class="mb-1 text-sm text-slate-500 dark:text-slate-400">Remarks</dt>
+                    <dd class="text-sm text-slate-900 dark:text-white">{{ inventory_return.remarks or '-' }}</dd>
+                </div>
+            </dl>
+        </div>
+    </div>
+
+    {% if inventory_return.posted_transaction %}
+    <div class="card p-6">
+        <h3 class="mb-4 font-semibold text-slate-900 dark:text-white">Posted Inventory Transaction</h3>
+        <a href="/inventory/transactions/{{ inventory_return.posted_transaction.transaction_id }}" class="text-amber-600 hover:underline">
+            View posted RETURN transaction
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

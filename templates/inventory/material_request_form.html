@@ -3,6 +3,53 @@
 
 {% block page_title %}{{ 'Edit Material Request' if material_request else 'New Material Request' }}{% endblock %}
 
+{% block head %}
+{{ super() }}
+<style>
+    .material-request-lines {
+        overflow: visible;
+    }
+
+    .material-request-item-picker {
+        width: clamp(22rem, 42vw, 44rem);
+        min-width: max(100%, 22rem);
+        max-width: calc(100vw - 2rem);
+        overflow-x: hidden;
+        left: 0;
+        right: auto;
+    }
+
+    .material-request-item-picker button span:first-child {
+        min-width: 0;
+    }
+
+    .material-request-detail-picker {
+        width: clamp(20rem, 36vw, 34rem);
+        min-width: max(100%, 20rem);
+        max-width: calc(100vw - 2rem);
+        overflow-x: hidden;
+        left: 0;
+        right: auto;
+    }
+
+    .material-request-detail-picker button span:first-child {
+        min-width: 0;
+    }
+
+    @media (max-width: 1024px) {
+        .material-request-item-picker {
+            width: min(32rem, calc(100vw - 4rem));
+        }
+    }
+
+    @media (max-width: 640px) {
+        .material-request-item-picker {
+            width: min(24rem, calc(100vw - 2rem));
+        }
+    }
+</style>
+{% endblock %}
+
 {% block breadcrumbs %}
 <nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
     <ol class="flex items-center gap-2">
@@ -48,7 +95,7 @@
             </div>
             <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 mt-6">
                 <div>
-                    <label class="form-label">Default Warehouse</label>
+                    <label class="form-label" x-text="requestType === 'TRANSFER' ? 'Default Source Warehouse' : 'Default Warehouse'"></label>
                     <select name="default_warehouse_id" class="form-input form-select">
                         <option value="">Select warehouse...</option>
                         {% for wh in warehouses %}
@@ -57,28 +104,105 @@
                         </option>
                         {% endfor %}
                     </select>
+                    <p class="text-xs text-slate-400 mt-1" x-show="requestType === 'TRANSFER'">Used as the source warehouse when a line does not specify one.</p>
+                </div>
+                <div x-show="requestType === 'TRANSFER'" x-cloak>
+                    <label class="form-label required">Destination Warehouse</label>
+                    <select name="transfer_to_warehouse_id" class="form-input form-select" :required="requestType === 'TRANSFER'">
+                        <option value="">Select warehouse...</option>
+                        {% for wh in warehouses %}
+                        <option value="{{ wh.warehouse_id }}" {% if material_request and material_request.transfer_to_warehouse_id == wh.warehouse_id %}selected{% endif %}>
+                            {{ wh.warehouse_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-xs text-slate-400 mt-1">Stock will be added to this warehouse on approval.</p>
                 </div>
                 <div>
                     <label class="form-label">Project</label>
-                    <select name="project_id" class="form-input form-select">
-                        <option value="">Select project...</option>
-                        {% for proj in projects %}
-                        <option value="{{ proj.project_id }}" {% if material_request and material_request.project_id == proj.project_id %}selected{% endif %}>
-                            {{ proj.project_code }} - {{ proj.project_name }}
-                        </option>
-                        {% endfor %}
-                    </select>
+                    <div class="relative w-[16rem] max-w-full" @click.outside="projectOpen = false">
+                        <div class="relative">
+                            <input
+                                type="text"
+                                x-model="projectSearch"
+                                @input="onProjectSearch"
+                                @focus="projectOpen = true"
+                                @keydown.escape.prevent="projectOpen = false"
+                                placeholder="Select project..."
+                                class="form-input w-full pr-9"
+                                role="combobox"
+                                aria-expanded="false"
+                                aria-haspopup="listbox"
+                            >
+                            <button type="button" @click="projectOpen = !projectOpen" class="absolute inset-y-0 right-2 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                {{ icon_svg("chevron-down", "h-4 w-4") }}
+                            </button>
+                        </div>
+                        <input type="hidden" name="project_id" x-model="projectId">
+                        <div
+                            x-cloak
+                            x-show="projectOpen"
+                            x-transition
+                            class="material-request-detail-picker absolute z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
+                            role="listbox"
+                        >
+                            <template x-for="project in filteredProjects()" :key="project.project_id">
+                                <button
+                                    type="button"
+                                    class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                                    @click="selectProject(project)"
+                                >
+                                    <span class="truncate whitespace-nowrap" x-text="project.project_code + ' - ' + project.project_name"></span>
+                                </button>
+                            </template>
+                            <div x-show="filteredProjects().length === 0" class="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">
+                                No projects match your search.
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div>
                     <label class="form-label">Ticket</label>
-                    <select name="ticket_id" class="form-input form-select">
-                        <option value="">Select ticket...</option>
-                        {% for t in tickets %}
-                        <option value="{{ t.ticket_id }}" {% if material_request and material_request.ticket_id == t.ticket_id %}selected{% endif %}>
-                            {{ t.ticket_number }}{% if t.subject %} - {{ t.subject }}{% endif %}
-                        </option>
-                        {% endfor %}
-                    </select>
+                    <div class="relative w-[16rem] max-w-full" @click.outside="ticketOpen = false">
+                        <div class="relative">
+                            <input
+                                type="text"
+                                x-model="ticketSearch"
+                                @input="onTicketSearch"
+                                @focus="ticketOpen = true"
+                                @keydown.escape.prevent="ticketOpen = false"
+                                placeholder="Select ticket..."
+                                class="form-input w-full pr-9"
+                                role="combobox"
+                                aria-expanded="false"
+                                aria-haspopup="listbox"
+                            >
+                            <button type="button" @click="ticketOpen = !ticketOpen" class="absolute inset-y-0 right-2 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                {{ icon_svg("chevron-down", "h-4 w-4") }}
+                            </button>
+                        </div>
+                        <input type="hidden" name="ticket_id" x-model="ticketId">
+                        <div
+                            x-cloak
+                            x-show="ticketOpen"
+                            x-transition
+                            class="material-request-detail-picker absolute z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
+                            role="listbox"
+                        >
+                            <template x-for="ticket in filteredTickets()" :key="ticket.ticket_id">
+                                <button
+                                    type="button"
+                                    class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                                    @click="selectTicket(ticket)"
+                                >
+                                    <span class="truncate whitespace-nowrap" x-text="ticket.ticket_number + (ticket.subject ? ' - ' + ticket.subject : '')"></span>
+                                </button>
+                            </template>
+                            <div x-show="filteredTickets().length === 0" class="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">
+                                No tickets match your search.
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div>
                     <label class="form-label">Requested By</label>
@@ -119,12 +243,12 @@
             </div>
 
             <!-- Items Table -->
-            <div class="table-container">
+            <div class="table-container material-request-lines">
                 <table class="table text-sm">
                     <thead>
                         <tr>
                             <th scope="col">Item</th>
-                            <th scope="col">Warehouse</th>
+                            <th scope="col" x-text="requestType === 'TRANSFER' ? 'Source Warehouse' : 'Warehouse'"></th>
                             <th scope="col" class="text-right">Qty</th>
                             <th scope="col">UOM</th>
                             <th scope="col">Date</th>
@@ -135,30 +259,54 @@
                         <template x-for="(item, index) in items" :key="index">
                             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                                 <td class="py-2 px-2">
-                                    <select x-model="item.item_id" required class="form-input form-select text-sm py-1.5">
-                                        <option value="">Select item...</option>
-                                        {% for inv_item in inventory_items %}
-                                        <option value="{{ inv_item.item_id }}">{{ inv_item.item_code }} - {{ inv_item.item_name }}</option>
-                                        {% else %}
-                                        <tr>
-                                            <td colspan="99" class="p-0">
-                                                {{ empty_state("No inventory_items found", "There are no inventory_items to display.") }}
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </select>
+                                    <div class="relative w-[16rem] max-w-full" @click.outside="item.item_open = false">
+                                        <div class="relative">
+                                            <input
+                                                type="text"
+                                                x-model="item.item_search"
+                                                @input="onItemSearch(item)"
+                                                @focus="item.item_open = true"
+                                                @keydown.escape.prevent="item.item_open = false"
+                                                placeholder="Select item..."
+                                                required
+                                                class="form-input w-full min-w-0 text-sm py-1.5 pr-9"
+                                                role="combobox"
+                                                aria-expanded="false"
+                                                aria-haspopup="listbox"
+                                            >
+                                            <button type="button" @click="toggleItemPicker(item)" class="absolute inset-y-0 right-2 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                                {{ icon_svg("chevron-down", "h-4 w-4") }}
+                                            </button>
+                                        </div>
+                                        <input type="hidden" x-model="item.item_id" required>
+                                        <div
+                                            x-cloak
+                                            x-show="item.item_open"
+                                            x-transition
+                                            class="material-request-item-picker absolute z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
+                                            role="listbox"
+                                        >
+                                            <template x-for="option in filteredInventoryItems(item.item_search)" :key="option.item_id">
+                                                <button
+                                                    type="button"
+                                                    class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                                                    @click="selectInventoryItem(item, option)"
+                                                >
+                                                    <span class="truncate whitespace-nowrap" x-text="option.item_code + ' - ' + option.item_name"></span>
+                                                    <span class="shrink-0 text-xs text-slate-400" x-text="option.base_uom || ''"></span>
+                                                </button>
+                                            </template>
+                                            <div x-show="filteredInventoryItems(item.item_search).length === 0" class="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">
+                                                No items match your search.
+                                            </div>
+                                        </div>
+                                    </div>
                                 </td>
                                 <td class="py-2 px-2">
                                     <select x-model="item.warehouse_id" class="form-input form-select text-sm py-1.5">
-                                        <option value="">Default</option>
+                                        <option value="" x-text="requestType === 'TRANSFER' ? 'Use default source' : 'Default'"></option>
                                         {% for wh in warehouses %}
                                         <option value="{{ wh.warehouse_id }}">{{ wh.warehouse_name }}</option>
-                                        {% else %}
-                                        <tr>
-                                            <td colspan="99" class="p-0">
-                                                {{ empty_state("No warehouses found", "There are no warehouses to display.") }}
-                                            </td>
-                                        </tr>
                                         {% endfor %}
                                     </select>
                                 </td>
@@ -188,7 +336,7 @@
             </div>
 
             <!-- Hidden input for JSON items -->
-            <input type="hidden" name="items_json" :value="JSON.stringify(items)">
+            <input type="hidden" name="items_json" :value="JSON.stringify(submittableItems())">
         </div>
 
         <!-- Actions -->
@@ -206,16 +354,138 @@
 function materialRequestForm() {
     return {
         requestType: '{{ material_request.request_type if material_request else "PURCHASE" }}',
-        items: JSON.parse({{ items_json | default('[]') | tojson }}),
+        inventoryItems: {{ inventory_items | tojson }},
+        projects: {{ projects | tojson }},
+        tickets: {{ tickets | tojson }},
+        items: [],
+        projectId: '{{ material_request.project_id if material_request else "" }}',
+        projectSearch: '',
+        projectOpen: false,
+        ticketId: '{{ material_request.ticket_id if material_request else "" }}',
+        ticketSearch: '',
+        ticketOpen: false,
+
+        init() {
+            const existingItems = JSON.parse({{ items_json | default('[]') | tojson }});
+            this.items = existingItems.map((item) => this.normalizeItem(item));
+            const selectedProject = this.projects.find((project) => project.project_id === this.projectId);
+            if (selectedProject) {
+                this.projectSearch = `${selectedProject.project_code} - ${selectedProject.project_name}`;
+            }
+            const selectedTicket = this.tickets.find((ticket) => ticket.ticket_id === this.ticketId);
+            if (selectedTicket) {
+                this.ticketSearch = selectedTicket.ticket_number + (selectedTicket.subject ? ` - ${selectedTicket.subject}` : '');
+            }
+            if (this.items.length === 0) {
+                this.addItem();
+            }
+        },
+
+        filteredProjects() {
+            const query = (this.projectSearch || '').toLowerCase().trim();
+            if (!query) {
+                return this.projects;
+            }
+
+            return this.projects.filter((project) => (
+                `${project.project_code} ${project.project_name}`.toLowerCase().includes(query)
+            ));
+        },
+
+        onProjectSearch() {
+            this.projectOpen = true;
+            this.projectId = '';
+        },
+
+        selectProject(project) {
+            this.projectId = project.project_id;
+            this.projectSearch = `${project.project_code} - ${project.project_name}`;
+            this.projectOpen = false;
+        },
+
+        filteredTickets() {
+            const query = (this.ticketSearch || '').toLowerCase().trim();
+            if (!query) {
+                return this.tickets;
+            }
+
+            return this.tickets.filter((ticket) => (
+                `${ticket.ticket_number} ${ticket.subject || ''}`.toLowerCase().includes(query)
+            ));
+        },
+
+        onTicketSearch() {
+            this.ticketOpen = true;
+            this.ticketId = '';
+        },
+
+        selectTicket(ticket) {
+            this.ticketId = ticket.ticket_id;
+            this.ticketSearch = ticket.ticket_number + (ticket.subject ? ` - ${ticket.subject}` : '');
+            this.ticketOpen = false;
+        },
+
+        normalizeItem(item = {}) {
+            const itemId = item.item_id || item.inventory_item_id || '';
+            const selectedItem = this.findInventoryItem(itemId);
+
+            return {
+                item_id: itemId,
+                item_search: selectedItem ? `${selectedItem.item_code} - ${selectedItem.item_name}` : '',
+                item_open: false,
+                warehouse_id: item.warehouse_id || '',
+                qty: item.qty || item.requested_qty || 1,
+                uom: item.uom || (selectedItem ? selectedItem.base_uom : 'Nos'),
+                schedule_date: item.schedule_date || ''
+            };
+        },
+
+        findInventoryItem(itemId) {
+            return this.inventoryItems.find((option) => option.item_id === itemId) || null;
+        },
+
+        filteredInventoryItems(search) {
+            const query = (search || '').toLowerCase().trim();
+            if (!query) {
+                return this.inventoryItems;
+            }
+
+            return this.inventoryItems.filter((option) => {
+                const haystack = `${option.item_code} ${option.item_name} ${option.base_uom || ''}`.toLowerCase();
+                return haystack.includes(query);
+            });
+        },
+
+        onItemSearch(item) {
+            item.item_open = true;
+            item.item_id = '';
+        },
+
+        toggleItemPicker(item) {
+            item.item_open = !item.item_open;
+        },
+
+        selectInventoryItem(item, option) {
+            item.item_id = option.item_id;
+            item.item_search = `${option.item_code} - ${option.item_name}`;
+            if (!item.uom || item.uom === 'Nos') {
+                item.uom = option.base_uom || item.uom;
+            }
+            item.item_open = false;
+        },
+
+        submittableItems() {
+            return this.items.map((item) => ({
+                item_id: item.item_id || '',
+                warehouse_id: item.warehouse_id || '',
+                qty: item.qty || '',
+                uom: item.uom || '',
+                schedule_date: item.schedule_date || ''
+            }));
+        },
 
         addItem() {
-            this.items.push({
-                item_id: '',
-                warehouse_id: '',
-                qty: 1,
-                uom: 'Nos',
-                schedule_date: ''
-            });
+            this.items.push(this.normalizeItem());
         },
 
         removeItem(index) {

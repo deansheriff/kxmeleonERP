@@ -8,7 +8,7 @@ appraisals, feedback, goals/KPIs, cycles, KRAs, templates, scorecards, and repor
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, TypedDict
 from urllib.parse import quote_plus
 
 from fastapi import Request
@@ -73,6 +73,13 @@ def _extract_absence_evidence(form_data: Any) -> dict[str, str] | None:
 class PerfWebService:
     """Unified Performance Web Service."""
 
+    class _PMSQueueConfig(TypedDict):
+        title: str
+        description: str
+        statuses: list[AppraisalStatus]
+        current_stage: str
+        next_stage: str
+
     @staticmethod
     def _feedback_base_url(request: Request) -> str:
         if request.url.path.startswith("/people/perf/pms/"):
@@ -102,7 +109,7 @@ class PerfWebService:
     # ─────────────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _pms_queue_config(queue: str) -> dict[str, object] | None:
+    def _pms_queue_config(queue: str) -> _PMSQueueConfig | None:
         if queue == "self-assessment":
             return {
                 "title": "My Self-Assessments",

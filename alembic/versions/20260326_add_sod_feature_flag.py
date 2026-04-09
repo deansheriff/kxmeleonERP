@@ -27,10 +27,14 @@ def upgrade() -> None:
             INSERT INTO feature_flag_registry
                 (flag_id, flag_key, label, description, category, status,
                  default_enabled, sort_order, created_at, updated_at)
-            VALUES
-                (:flag_id, :flag_key, :label, :description, 'COMPLIANCE', 'ACTIVE',
-                 false, 10, :now, :now)
-            ON CONFLICT (flag_key) DO NOTHING
+            SELECT
+                :flag_id, :flag_key, :label, :description, 'COMPLIANCE', 'ACTIVE',
+                false, 10, :now, :now
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM feature_flag_registry
+                WHERE flag_key = :flag_key
+            )
             """
         ).bindparams(
             flag_id=uuid.uuid4(),

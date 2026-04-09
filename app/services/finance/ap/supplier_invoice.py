@@ -407,11 +407,9 @@ class SupplierInvoiceService(ListResponseMixin):
         wht_amount = Decimal("0")
         wht_code_id = input.wht_code_id
         if not wht_code_id:
-            # Auto-detect from supplier config
-            supplier = db.get(Supplier, supplier_id)
+            # Auto-detect from validated supplier config
             if (
-                supplier
-                and getattr(supplier, "withholding_tax_applicable", False)
+                getattr(supplier, "withholding_tax_applicable", False)
                 and getattr(supplier, "withholding_tax_code_id", None)
             ):
                 wht_code_id = supplier.withholding_tax_code_id

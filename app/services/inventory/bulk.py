@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from typing import Any, cast
 from uuid import UUID
-
 from fastapi import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.models.inventory.inventory_transaction import InventoryTransaction
 from app.models.inventory.item import Item
 from app.services.bulk_actions import BulkActionService
+from app.services.inventory.web import _get_batch_stock_quantities
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,8 @@ class ItemBulkService(BulkActionService[Item]):
         ("standard_cost", "Standard Cost"),
         ("sales_price", "Sales Price"),
         ("purchase_price", "Purchase Price"),
+        ("quantity_on_hand", "On Hand"),
+        ("quantity_available", "Available"),
         ("is_active", "Active"),
         ("is_stockable", "Stockable"),
         ("is_sellable", "Sellable"),
@@ -86,6 +89,23 @@ class ItemBulkService(BulkActionService[Item]):
             return entity.item_type.value if entity.item_type else ""
 
         return str(super()._get_export_value(entity, field_name))
+
+    def _build_csv(self, entities: list[Item]) -> Response:
+        """Build CSV export with computed stock quantities."""
+        item_ids = [entity.item_id for entity in entities]
+        stock_quantities = (
+            _get_batch_stock_quantities(self.db, self.organization_id, item_ids)
+            if item_ids
+            else {}
+        )
+
+        for entity in entities:
+            stock_data = stock_quantities.get(entity.item_id, {})
+            export_entity = cast(Any, entity)
+            export_entity.quantity_on_hand = stock_data.get("on_hand", 0)
+            export_entity.quantity_available = stock_data.get("available", 0)
+
+        return super()._build_csv(entities)
 
     def _get_export_filename(self) -> str:
         """Get item export filename."""

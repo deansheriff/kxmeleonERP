@@ -16,9 +16,96 @@ branch_labels = None
 depends_on = None
 
 
+def _column_has_unique_constraint(
+    inspector: sa.Inspector, table_name: str, column_name: str, schema: str
+) -> bool:
+    for pk in [inspector.get_pk_constraint(table_name, schema=schema)]:
+        constrained = pk.get("constrained_columns") or []
+        if constrained == [column_name]:
+            return True
+
+    for unique in inspector.get_unique_constraints(table_name, schema=schema):
+        constrained = unique.get("column_names") or []
+        if constrained == [column_name]:
+            return True
+
+    for index in inspector.get_indexes(table_name, schema=schema):
+        columns = index.get("column_names") or []
+        if index.get("unique") and columns == [column_name]:
+            return True
+
+    return False
+
+
+def _ensure_column_unique(
+    bind: sa.Connection,
+    inspector: sa.Inspector,
+    table_name: str,
+    column_name: str,
+    schema: str,
+    constraint_name: str,
+) -> None:
+    if not inspector.has_table(table_name, schema=schema):
+        return
+
+    if _column_has_unique_constraint(inspector, table_name, column_name, schema):
+        return
+
+    duplicates = bind.execute(
+        sa.text(
+            f"""
+            SELECT {column_name}
+            FROM {schema}.{table_name}
+            WHERE {column_name} IS NOT NULL
+            GROUP BY {column_name}
+            HAVING COUNT(*) > 1
+            LIMIT 1
+            """
+        )
+    ).scalar()
+    if duplicates is not None:
+        raise RuntimeError(
+            f"Cannot add unique constraint to {schema}.{table_name}.{column_name} because duplicate values exist."
+        )
+
+    op.create_unique_constraint(
+        constraint_name,
+        table_name,
+        [column_name],
+        schema=schema,
+    )
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+
+    for table_name, column_name, schema, constraint_name in [
+        ("employee", "employee_id", "hr", "uq_employee_employee_id"),
+        ("organization", "organization_id", "core_org", "uq_organization_org_id"),
+        ("people", "id", "public", "uq_people_id"),
+        (
+            "institutional_performance",
+            "inst_perf_id",
+            "perf",
+            "uq_institutional_performance_inst_perf_id",
+        ),
+        ("appraisal", "appraisal_id", "perf", "uq_appraisal_appraisal_id"),
+        (
+            "performance_contract",
+            "contract_id",
+            "perf",
+            "uq_performance_contract_contract_id",
+        ),
+    ]:
+        _ensure_column_unique(
+            bind,
+            inspector,
+            table_name,
+            column_name,
+            schema,
+            constraint_name,
+        )
 
     if inspector.has_table("institutional_performance", schema="perf"):
         cols = {

@@ -1467,7 +1467,6 @@ class ExpenseLimitService(ExpenseServiceBase):
         )
         usage_start = latest_reset.reset_at if latest_reset else week_start
 
-        approved_statuses = [ExpenseClaimStatus.APPROVED, ExpenseClaimStatus.PAID]
         used = self.db.scalar(
             select(
                 func.coalesce(
@@ -1479,14 +1478,14 @@ class ExpenseLimitService(ExpenseServiceBase):
                 ExpenseClaimAction,
                 and_(
                     ExpenseClaimAction.claim_id == ExpenseClaim.claim_id,
-                    ExpenseClaimAction.action_type == ExpenseClaimActionType.APPROVE,
+                    ExpenseClaimAction.action_type == ExpenseClaimActionType.MARK_PAID,
                     ExpenseClaimAction.status == ExpenseClaimActionStatus.COMPLETED,
                 ),
             )
             .where(
                 ExpenseClaim.organization_id == org_id,
                 ExpenseClaim.approver_id == approver_id,
-                ExpenseClaim.status.in_(approved_statuses),
+                ExpenseClaim.status == ExpenseClaimStatus.PAID,
                 ExpenseClaimAction.created_at >= usage_start,
                 ExpenseClaimAction.created_at <= as_of,
             )
@@ -1606,11 +1605,7 @@ class ExpenseLimitService(ExpenseServiceBase):
         adjustment = self.get_budget_adjustment_for_month(limit_id, expense_date)
         effective_budget = budget + adjustment
 
-        # Sum already-approved claims for this approver in the expense month
-        approved_statuses = [
-            ExpenseClaimStatus.APPROVED,
-            ExpenseClaimStatus.PAID,
-        ]
+        # Sum already-paid claims for this approver in the payment month.
         used = self.db.scalar(
             select(
                 func.coalesce(
@@ -1619,9 +1614,10 @@ class ExpenseLimitService(ExpenseServiceBase):
             ).where(
                 ExpenseClaim.organization_id == org_id,
                 ExpenseClaim.approver_id == approver_id,
-                ExpenseClaim.status.in_(approved_statuses),
-                ExpenseClaim.claim_date >= month_start,
-                ExpenseClaim.claim_date < next_month,
+                ExpenseClaim.status == ExpenseClaimStatus.PAID,
+                ExpenseClaim.paid_on.isnot(None),
+                ExpenseClaim.paid_on >= month_start,
+                ExpenseClaim.paid_on < next_month,
             )
         ) or Decimal("0")
 

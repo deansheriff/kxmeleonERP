@@ -1180,19 +1180,6 @@ class ExpenseLimitWebService:
                         else_=None,
                     )
                 ).label("rejected_count"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                ExpenseClaimAction.action_type
-                                == ExpenseClaimActionType.APPROVE,
-                                ExpenseClaim.total_approved_amount,
-                            ),
-                            else_=Decimal("0"),
-                        )
-                    ),
-                    Decimal("0"),
-                ).label("approved_amount"),
                 func.max(ExpenseClaimAction.created_at).label("last_action_at"),
             )
             .join(
@@ -1224,6 +1211,31 @@ class ExpenseLimitWebService:
             return templates.TemplateResponse(
                 request, "expense/limits/reviewer_approvers.html", context
             )
+
+        paid_amount_rows = db.execute(
+            select(
+                ExpenseClaim.approver_id.label("approver_id"),
+                func.coalesce(
+                    func.sum(ExpenseClaim.total_approved_amount),
+                    Decimal("0"),
+                ).label("paid_amount"),
+            )
+            .join(
+                ExpenseClaimAction,
+                ExpenseClaimAction.claim_id == ExpenseClaim.claim_id,
+            )
+            .where(
+                ExpenseClaim.organization_id == org_id,
+                ExpenseClaim.approver_id.in_(approver_ids),
+                ExpenseClaim.status == ExpenseClaimStatus.PAID,
+                ExpenseClaimAction.action_type == ExpenseClaimActionType.MARK_PAID,
+                ExpenseClaimAction.status == ExpenseClaimActionStatus.COMPLETED,
+            )
+            .group_by(ExpenseClaim.approver_id)
+        ).all()
+        paid_amount_map = {
+            row.approver_id: row.paid_amount or Decimal("0") for row in paid_amount_rows
+        }
 
         employees = list(
             db.scalars(
@@ -1302,7 +1314,9 @@ class ExpenseLimitWebService:
                     "last_reset_at": latest_reset.reset_at if latest_reset else None,
                     "approved_count": int(row.approved_count or 0),
                     "rejected_count": int(row.rejected_count or 0),
-                    "approved_amount": row.approved_amount or Decimal("0"),
+                    "paid_amount": paid_amount_map.get(
+                        row.approver_id, Decimal("0")
+                    ),
                     "last_action_at": row.last_action_at,
                 }
             )
@@ -1520,15 +1534,13 @@ class ExpenseLimitWebService:
                 ExpenseClaimAction,
                 and_(
                     ExpenseClaimAction.claim_id == ExpenseClaim.claim_id,
-                    ExpenseClaimAction.action_type == ExpenseClaimActionType.APPROVE,
+                    ExpenseClaimAction.action_type == ExpenseClaimActionType.MARK_PAID,
                     ExpenseClaimAction.status == ExpenseClaimActionStatus.COMPLETED,
                 ),
             )
             .where(
                 ExpenseClaim.organization_id == org_id,
-                ExpenseClaim.status.in_(
-                    [ExpenseClaimStatus.APPROVED, ExpenseClaimStatus.PAID]
-                ),
+                ExpenseClaim.status == ExpenseClaimStatus.PAID,
                 ExpenseClaimAction.created_at >= usage_start,
                 ExpenseClaimAction.created_at <= now,
                 ExpenseClaim.approver_id == limit.scope_id,

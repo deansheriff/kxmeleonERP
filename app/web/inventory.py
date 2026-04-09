@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from app.services.inventory.material_request_web import MaterialRequestWebService
+from app.services.inventory.return_web import InventoryReturnWebService
 from app.services.inventory.web import inv_web_service
 from app.services.operations.inv_web import operations_inv_web_service
 from app.templates import templates
@@ -664,6 +665,84 @@ def create_receipt_transaction(
     )
 
 
+@router.get("/returns/new", response_class=HTMLResponse)
+def new_inventory_return_form(
+    request: Request,
+    auth: WebAuthContext = Depends(require_inventory_access),
+    db: Session = Depends(get_db),
+):
+    """New return-to-store form page."""
+    return operations_inv_web_service.new_inventory_return_form_response(
+        request=request,
+        auth=auth,
+        db=db,
+    )
+
+
+@router.post("/returns/new")
+async def create_inventory_return(
+    request: Request,
+    auth: WebAuthContext = Depends(require_inventory_access),
+    db: Session = Depends(get_db),
+):
+    """Create a return-to-store record."""
+    form_data = await request.form()
+    return operations_inv_web_service.create_inventory_return_response(
+        request=request,
+        form_data=form_data,
+        auth=auth,
+        db=db,
+    )
+
+
+@router.get("/returns/material-requests/search")
+def inventory_return_material_request_search(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=8, ge=1, le=20),
+    auth: WebAuthContext = Depends(require_inventory_access),
+    db: Session = Depends(get_db),
+):
+    """Search issued material requests for return linkage."""
+    return InventoryReturnWebService.material_request_typeahead(
+        db=db,
+        organization_id=str(auth.organization_id),
+        query=q,
+        limit=limit,
+    )
+
+
+@router.get("/returns/items/search")
+def inventory_return_item_search(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=8, ge=1, le=20),
+    auth: WebAuthContext = Depends(require_inventory_access),
+    db: Session = Depends(get_db),
+):
+    """Search inventory items for return selection."""
+    return InventoryReturnWebService.item_typeahead(
+        db=db,
+        organization_id=str(auth.organization_id),
+        query=q,
+        limit=limit,
+    )
+
+
+@router.get("/returns/{return_id}", response_class=HTMLResponse)
+def inventory_return_detail(
+    request: Request,
+    return_id: str,
+    auth: WebAuthContext = Depends(require_inventory_access),
+    db: Session = Depends(get_db),
+):
+    """Inventory return detail page."""
+    return operations_inv_web_service.inventory_return_detail_response(
+        request=request,
+        return_id=return_id,
+        auth=auth,
+        db=db,
+    )
+
+
 @router.get("/transactions/issue/new", response_class=HTMLResponse)
 def new_issue_form(
     request: Request,
@@ -1122,6 +1201,9 @@ def list_counts(
     search: str | None = None,
     warehouse: str | None = None,
     page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=10, le=500),
+    sort: str | None = Query(default="count_date"),
+    sort_dir: str | None = Query(default="desc"),
     db: Session = Depends(get_db),
 ):
     """Inventory counts list page."""
@@ -1133,6 +1215,9 @@ def list_counts(
         search=search,
         warehouse=warehouse,
         page=page,
+        limit=limit,
+        sort=sort,
+        sort_dir=sort_dir,
     )
 
 

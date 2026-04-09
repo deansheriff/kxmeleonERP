@@ -37,7 +37,7 @@ class GovernanceWebService:
 
     def _grievance_resolution_deadline(self, grievance: object) -> date | None:
         due_date = getattr(grievance, "due_date", None)
-        if due_date is not None:
+        if isinstance(due_date, date):
             return due_date
 
         policy = get_policy_profile("GOVERNMENT_PMS")
@@ -50,7 +50,7 @@ class GovernanceWebService:
 
         raised_date = getattr(grievance, "raised_date", None)
         base_year = cycle_year if cycle_year is not None else (
-            raised_date.year if raised_date is not None else None
+            raised_date.year if isinstance(raised_date, date) else None
         )
         if base_year is None:
             return None

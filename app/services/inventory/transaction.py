@@ -46,6 +46,7 @@ class TransactionInput:
     currency_code: str
     location_id: UUID | None = None
     lot_id: UUID | None = None
+    lot_number: str | None = None
     to_warehouse_id: UUID | None = None
     to_location_id: UUID | None = None
     source_document_type: str | None = None
@@ -398,8 +399,10 @@ class InventoryTransactionService(ListResponseMixin):
         if item.costing_method == CostingMethod.FIFO:
             lot_number = f"FIFO-{input.transaction_date.strftime('%Y%m%d')}-{uuid_lib.uuid4().hex[:8]}"
         elif item.track_lots:
-            # For lot-tracked items without lot_id, generate one
-            lot_number = f"LOT-{input.transaction_date.strftime('%Y%m%d')}-{uuid_lib.uuid4().hex[:8]}"
+            # For lot-tracked items without lot_id, use the provided lot number or generate one.
+            lot_number = (input.lot_number or "").strip() or (
+                f"LOT-{input.transaction_date.strftime('%Y%m%d')}-{uuid_lib.uuid4().hex[:8]}"
+            )
         else:
             return None
 
@@ -874,6 +877,8 @@ class InventoryTransactionService(ListResponseMixin):
         organization_id: UUID,
         input: TransactionInput,
         created_by_user_id: UUID,
+        *,
+        auto_commit: bool = True,
     ) -> tuple[InventoryTransaction, InventoryTransaction]:
         """
         Create an inventory transfer between warehouses.
@@ -984,7 +989,11 @@ class InventoryTransactionService(ListResponseMixin):
             cost_variance=Decimal("0"),
             quantity_before=qty_before_source,
             quantity_after=qty_before_source - input.quantity,
+            source_document_type=input.source_document_type,
+            source_document_id=input.source_document_id,
+            source_document_line_id=input.source_document_line_id,
             reference=input.reference,
+            reason_code=input.reason_code,
             created_by_user_id=user_id,
         )
         db.add(issue_txn)
@@ -1007,7 +1016,11 @@ class InventoryTransactionService(ListResponseMixin):
             cost_variance=Decimal("0"),
             quantity_before=qty_before_dest,
             quantity_after=qty_before_dest + input.quantity,
+            source_document_type=input.source_document_type,
+            source_document_id=input.source_document_id,
+            source_document_line_id=input.source_document_line_id,
             reference=input.reference,
+            reason_code=input.reason_code,
             created_by_user_id=user_id,
         )
         db.add(receipt_txn)
@@ -1018,9 +1031,10 @@ class InventoryTransactionService(ListResponseMixin):
                 lot.quantity_allocated or Decimal("0")
             )
 
-        db.commit()
-        db.refresh(issue_txn)
-        db.refresh(receipt_txn)
+        if auto_commit:
+            db.commit()
+            db.refresh(issue_txn)
+            db.refresh(receipt_txn)
 
         return (issue_txn, receipt_txn)
 

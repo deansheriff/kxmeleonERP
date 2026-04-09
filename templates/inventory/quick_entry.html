@@ -19,7 +19,7 @@
         <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Choose an inventory transaction to continue.</p>
     </div>
 
-    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <a href="/inventory/transactions/receipt/new" class="card p-5 transition-colors hover:border-emerald-200 hover:bg-emerald-50/40 dark:hover:border-emerald-800 dark:hover:bg-emerald-900/20">
             <div class="flex items-start gap-3">
                 <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">{{ icon_svg("download", "h-5 w-5") }}</div>
@@ -42,6 +42,12 @@
             <div class="flex items-start gap-3">
                 <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400">{{ icon_svg("edit", "h-5 w-5") }}</div>
                 <div><h3 class="text-base font-semibold text-slate-900 dark:text-white">Adjustment</h3><p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Correct stock balances and valuation discrepancies.</p></div>
+            </div>
+        </a>
+        <a href="/inventory/returns/new" class="card p-5 transition-colors hover:border-emerald-200 hover:bg-emerald-50/40 dark:hover:border-emerald-800 dark:hover:bg-emerald-900/20">
+            <div class="flex items-start gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400">{{ icon_svg("arrow-left", "h-5 w-5") }}</div>
+                <div><h3 class="text-base font-semibold text-slate-900 dark:text-white">Return to Store</h3><p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Record issued stock coming back into inventory.</p></div>
             </div>
         </a>
     </div>

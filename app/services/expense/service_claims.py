@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -35,6 +35,11 @@ from app.services.expense.service_common import (
 )
 
 logger = logging.getLogger(__name__)
+
+try:
+    from datetime import UTC  # type: ignore
+except ImportError:  # pragma: no cover
+    UTC = timezone.utc
 
 
 class ExpenseClaimMixin(ExpenseServiceBase):
@@ -582,7 +587,6 @@ class ExpenseClaimMixin(ExpenseServiceBase):
         try:
             if approver_id is not None:
                 self._validate_approver_authority(org_id, claim, approver_id)
-                self._validate_approver_weekly_budget(org_id, claim, approver_id)
 
             approver = (
                 self.db.get(Employee, approver_id) if approver_id is not None else None
@@ -915,26 +919,37 @@ class ExpenseClaimMixin(ExpenseServiceBase):
             raise ApproverAuthorityError(claim_amount, max_amount)
 
     def _validate_approver_monthly_budget(
-        self, org_id: UUID, claim: ExpenseClaim, approver_id: UUID
+        self,
+        org_id: UUID,
+        claim: ExpenseClaim,
+        approver_id: UUID,
+        *,
+        expense_date: date | None = None,
     ) -> None:
         from app.services.expense.limit_service import ExpenseLimitService
 
         ExpenseLimitService(self.db, self.ctx).check_approver_monthly_budget(
             org_id,
             approver_id,
-            claim.total_claimed_amount or Decimal("0"),
-            claim.claim_date or date.today(),
+            claim.total_approved_amount or claim.total_claimed_amount or Decimal("0"),
+            expense_date or claim.claim_date or date.today(),
         )
 
     def _validate_approver_weekly_budget(
-        self, org_id: UUID, claim: ExpenseClaim, approver_id: UUID
+        self,
+        org_id: UUID,
+        claim: ExpenseClaim,
+        approver_id: UUID,
+        *,
+        approval_at: datetime | None = None,
     ) -> None:
         from app.services.expense.limit_service import ExpenseLimitService
 
         ExpenseLimitService(self.db, self.ctx).check_approver_weekly_budget(
             org_id,
             approver_id,
-            claim.total_claimed_amount or Decimal("0"),
+            claim.total_approved_amount or claim.total_claimed_amount or Decimal("0"),
+            approval_at=approval_at,
         )
 
     def reject_claim(
@@ -1155,6 +1170,25 @@ class ExpenseClaimMixin(ExpenseServiceBase):
         if not self._begin_action(org_id, claim_id, ExpenseClaimActionType.MARK_PAID):
             return claim
         try:
+            if claim.approver_id is not None:
+                payment_as_of = datetime.combine(
+                    payment_date or date.today(),
+                    datetime.min.time(),
+                    tzinfo=UTC,
+                )
+                self._validate_approver_monthly_budget(
+                    org_id,
+                    claim,
+                    claim.approver_id,
+                    expense_date=payment_as_of.date(),
+                )
+                self._validate_approver_weekly_budget(
+                    org_id,
+                    claim,
+                    claim.approver_id,
+                    approval_at=payment_as_of,
+                )
+
             claim.status = ExpenseClaimStatus.PAID
             claim.paid_on = payment_date or date.today()
             claim.payment_reference = payment_reference
