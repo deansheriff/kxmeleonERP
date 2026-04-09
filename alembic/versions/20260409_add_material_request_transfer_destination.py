@@ -109,7 +109,8 @@ def upgrade() -> None:
         )
 
     fks = {
-        fk["name"] for fk in inspector.get_foreign_keys("material_request", schema="inv")
+        fk["name"]
+        for fk in inspector.get_foreign_keys("material_request", schema="inv")
     }
     if "fk_material_request_transfer_to_warehouse" not in fks:
         op.create_foreign_key(
@@ -153,7 +154,8 @@ def downgrade() -> None:
         )
 
     fks = {
-        fk["name"] for fk in inspector.get_foreign_keys("material_request", schema="inv")
+        fk["name"]
+        for fk in inspector.get_foreign_keys("material_request", schema="inv")
     }
     if "fk_material_request_transfer_to_warehouse" in fks:
         op.drop_constraint(

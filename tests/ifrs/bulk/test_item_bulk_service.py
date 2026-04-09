@@ -63,14 +63,17 @@ class TestBulkExport:
         """CSV export should include On Hand and Available headers."""
         mock_db.scalars.return_value.all.return_value = [mock_item]
 
-        with patch("app.services.inventory.bulk.Item", MagicMock()), patch(
-            "app.services.inventory.bulk._get_batch_stock_quantities",
-            return_value={
-                mock_item.item_id: {
-                    "on_hand": Decimal("15.50"),
-                    "available": Decimal("12.25"),
-                }
-            },
+        with (
+            patch("app.services.inventory.bulk.Item", MagicMock()),
+            patch(
+                "app.services.inventory.bulk._get_batch_stock_quantities",
+                return_value={
+                    mock_item.item_id: {
+                        "on_hand": Decimal("15.50"),
+                        "available": Decimal("12.25"),
+                    }
+                },
+            ),
         ):
             from app.services.inventory.bulk import ItemBulkService
 
@@ -94,14 +97,17 @@ class TestBulkExport:
         """CSV export should include computed stock quantities."""
         mock_db.scalars.return_value.all.return_value = [mock_item]
 
-        with patch("app.services.inventory.bulk.Item", MagicMock()), patch(
-            "app.services.inventory.bulk._get_batch_stock_quantities",
-            return_value={
-                mock_item.item_id: {
-                    "on_hand": Decimal("15.50"),
-                    "available": Decimal("12.25"),
-                }
-            },
+        with (
+            patch("app.services.inventory.bulk.Item", MagicMock()),
+            patch(
+                "app.services.inventory.bulk._get_batch_stock_quantities",
+                return_value={
+                    mock_item.item_id: {
+                        "on_hand": Decimal("15.50"),
+                        "available": Decimal("12.25"),
+                    }
+                },
+            ),
         ):
             from app.services.inventory.bulk import ItemBulkService
 

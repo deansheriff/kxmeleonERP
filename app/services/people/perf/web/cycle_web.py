@@ -153,7 +153,11 @@ class CycleWebService:
 
         cycles_base_url = self._cycles_base_url(request)
         context = base_context(
-            request, auth, "Appraisal Cycles", self._cycles_active_module(request), db=db
+            request,
+            auth,
+            "Appraisal Cycles",
+            self._cycles_active_module(request),
+            db=db,
         )
         context["request"] = request
         success = request.query_params.get("success")
@@ -186,7 +190,11 @@ class CycleWebService:
         """Render new cycle form."""
         cycles_base_url = self._cycles_base_url(request)
         context = base_context(
-            request, auth, "New Appraisal Cycle", self._cycles_active_module(request), db=db
+            request,
+            auth,
+            "New Appraisal Cycle",
+            self._cycles_active_module(request),
+            db=db,
         )
         context["request"] = request
         context.update(
@@ -246,7 +254,11 @@ class CycleWebService:
             db.rollback()
             cycles_base_url = self._cycles_base_url(request)
             context = base_context(
-                request, auth, "New Appraisal Cycle", self._cycles_active_module(request), db=db
+                request,
+                auth,
+                "New Appraisal Cycle",
+                self._cycles_active_module(request),
+                db=db,
             )
             context["request"] = request
             context.update(

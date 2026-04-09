@@ -23,11 +23,17 @@ from app.models.inventory import (
     Warehouse,
 )
 from app.models.inventory.inventory_lot import InventoryLot
-from app.models.inventory.inventory_transaction import InventoryTransaction, TransactionType
+from app.models.inventory.inventory_transaction import (
+    InventoryTransaction,
+    TransactionType,
+)
 from app.models.people.hr import Employee
 from app.models.person import Person
 from app.services.common import coerce_uuid
-from app.services.inventory.transaction import InventoryTransactionService, TransactionInput
+from app.services.inventory.transaction import (
+    InventoryTransactionService,
+    TransactionInput,
+)
 
 
 class InventoryReturnWebService:
@@ -231,14 +237,18 @@ class InventoryReturnWebService:
         material_request = None
         material_request_item = None
         if material_request_id:
-            material_request = db.scalars(
-                select(MaterialRequest)
-                .options(joinedload(MaterialRequest.items))
-                .where(
-                    MaterialRequest.request_id == coerce_uuid(material_request_id),
-                    MaterialRequest.organization_id == org_id,
+            material_request = (
+                db.scalars(
+                    select(MaterialRequest)
+                    .options(joinedload(MaterialRequest.items))
+                    .where(
+                        MaterialRequest.request_id == coerce_uuid(material_request_id),
+                        MaterialRequest.organization_id == org_id,
+                    )
                 )
-            ).unique().first()
+                .unique()
+                .first()
+            )
             if not material_request:
                 raise ValueError("Material request not found")
             mode = InventoryReturnMode.MATERIAL_REQUEST
@@ -258,17 +268,16 @@ class InventoryReturnWebService:
                     "Multiple material request lines match this item and source warehouse"
                 )
             material_request_item = matching_lines[0]
-            returned_qty = (
-                db.scalar(
-                    select(func.sum(InventoryReturn.quantity)).where(
-                        InventoryReturn.organization_id == org_id,
-                        InventoryReturn.material_request_item_id
-                        == material_request_item.item_id,
-                    )
+            returned_qty = db.scalar(
+                select(func.sum(InventoryReturn.quantity)).where(
+                    InventoryReturn.organization_id == org_id,
+                    InventoryReturn.material_request_item_id
+                    == material_request_item.item_id,
                 )
-                or Decimal("0")
-            )
-            allowed_qty = (material_request_item.requested_qty or Decimal("0")) - returned_qty
+            ) or Decimal("0")
+            allowed_qty = (
+                material_request_item.requested_qty or Decimal("0")
+            ) - returned_qty
             if qty > allowed_qty:
                 raise ValueError(
                     f"Return quantity exceeds remaining issued quantity ({allowed_qty})"
@@ -282,7 +291,9 @@ class InventoryReturnWebService:
         if item.track_lots and not (lot_number or "").strip():
             raise ValueError("Lot number is required for lot-tracked items")
         if item.track_serial_numbers and not parsed_serial_numbers:
-            raise ValueError("At least one serial number is required for serial-tracked items")
+            raise ValueError(
+                "At least one serial number is required for serial-tracked items"
+            )
 
         existing_lot = None
         normalized_lot_number = (lot_number or "").strip() or None
@@ -307,8 +318,10 @@ class InventoryReturnWebService:
                 .where(
                     InventoryTransaction.organization_id == org_id,
                     InventoryTransaction.source_document_type == "MATERIAL_REQUEST",
-                    InventoryTransaction.source_document_id == material_request.request_id,
-                    InventoryTransaction.source_document_line_id == material_request_item.item_id,
+                    InventoryTransaction.source_document_id
+                    == material_request.request_id,
+                    InventoryTransaction.source_document_line_id
+                    == material_request_item.item_id,
                     InventoryTransaction.transaction_type.in_(
                         [TransactionType.ISSUE, TransactionType.TRANSFER]
                     ),
@@ -320,7 +333,9 @@ class InventoryReturnWebService:
             organization_id=org_id,
             return_number=InventoryReturnWebService._generate_return_number(),
             return_mode=mode,
-            material_request_id=material_request.request_id if material_request else None,
+            material_request_id=material_request.request_id
+            if material_request
+            else None,
             material_request_item_id=material_request_item.item_id
             if material_request_item
             else None,
@@ -375,7 +390,9 @@ class InventoryReturnWebService:
         return inventory_return
 
     @staticmethod
-    def detail_context(db: Session, organization_id: str, return_id: str) -> dict[str, Any]:
+    def detail_context(
+        db: Session, organization_id: str, return_id: str
+    ) -> dict[str, Any]:
         org_id = coerce_uuid(organization_id)
         inventory_return = db.scalars(
             select(InventoryReturn)

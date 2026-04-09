@@ -81,7 +81,9 @@ class HelpProgressService:
             )
             if existing:
                 self.db.execute(
-                    delete(HelpUserProgress).where(HelpUserProgress.progress_id == existing)
+                    delete(HelpUserProgress).where(
+                        HelpUserProgress.progress_id == existing
+                    )
                 )
                 self.db.flush()
                 logger.info("Help progress removed: person=%s slug=%s", person_id, slug)

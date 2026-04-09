@@ -49,8 +49,10 @@ class GovernanceWebService:
             cycle_year = end_date.year
 
         raised_date = getattr(grievance, "raised_date", None)
-        base_year = cycle_year if cycle_year is not None else (
-            raised_date.year if isinstance(raised_date, date) else None
+        base_year = (
+            cycle_year
+            if cycle_year is not None
+            else (raised_date.year if isinstance(raised_date, date) else None)
         )
         if base_year is None:
             return None
@@ -60,7 +62,9 @@ class GovernanceWebService:
             policy.resolution_deadline_day,
         )
 
-    def _deadline_meta(self, deadline: date | None, resolved: bool) -> dict[str, object] | None:
+    def _deadline_meta(
+        self, deadline: date | None, resolved: bool
+    ) -> dict[str, object] | None:
         if deadline is None:
             return None
         today = date.today()
@@ -90,7 +94,9 @@ class GovernanceWebService:
         summary = svc.governance_compliance_summary(org_id)
         from sqlalchemy import select
 
-        from app.models.people.perf.institutional_performance import InstitutionalPerformance
+        from app.models.people.perf.institutional_performance import (
+            InstitutionalPerformance,
+        )
         from app.models.people.perf.pms_governance import PMSStakeholderFeedback
 
         inst_records = list(
@@ -110,11 +116,15 @@ class GovernanceWebService:
         )
         stage_counts = {
             stage: sum(
-                1 for record in inst_records if (record.workflow_stage or "DRAFT") == stage
+                1
+                for record in inst_records
+                if (record.workflow_stage or "DRAFT") == stage
             )
             for stage in workflow_stages
         }
-        stage_links = {stage: "/people/perf/pms/institutional" for stage in workflow_stages}
+        stage_links = {
+            stage: "/people/perf/pms/institutional" for stage in workflow_stages
+        }
         stage_hints = {
             "DRAFT": "Records waiting to be prepared and submitted.",
             "INTERNAL_REVIEW": "Department reviewers and HR should act here.",

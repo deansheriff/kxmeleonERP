@@ -408,9 +408,8 @@ class SupplierInvoiceService(ListResponseMixin):
         wht_code_id = input.wht_code_id
         if not wht_code_id:
             # Auto-detect from validated supplier config
-            if (
-                getattr(supplier, "withholding_tax_applicable", False)
-                and getattr(supplier, "withholding_tax_code_id", None)
+            if getattr(supplier, "withholding_tax_applicable", False) and getattr(
+                supplier, "withholding_tax_code_id", None
             ):
                 wht_code_id = supplier.withholding_tax_code_id
         if wht_code_id:

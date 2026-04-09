@@ -60,7 +60,9 @@ class AppealWebService:
             policy.resolution_deadline_day,
         )
 
-    def _deadline_meta(self, deadline: date | None, resolved: bool) -> dict[str, object] | None:
+    def _deadline_meta(
+        self, deadline: date | None, resolved: bool
+    ) -> dict[str, object] | None:
         if deadline is None:
             return None
         today = date.today()
@@ -112,7 +114,8 @@ class AppealWebService:
         deadline_map = {
             str(appeal.appeal_id): self._deadline_meta(
                 self._appeal_resolution_deadline(appeal),
-                resolved=appeal.status in (AppealStatus.RESOLVED, AppealStatus.DISMISSED),
+                resolved=appeal.status
+                in (AppealStatus.RESOLVED, AppealStatus.DISMISSED),
             )
             for appeal in result.items
         }
@@ -192,7 +195,8 @@ class AppealWebService:
                 "AppealDecision": AppealDecision,
                 "deadline_meta": self._deadline_meta(
                     self._appeal_resolution_deadline(appeal),
-                    resolved=appeal.status in (AppealStatus.RESOLVED, AppealStatus.DISMISSED),
+                    resolved=appeal.status
+                    in (AppealStatus.RESOLVED, AppealStatus.DISMISSED),
                 ),
             }
         )

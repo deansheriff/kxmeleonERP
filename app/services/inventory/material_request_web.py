@@ -856,10 +856,11 @@ class MaterialRequestWebService:
         if parsed_request_type == MaterialRequestType.TRANSFER:
             if not transfer_to_warehouse_id:
                 raise ValueError("Destination warehouse is required for transfers")
-            if default_warehouse_id and default_warehouse_id == transfer_to_warehouse_id:
-                raise ValueError(
-                    "Source and destination warehouses must be different"
-                )
+            if (
+                default_warehouse_id
+                and default_warehouse_id == transfer_to_warehouse_id
+            ):
+                raise ValueError("Source and destination warehouses must be different")
 
         # Create request
         request = MaterialRequest(
@@ -965,10 +966,11 @@ class MaterialRequestWebService:
         if parsed_request_type == MaterialRequestType.TRANSFER:
             if not transfer_to_warehouse_id:
                 raise ValueError("Destination warehouse is required for transfers")
-            if default_warehouse_id and default_warehouse_id == transfer_to_warehouse_id:
-                raise ValueError(
-                    "Source and destination warehouses must be different"
-                )
+            if (
+                default_warehouse_id
+                and default_warehouse_id == transfer_to_warehouse_id
+            ):
+                raise ValueError("Source and destination warehouses must be different")
 
         # Update request
         request.request_type = parsed_request_type
@@ -977,9 +979,7 @@ class MaterialRequestWebService:
             coerce_uuid(default_warehouse_id) if default_warehouse_id else None
         )
         request.transfer_to_warehouse_id = (
-            coerce_uuid(transfer_to_warehouse_id)
-            if transfer_to_warehouse_id
-            else None
+            coerce_uuid(transfer_to_warehouse_id) if transfer_to_warehouse_id else None
         )
         request.project_id = coerce_uuid(project_id) if project_id else None
         request.ticket_id = coerce_uuid(ticket_id) if ticket_id else None

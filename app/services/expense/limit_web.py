@@ -1314,9 +1314,7 @@ class ExpenseLimitWebService:
                     "last_reset_at": latest_reset.reset_at if latest_reset else None,
                     "approved_count": int(row.approved_count or 0),
                     "rejected_count": int(row.rejected_count or 0),
-                    "paid_amount": paid_amount_map.get(
-                        row.approver_id, Decimal("0")
-                    ),
+                    "paid_amount": paid_amount_map.get(row.approver_id, Decimal("0")),
                     "last_action_at": row.last_action_at,
                 }
             )

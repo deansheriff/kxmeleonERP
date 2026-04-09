@@ -234,7 +234,7 @@ class OperationsInventoryWebService:
         )
         return templates.TemplateResponse(
             request, "inventory/material_request_report.html", context
-            )
+        )
 
     def material_request_detail_response(
         self,
@@ -253,7 +253,7 @@ class OperationsInventoryWebService:
             return RedirectResponse("/inventory/material-requests", status_code=302)
         return templates.TemplateResponse(
             request, "inventory/material_request_detail.html", context
-            )
+        )
 
     def edit_material_request_form_response(
         self,
@@ -278,7 +278,7 @@ class OperationsInventoryWebService:
             return RedirectResponse("/inventory/material-requests", status_code=302)
         return templates.TemplateResponse(
             request, "inventory/material_request_form.html", context
-            )
+        )
 
     def update_material_request_response(
         self,
@@ -369,7 +369,9 @@ class OperationsInventoryWebService:
         context.update(
             InventoryReturnWebService.form_context(db, self._org_id_str(auth))
         )
-        return templates.TemplateResponse(request, "inventory/return_form.html", context)
+        return templates.TemplateResponse(
+            request, "inventory/return_form.html", context
+        )
 
     def create_inventory_return_response(
         self,
@@ -665,9 +667,9 @@ class OperationsInventoryWebService:
         variance_subquery = (
             select(
                 InventoryCountLine.count_id.label("count_id"),
-                func.coalesce(
-                    func.sum(InventoryCountLine.variance_value), 0
-                ).label("total_variance_value"),
+                func.coalesce(func.sum(InventoryCountLine.variance_value), 0).label(
+                    "total_variance_value"
+                ),
             )
             .group_by(InventoryCountLine.count_id)
             .subquery()
@@ -703,7 +705,8 @@ class OperationsInventoryWebService:
                 variance_sort.label("total_variance_value"),
             )
             .outerjoin(
-                variance_subquery, variance_subquery.c.count_id == InventoryCount.count_id
+                variance_subquery,
+                variance_subquery.c.count_id == InventoryCount.count_id,
             )
             .outerjoin(Warehouse, Warehouse.warehouse_id == InventoryCount.warehouse_id)
             .where(base_filter)

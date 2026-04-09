@@ -122,7 +122,10 @@ class PerfWebService:
             return {
                 "title": "Manager Review Queue",
                 "description": "Appraisals awaiting manager review after employee self-assessment.",
-                "statuses": [AppraisalStatus.PENDING_REVIEW, AppraisalStatus.UNDER_REVIEW],
+                "statuses": [
+                    AppraisalStatus.PENDING_REVIEW,
+                    AppraisalStatus.UNDER_REVIEW,
+                ],
                 "current_stage": "Manager Review",
                 "next_stage": "Countersign",
             }
@@ -138,7 +141,10 @@ class PerfWebService:
             return {
                 "title": "Committee Queue",
                 "description": "Countersigned appraisals awaiting committee review and cycle completion.",
-                "statuses": [AppraisalStatus.COUNTERSIGNED, AppraisalStatus.PENDING_COMMITTEE],
+                "statuses": [
+                    AppraisalStatus.COUNTERSIGNED,
+                    AppraisalStatus.PENDING_COMMITTEE,
+                ],
                 "current_stage": "Committee Review",
                 "next_stage": "Cycle Completion",
             }
@@ -155,11 +161,16 @@ class PerfWebService:
         org_id = coerce_uuid(auth.organization_id)
         config = self._pms_queue_config(queue)
         if config is None:
-            context = base_context(request, auth, "Queue Not Found", "pms-reviews", db=db)
+            context = base_context(
+                request, auth, "Queue Not Found", "pms-reviews", db=db
+            )
             context["request"] = request
             context.update({"appraisals": [], "error": "Invalid appraisal queue"})
             return templates.TemplateResponse(
-                request, "people/perf/pms/appraisal_queue.html", context, status_code=404
+                request,
+                "people/perf/pms/appraisal_queue.html",
+                context,
+                status_code=404,
             )
 
         pagination = PaginationParams.from_page(page, per_page=20)
@@ -179,11 +190,19 @@ class PerfWebService:
         )
         total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
         items = list(
-            db.scalars(query.offset(pagination.offset).limit(pagination.limit)).unique().all()
+            db.scalars(query.offset(pagination.offset).limit(pagination.limit))
+            .unique()
+            .all()
         )
-        total_pages = max(1, (total + pagination.limit - 1) // pagination.limit) if pagination.limit else 1
+        total_pages = (
+            max(1, (total + pagination.limit - 1) // pagination.limit)
+            if pagination.limit
+            else 1
+        )
 
-        context = base_context(request, auth, str(config["title"]), "pms-reviews", db=db)
+        context = base_context(
+            request, auth, str(config["title"]), "pms-reviews", db=db
+        )
         context["request"] = request
         context.update(
             {
@@ -242,7 +261,9 @@ class PerfWebService:
             else 1
         )
 
-        context = base_context(request, auth, str(config["title"]), "pms-reviews", db=db)
+        context = base_context(
+            request, auth, str(config["title"]), "pms-reviews", db=db
+        )
         context["request"] = request
         context.update(
             {
@@ -302,7 +323,9 @@ class PerfWebService:
             else 1
         )
 
-        context = base_context(request, auth, str(config["title"]), "pms-reviews", db=db)
+        context = base_context(
+            request, auth, str(config["title"]), "pms-reviews", db=db
+        )
         context["request"] = request
         context.update(
             {
@@ -366,7 +389,9 @@ class PerfWebService:
         status_counts = {status.value: 0 for status in statuses}
         for item in items:
             if item.status:
-                status_counts[item.status.value] = status_counts.get(item.status.value, 0) + 1
+                status_counts[item.status.value] = (
+                    status_counts.get(item.status.value, 0) + 1
+                )
 
         context = base_context(request, auth, "Quarterly Reviews", "pms-reviews", db=db)
         context["request"] = request
@@ -398,11 +423,16 @@ class PerfWebService:
         try:
             appraisal = svc.get_appraisal(org_id, coerce_uuid(appraisal_id))
         except Exception as exc:
-            context = base_context(request, auth, "Appraisal Not Found", "pms-reviews", db=db)
+            context = base_context(
+                request, auth, "Appraisal Not Found", "pms-reviews", db=db
+            )
             context["request"] = request
             context.update({"appraisal": None, "error": str(exc)})
             return templates.TemplateResponse(
-                request, "people/perf/pms/appraisal_detail.html", context, status_code=404
+                request,
+                "people/perf/pms/appraisal_detail.html",
+                context,
+                status_code=404,
             )
 
         queue = request.query_params.get("queue", "").strip().lower()
@@ -1114,7 +1144,9 @@ class PerfWebService:
         except Exception as e:
             db.rollback()
             appraisal = svc.get_appraisal(org_id, coerce_uuid(appraisal_id))
-            context = base_context(request, auth, "Self Assessment", "pms-reviews", db=db)
+            context = base_context(
+                request, auth, "Self Assessment", "pms-reviews", db=db
+            )
             context["request"] = request
             context.update(
                 {
@@ -1239,7 +1271,9 @@ class PerfWebService:
                 coerce_uuid(appraisal_id),
                 manager_overall_rating=manager_rating,
                 manager_summary=manager_summary,
-                manager_recommendations=_get_form_str(form_data, "manager_recommendations")
+                manager_recommendations=_get_form_str(
+                    form_data, "manager_recommendations"
+                )
                 or _get_form_str(form_data, "recommendations")
                 or None,
             )
@@ -1315,7 +1349,9 @@ class PerfWebService:
                 coerce_uuid(appraisal_id),
                 manager_overall_rating=manager_rating,
                 manager_summary=manager_summary,
-                manager_recommendations=_get_form_str(form_data, "manager_recommendations")
+                manager_recommendations=_get_form_str(
+                    form_data, "manager_recommendations"
+                )
                 or _get_form_str(form_data, "recommendations")
                 or None,
             )
@@ -1327,7 +1363,9 @@ class PerfWebService:
         except Exception as e:
             db.rollback()
             appraisal = svc.get_appraisal(org_id, coerce_uuid(appraisal_id))
-            context = base_context(request, auth, "Manager Review", "pms-reviews", db=db)
+            context = base_context(
+                request, auth, "Manager Review", "pms-reviews", db=db
+            )
             context["request"] = request
             context.update(
                 {

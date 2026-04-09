@@ -31,7 +31,10 @@ if TYPE_CHECKING:
     from app.models.inventory.inventory_lot import InventoryLot
     from app.models.inventory.inventory_transaction import InventoryTransaction
     from app.models.inventory.item import Item
-    from app.models.inventory.material_request import MaterialRequest, MaterialRequestItem
+    from app.models.inventory.material_request import (
+        MaterialRequest,
+        MaterialRequestItem,
+    )
     from app.models.inventory.warehouse import Warehouse
 
 

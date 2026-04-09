@@ -608,7 +608,9 @@ class NotificationService:
         organization_id: uuid.UUID | None = None,
     ) -> bool:
         """Mark a notification as read."""
-        query = select(Notification).where(Notification.notification_id == notification_id)
+        query = select(Notification).where(
+            Notification.notification_id == notification_id
+        )
 
         if recipient_id:
             query = query.where(Notification.recipient_id == recipient_id)

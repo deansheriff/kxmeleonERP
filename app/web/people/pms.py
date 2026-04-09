@@ -277,9 +277,7 @@ def pms_quarterly_reviews(
     """Government PMS quarterly reviews overview."""
     from app.services.people.perf.web import perf_web_service
 
-    return perf_web_service.pms_quarterly_reviews_response(
-        request, auth, db, page=page
-    )
+    return perf_web_service.pms_quarterly_reviews_response(request, auth, db, page=page)
 
 
 @router.get("/appraisals/manager-review", response_class=HTMLResponse)
@@ -1120,7 +1118,13 @@ def pms_list_cycles(
     from app.services.people.perf.web import perf_web_service
 
     return perf_web_service.list_cycles_response(
-        request, auth, db, status=status, year=str(year) if year is not None else None, search=search, page=page
+        request,
+        auth,
+        db,
+        status=status,
+        year=str(year) if year is not None else None,
+        search=search,
+        page=page,
     )
 
 
@@ -1553,9 +1557,7 @@ def pms_edit_template_form(
     """Edit appraisal template form (PMS mode)."""
     from app.services.people.perf.web import perf_web_service
 
-    return perf_web_service.template_edit_form_response(
-        request, auth, db, template_id
-    )
+    return perf_web_service.template_edit_form_response(request, auth, db, template_id)
 
 
 @router.post("/templates/{template_id}/edit", response_class=HTMLResponse)
