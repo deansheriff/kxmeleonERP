@@ -1,7 +1,7 @@
 """Add updated_by_id to inventory return.
 
 Revision ID: 20260410_add_inventory_return_updated_by
-Revises: 20260410_add_inventory_lot_balance_table
+Revises: 20260409_add_inventory_return_table
 Create Date: 2026-04-10
 """
 
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "20260410_add_inventory_return_updated_by"
-down_revision = "20260410_add_inventory_lot_balance_table"
+down_revision = "20260409_add_inventory_return_table"
 branch_labels = None
 depends_on = None
 
