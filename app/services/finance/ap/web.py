@@ -323,6 +323,20 @@ def _invoice_detail_view(invoice: SupplierInvoice, supplier: Supplier | None) ->
         "amount_paid": _format_currency(invoice.amount_paid, invoice.currency_code),
         "amount_paid_raw": float(invoice.amount_paid) if invoice.amount_paid else 0.0,
         "balance": _format_currency(balance, invoice.currency_code),
+        "withholding_tax": _format_currency(
+            invoice.withholding_tax_amount, invoice.currency_code
+        )
+        if invoice.withholding_tax_amount
+        else None,
+        "withholding_tax_raw": float(invoice.withholding_tax_amount)
+        if invoice.withholding_tax_amount
+        else 0,
+        "amount_payable": _format_currency(
+            invoice.total_amount - (invoice.withholding_tax_amount or Decimal("0")),
+            invoice.currency_code,
+        )
+        if invoice.withholding_tax_amount
+        else None,
         "status": _invoice_status_label(invoice.status),
         "comments": getattr(invoice, "comments", None),
         "is_overdue": (
@@ -1170,12 +1184,37 @@ class APWebService:
             ).all()
         ]
 
+        # Get WHT codes for withholding tax selection
+        from app.models.finance.tax.tax_code import TaxType
+
+        wht_codes = [
+            {
+                "tax_code_id": str(wht.tax_code_id),
+                "tax_code": wht.tax_code,
+                "tax_name": wht.tax_name,
+                "tax_rate": float(wht.tax_rate),
+                "rate_display": float(
+                    (wht.tax_rate * 100).quantize(Decimal("0.01"))
+                )
+                if wht.tax_rate < 1
+                else float(wht.tax_rate),
+            }
+            for wht in db.scalars(
+                select(TaxCode).where(
+                    TaxCode.organization_id == org_id,
+                    TaxCode.is_active.is_(True),
+                    TaxCode.tax_type == TaxType.WITHHOLDING,
+                )
+            ).all()
+        ]
+
         context = {
             "suppliers_list": suppliers_list,
             "expense_accounts": expense_accounts,
             "asset_accounts": asset_accounts,
             "items_list": items_list,
             "tax_codes": tax_codes,
+            "wht_codes": wht_codes,
             "asset_categories": asset_categories,
             "cost_centers": _get_cost_centers(db, org_id),
             "projects": _get_projects(db, org_id),

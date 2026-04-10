@@ -281,6 +281,12 @@ def invoice_detail_view(invoice: SupplierInvoice, supplier: Supplier | None) -> 
         "withholding_tax_raw": float(invoice.withholding_tax_amount)
         if invoice.withholding_tax_amount
         else 0,
+        "amount_payable": format_currency(
+            invoice.total_amount - (invoice.withholding_tax_amount or Decimal("0")),
+            invoice.currency_code,
+        )
+        if invoice.withholding_tax_amount
+        else None,
         "status": invoice_status_label(invoice.status),
         "comments": getattr(invoice, "comments", None),
         "is_overdue": (

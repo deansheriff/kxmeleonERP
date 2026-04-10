@@ -378,7 +378,7 @@ class TaxCalculationService:
         Args:
             db: Database session
             organization_id: Organization scope
-            base_amount: Amount to calculate WHT on (typically invoice gross)
+            base_amount: Amount to calculate WHT on (net/pre-VAT subtotal)
             wht_code_id: WHT tax code ID
             transaction_date: Date for rate lookup
 

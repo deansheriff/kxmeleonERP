@@ -874,6 +874,10 @@
                         </div>
                     </template>
                     {% if wht_codes %}
+                    <div class="total-row" x-show="whtAmount > 0">
+                        <span class="total-label text-xs text-slate-500 dark:text-slate-400">WHT Base (Net of VAT)</span>
+                        <span class="total-value text-xs text-slate-500 dark:text-slate-400 font-mono" x-text="formatCurrency(netSubtotal)"></span>
+                    </div>
                     <div class="total-row">
                         <span class="total-label">
                             <label class="text-xs font-medium text-slate-600 dark:text-slate-400">WHT</label>
@@ -896,6 +900,14 @@
                         <span class="total-label">Total</span>
                         <span class="total-value" x-text="formatCurrency(total)"></span>
                     </div>
+                    {% if wht_codes %}
+                    <template x-if="whtAmount > 0">
+                        <div class="total-row mt-1 border-t border-slate-200 pt-2 dark:border-slate-700">
+                            <span class="total-label text-sm font-semibold text-slate-700 dark:text-slate-300">Amount Payable</span>
+                            <span class="total-value text-sm font-semibold font-mono text-teal-700 dark:text-teal-400" x-text="formatCurrency(amountPayable)"></span>
+                        </div>
+                    </template>
+                    {% endif %}
                     <template x-if="exclusiveTaxAmount > 0">
                         <div class="mt-2 text-xs text-amber-600 dark:text-amber-400">
                             Tax of <span x-text="formatCurrency(exclusiveTaxAmount)"></span> will be added to the line amounts.
@@ -1090,8 +1102,20 @@ function invoiceForm() {
             return parseFloat((this.taxAmount - this.inclusiveTaxAmount).toFixed(2));
         },
 
+        get netSubtotal() {
+            // Net amount before any VAT — used as WHT base.
+            // For exclusive taxes, this equals subtotal (tax is added on top).
+            // For inclusive taxes, we subtract the VAT embedded in line prices.
+            return parseFloat((this.subtotal - this.inclusiveTaxAmount).toFixed(2));
+        },
+
         get total() {
             return this.subtotal + this.exclusiveTaxAmount;
+        },
+
+        get amountPayable() {
+            // Gross amount less WHT — what the supplier actually receives
+            return parseFloat((this.total - this.whtAmount).toFixed(2));
         },
 
         calculateWht() {
@@ -1105,7 +1129,7 @@ function invoiceForm() {
                 return;
             }
             const rate = code.tax_rate < 1 ? code.tax_rate : code.tax_rate / 100;
-            this.whtAmount = parseFloat((this.subtotal * rate).toFixed(2));
+            this.whtAmount = parseFloat((this.netSubtotal * rate).toFixed(2));
         },
 
         formatCurrency(amount) {

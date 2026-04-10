@@ -389,6 +389,12 @@
                         <span class="document-total-label">Total Amount</span>
                         <span class="document-total-value font-mono">{{ invoice.total_amount | default("0.00") }}</span>
                     </div>
+                    {% if invoice.withholding_tax_raw and invoice.withholding_tax_raw > 0 %}
+                    <div class="document-row border-t border-slate-200 pt-2 dark:border-slate-700">
+                        <span class="document-row-label font-semibold text-slate-700 dark:text-slate-300">Amount Payable</span>
+                        <span class="document-row-value font-mono font-semibold text-teal-700 dark:text-teal-400">{{ invoice.amount_payable }}</span>
+                    </div>
+                    {% endif %}
                     {% if invoice.amount_paid_raw and invoice.amount_paid_raw > 0 %}
                     <div class="document-row">
                         <span class="document-row-label text-emerald-600 dark:text-emerald-400">Amount Paid</span>
