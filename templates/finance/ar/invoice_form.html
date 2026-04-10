@@ -466,15 +466,106 @@
                             <span class="total-value" x-text="formatCurrency(tax.amount)"></span>
                         </div>
                     </template>
-                    <!-- Total tax (if no breakdown available yet) -->
                     <div class="total-row" x-show="taxBreakdown.length === 0 && taxAmount > 0">
                         <span class="total-label">Tax</span>
                         <span class="total-value" x-text="formatCurrency(taxAmount)"></span>
                     </div>
+                    <template x-if="inclusiveTaxAmount > 0">
+                        <div class="total-row">
+                            <span class="total-label text-xs text-slate-400">VAT included in prices</span>
+                            <span class="total-value text-xs text-slate-400" x-text="formatCurrency(inclusiveTaxAmount)"></span>
+                        </div>
+                    </template>
                     <div class="total-row total-final">
                         <span class="total-label">Total</span>
                         <span class="total-value" x-text="formatCurrency(total)"></span>
                     </div>
+
+                    {# ── Deductions ─────────────────────────────── #}
+                    {% if wht_codes or stamp_duty_codes %}
+                    <div class="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
+                        <p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wider">Deductions</p>
+
+                        {# WHT #}
+                        {% if wht_codes %}
+                        <div class="total-row" x-show="whtAmount > 0">
+                            <span class="total-label text-xs text-slate-500 dark:text-slate-400">WHT Base (Net of VAT)</span>
+                            <span class="total-value text-xs text-slate-500 dark:text-slate-400 font-mono" x-text="formatCurrency(netSubtotal)"></span>
+                        </div>
+                        <div class="total-row">
+                            <span class="total-label">
+                                <label class="text-xs font-medium text-slate-600 dark:text-slate-400">WHT</label>
+                                <select name="wht_code_id" x-model="form.wht_code_id"
+                                        class="form-select form-select-sm ml-2 max-w-[160px] inline-block">
+                                    <option value="">None</option>
+                                    {% for wht in wht_codes %}
+                                    <option value="{{ wht.tax_code_id }}">{{ wht.tax_code }} ({{ wht.rate_display }}%)</option>
+                                    {% endfor %}
+                                </select>
+                            </span>
+                            <span class="total-value font-mono text-amber-600 dark:text-amber-400"
+                                  x-show="whtAmount > 0"
+                                  x-text="'-' + formatCurrency(whtAmount)"></span>
+                        </div>
+                        {% endif %}
+
+                        {# VAT Withheld #}
+                        <div class="total-row">
+                            <span class="total-label">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" x-model="form.vat_withheld"
+                                           class="rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700">
+                                    <span class="text-xs font-medium text-slate-600 dark:text-slate-400">VAT Withheld</span>
+                                </label>
+                            </span>
+                            <span class="total-value font-mono text-amber-600 dark:text-amber-400"
+                                  x-show="vatWithheldAmount > 0"
+                                  x-text="'-' + formatCurrency(vatWithheldAmount)"></span>
+                        </div>
+
+                        {# Stamp Duty #}
+                        {% if stamp_duty_codes %}
+                        <div class="total-row">
+                            <span class="total-label">
+                                <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Stamp Duty</label>
+                                <select name="stamp_duty_code_id" x-model="form.stamp_duty_code_id"
+                                        class="form-select form-select-sm ml-2 max-w-[120px] inline-block">
+                                    <option value="">None</option>
+                                    {% for sd in stamp_duty_codes %}
+                                    <option value="{{ sd.tax_code_id }}">{{ sd.tax_code }} ({{ sd.rate_display }}%)</option>
+                                    {% endfor %}
+                                </select>
+                                <select name="stamp_duty_treatment" x-model="form.stamp_duty_treatment"
+                                        x-show="form.stamp_duty_code_id"
+                                        class="form-select form-select-sm ml-1 max-w-[120px] inline-block">
+                                    <option value="DEDUCTED">Deducted</option>
+                                    <option value="PAID_SEPARATELY">Paid Separately</option>
+                                </select>
+                            </span>
+                            <span class="total-value font-mono"
+                                  x-show="stampDutyAmount > 0"
+                                  :class="form.stamp_duty_treatment === 'DEDUCTED' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'"
+                                  x-text="(form.stamp_duty_treatment === 'DEDUCTED' ? '-' : '') + formatCurrency(stampDutyAmount)"></span>
+                        </div>
+                        <template x-if="stampDutyAmount > 0 && form.stamp_duty_treatment === 'PAID_SEPARATELY'">
+                            <div class="total-row">
+                                <span class="text-xs text-slate-400 dark:text-slate-500 italic">Paid separately — does not reduce receivable</span>
+                            </div>
+                        </template>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                    {# Amount Receivable #}
+                    <template x-if="hasDeductions">
+                        <div class="total-row mt-2 border-t border-slate-200 pt-2 dark:border-slate-700">
+                            <span class="total-label text-sm font-semibold text-slate-700 dark:text-slate-300">Amount Receivable</span>
+                            <span class="total-value text-sm font-semibold font-mono text-teal-700 dark:text-teal-400" x-text="formatCurrency(amountReceivable)"></span>
+                        </div>
+                    </template>
+
+                    {# Hidden fields for form submission #}
+                    <input type="hidden" name="vat_withheld" :value="form.vat_withheld">
                 </div>
             </div>
         </div>
@@ -640,8 +731,14 @@ function invoiceForm() {
             exchange_rate: '{{ invoice.exchange_rate if invoice and invoice.exchange_rate else "1" }}',
             lines: [
                 { item_id: '', revenue_account_id: '', description: '', quantity: 1, unit_price: 0, amount: 0, tax_code_ids: [], tax_amount: 0, tax_details: [] }
-            ]
+            ],
+            wht_code_id: '',
+            stamp_duty_code_id: '',
+            stamp_duty_treatment: 'DEDUCTED',
+            vat_withheld: false,
         },
+        whtCodes: {{ wht_codes | tojson | safe if wht_codes is defined else '[]' }},
+        stampDutyCodes: {{ stamp_duty_codes | tojson | safe if stamp_duty_codes is defined else '[]' }},
         functionalCurrency: '{{ default_currency_code }}',
         paymentTermsDays: 30,
         customerCreditLimit: 0,
@@ -735,8 +832,62 @@ function invoiceForm() {
             return this.form.lines.reduce((sum, line) => sum + (line.tax_amount || 0), 0);
         },
 
+        get inclusiveTaxAmount() {
+            const inclusive = this.form.lines.reduce((sum, line) => {
+                for (const taxId of (line.tax_code_ids || [])) {
+                    const taxInfo = taxCodeData[taxId];
+                    if (taxInfo && taxInfo.isInclusive) {
+                        const detail = (line.tax_details || []).find(d => d.tax_code_id === taxId);
+                        if (detail) sum += detail.tax_amount || 0;
+                    }
+                }
+                return sum;
+            }, 0);
+            return parseFloat(inclusive.toFixed(2));
+        },
+
+        get exclusiveTaxAmount() {
+            return parseFloat((this.taxAmount - this.inclusiveTaxAmount).toFixed(2));
+        },
+
+        get netSubtotal() {
+            return parseFloat((this.subtotal - this.inclusiveTaxAmount).toFixed(2));
+        },
+
         get total() {
-            return this.subtotal + this.taxAmount;
+            return this.subtotal + this.exclusiveTaxAmount;
+        },
+
+        get whtAmount() {
+            if (!this.form.wht_code_id) return 0;
+            const code = this.whtCodes.find(c => c.tax_code_id === this.form.wht_code_id);
+            if (!code) return 0;
+            const rate = code.tax_rate < 1 ? code.tax_rate : code.tax_rate / 100;
+            return parseFloat((this.netSubtotal * rate).toFixed(2));
+        },
+
+        get vatWithheldAmount() {
+            return this.form.vat_withheld ? this.taxAmount : 0;
+        },
+
+        get stampDutyAmount() {
+            if (!this.form.stamp_duty_code_id) return 0;
+            const code = this.stampDutyCodes.find(c => c.tax_code_id === this.form.stamp_duty_code_id);
+            if (!code) return 0;
+            const rate = code.tax_rate < 1 ? code.tax_rate : code.tax_rate / 100;
+            return parseFloat((this.total * rate).toFixed(2));
+        },
+
+        get stampDutyDeducted() {
+            return this.form.stamp_duty_treatment === 'DEDUCTED' ? this.stampDutyAmount : 0;
+        },
+
+        get amountReceivable() {
+            return parseFloat((this.total - this.whtAmount - this.vatWithheldAmount - this.stampDutyDeducted).toFixed(2));
+        },
+
+        get hasDeductions() {
+            return this.whtAmount > 0 || this.vatWithheldAmount > 0 || this.stampDutyDeducted > 0;
         },
 
         formatCurrency(amount) {
