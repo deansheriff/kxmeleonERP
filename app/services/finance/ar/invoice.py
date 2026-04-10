@@ -16,7 +16,7 @@ try:
 except ImportError:  # pragma: no cover
     UTC = timezone.utc
 
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID
 
@@ -102,6 +102,10 @@ class ARInvoiceInput:
     is_intercompany: bool = False
     intercompany_org_id: UUID | None = None
     correlation_id: str | None = None
+    wht_code_id: UUID | None = None
+    stamp_duty_code_id: UUID | None = None
+    stamp_duty_treatment: str | None = None  # "DEDUCTED" or "PAID_SEPARATELY"
+    vat_withheld: bool = False
 
 
 def _require_org_match(
@@ -328,11 +332,33 @@ class ARInvoiceService(ListResponseMixin):
 
         total_amount = subtotal + tax_total
 
+        # ── Deductions (WHT, VAT withheld, stamp duty) ──────────────
+        wht_amount = Decimal("0")
+        wht_code_id = input.wht_code_id
+        if wht_code_id:
+            wht_amount, _net = TaxCalculationService.calculate_wht(
+                db, org_id, subtotal, wht_code_id, input.invoice_date
+            )
+
+        stamp_duty_amount = Decimal("0")
+        stamp_duty_code_id = input.stamp_duty_code_id
+        if stamp_duty_code_id:
+            sd_code = TaxCalculationService.get_effective_tax_code(
+                db, org_id, stamp_duty_code_id, input.invoice_date
+            )
+            stamp_duty_amount = (total_amount * sd_code.tax_rate).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
         # Handle credit notes
         if input.invoice_type == InvoiceType.CREDIT_NOTE:
             total_amount = -abs(total_amount)
             subtotal = -abs(subtotal)
             tax_total = -abs(tax_total)
+            if wht_amount:
+                wht_amount = -abs(wht_amount)
+            if stamp_duty_amount:
+                stamp_duty_amount = -abs(stamp_duty_amount)
 
         # Calculate functional currency amount
         exchange_rate = input.exchange_rate or Decimal("1.0")
@@ -371,6 +397,12 @@ class ARInvoiceService(ListResponseMixin):
             intercompany_org_id=input.intercompany_org_id,
             created_by_user_id=user_id,
             correlation_id=input.correlation_id or str(uuid_lib.uuid4()),
+            withholding_tax_amount=wht_amount,
+            withholding_tax_code_id=wht_code_id,
+            stamp_duty_amount=stamp_duty_amount,
+            stamp_duty_code_id=stamp_duty_code_id,
+            stamp_duty_treatment=input.stamp_duty_treatment,
+            vat_withheld=input.vat_withheld,
         )
 
         db.add(invoice)
@@ -590,11 +622,33 @@ class ARInvoiceService(ListResponseMixin):
 
         total_amount = subtotal + tax_total
 
+        # ── Deductions (WHT, VAT withheld, stamp duty) ──────────────
+        wht_amount = Decimal("0")
+        wht_code_id = input.wht_code_id
+        if wht_code_id:
+            wht_amount, _net = TaxCalculationService.calculate_wht(
+                db, org_id, subtotal, wht_code_id, input.invoice_date
+            )
+
+        stamp_duty_amount = Decimal("0")
+        stamp_duty_code_id = input.stamp_duty_code_id
+        if stamp_duty_code_id:
+            sd_code = TaxCalculationService.get_effective_tax_code(
+                db, org_id, stamp_duty_code_id, input.invoice_date
+            )
+            stamp_duty_amount = (total_amount * sd_code.tax_rate).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
         # Handle credit notes
         if input.invoice_type == InvoiceType.CREDIT_NOTE:
             total_amount = -abs(total_amount)
             subtotal = -abs(subtotal)
             tax_total = -abs(tax_total)
+            if wht_amount:
+                wht_amount = -abs(wht_amount)
+            if stamp_duty_amount:
+                stamp_duty_amount = -abs(stamp_duty_amount)
 
         # Calculate functional currency amount
         exchange_rate = input.exchange_rate or Decimal("1.0")
@@ -622,6 +676,12 @@ class ARInvoiceService(ListResponseMixin):
         invoice.ar_control_account_id = customer.ar_control_account_id
         invoice.is_intercompany = input.is_intercompany
         invoice.intercompany_org_id = input.intercompany_org_id
+        invoice.withholding_tax_amount = wht_amount
+        invoice.withholding_tax_code_id = wht_code_id
+        invoice.stamp_duty_amount = stamp_duty_amount
+        invoice.stamp_duty_code_id = stamp_duty_code_id
+        invoice.stamp_duty_treatment = input.stamp_duty_treatment
+        invoice.vat_withheld = input.vat_withheld
         invoice.updated_at = datetime.now(UTC)
 
         db.flush()
@@ -761,6 +821,19 @@ class ARInvoiceService(ListResponseMixin):
         if payload.get("exchange_rate") not in (None, ""):
             exchange_rate = parse_decimal(payload.get("exchange_rate"), "Exchange rate")
 
+        wht_code_id = (
+            coerce_uuid(payload.get("wht_code_id"))
+            if payload.get("wht_code_id")
+            else None
+        )
+        stamp_duty_code_id = (
+            coerce_uuid(payload.get("stamp_duty_code_id"))
+            if payload.get("stamp_duty_code_id")
+            else None
+        )
+        stamp_duty_treatment = payload.get("stamp_duty_treatment") or None
+        vat_withheld = payload.get("vat_withheld") in ("true", "True", True, "on", "1")
+
         return ARInvoiceInput(
             customer_id=customer_id,
             invoice_type=InvoiceType.STANDARD,
@@ -772,6 +845,10 @@ class ARInvoiceService(ListResponseMixin):
             notes=payload.get("terms"),
             internal_notes=payload.get("notes"),
             lines=lines,
+            wht_code_id=wht_code_id,
+            stamp_duty_code_id=stamp_duty_code_id,
+            stamp_duty_treatment=stamp_duty_treatment,
+            vat_withheld=vat_withheld,
         )
 
     @staticmethod
