@@ -16,7 +16,7 @@ from uuid import UUID
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.expense import (
@@ -1220,16 +1220,11 @@ class ExpenseLimitWebService:
                     Decimal("0"),
                 ).label("paid_amount"),
             )
-            .join(
-                ExpenseClaimAction,
-                ExpenseClaimAction.claim_id == ExpenseClaim.claim_id,
-            )
             .where(
                 ExpenseClaim.organization_id == org_id,
                 ExpenseClaim.approver_id.in_(approver_ids),
                 ExpenseClaim.status == ExpenseClaimStatus.PAID,
-                ExpenseClaimAction.action_type == ExpenseClaimActionType.MARK_PAID,
-                ExpenseClaimAction.status == ExpenseClaimActionStatus.COMPLETED,
+                ExpenseClaim.paid_on.isnot(None),
             )
             .group_by(ExpenseClaim.approver_id)
         ).all()
@@ -1527,20 +1522,12 @@ class ExpenseLimitWebService:
                     func.sum(ExpenseClaim.total_approved_amount), Decimal("0")
                 )
             )
-            .select_from(ExpenseClaim)
-            .join(
-                ExpenseClaimAction,
-                and_(
-                    ExpenseClaimAction.claim_id == ExpenseClaim.claim_id,
-                    ExpenseClaimAction.action_type == ExpenseClaimActionType.MARK_PAID,
-                    ExpenseClaimAction.status == ExpenseClaimActionStatus.COMPLETED,
-                ),
-            )
             .where(
                 ExpenseClaim.organization_id == org_id,
                 ExpenseClaim.status == ExpenseClaimStatus.PAID,
-                ExpenseClaimAction.created_at >= usage_start,
-                ExpenseClaimAction.created_at <= now,
+                ExpenseClaim.paid_on.isnot(None),
+                ExpenseClaim.paid_on >= usage_start.date(),
+                ExpenseClaim.paid_on <= now.date(),
                 ExpenseClaim.approver_id == limit.scope_id,
             )
         ) or Decimal("0")

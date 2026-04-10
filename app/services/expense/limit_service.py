@@ -1473,21 +1473,13 @@ class ExpenseLimitService(ExpenseServiceBase):
                     func.sum(ExpenseClaim.total_approved_amount), Decimal("0")
                 )
             )
-            .select_from(ExpenseClaim)
-            .join(
-                ExpenseClaimAction,
-                and_(
-                    ExpenseClaimAction.claim_id == ExpenseClaim.claim_id,
-                    ExpenseClaimAction.action_type == ExpenseClaimActionType.MARK_PAID,
-                    ExpenseClaimAction.status == ExpenseClaimActionStatus.COMPLETED,
-                ),
-            )
             .where(
                 ExpenseClaim.organization_id == org_id,
                 ExpenseClaim.approver_id == approver_id,
                 ExpenseClaim.status == ExpenseClaimStatus.PAID,
-                ExpenseClaimAction.created_at >= usage_start,
-                ExpenseClaimAction.created_at <= as_of,
+                ExpenseClaim.paid_on.isnot(None),
+                ExpenseClaim.paid_on >= usage_start.date(),
+                ExpenseClaim.paid_on <= as_of.date(),
             )
         ) or Decimal("0")
 

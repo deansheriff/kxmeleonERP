@@ -1075,7 +1075,7 @@ class PaymentService:
             fee_kobo: Transfer fee in kobo (smallest currency unit)
         """
 
-        from app.models.expense.expense_claim import ExpenseClaim, ExpenseClaimStatus
+        from app.models.expense.expense_claim import ExpenseClaim
 
         # Re-fetch intent with row-level lock to prevent race conditions
         # between webhook and manual polling
@@ -1117,9 +1117,15 @@ class PaymentService:
         if intent.source_type == "EXPENSE_CLAIM" and intent.source_id:
             claim = self.db.get(ExpenseClaim, intent.source_id)
             if claim:
-                claim.status = ExpenseClaimStatus.PAID
-                claim.paid_on = completed_at.date()
-                claim.payment_reference = intent.paystack_reference
+                from app.services.expense.expense_service import ExpenseService
+
+                claim = ExpenseService(self.db).mark_paid(
+                    self.organization_id,
+                    claim.claim_id,
+                    payment_reference=intent.paystack_reference,
+                    payment_date=completed_at.date(),
+                    send_notification=False,
+                )
             else:
                 logger.warning(
                     f"Expense claim not found for transfer intent {intent.intent_id}. "

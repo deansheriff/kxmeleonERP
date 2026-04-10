@@ -479,9 +479,11 @@ class PaymentEntrySyncService(BaseSyncService[CustomerPayment]):
         - Payment Entry.party_type = "Employee"
         - Payment Entry Reference.reference_doctype = "Expense Claim"
 
-        We use this to backfill ExpenseClaim.paid_on/payment_reference.
+        We use this to sync paid claims through the standard expense workflow
+        while still backfilling metadata for already-paid claims.
         """
         from app.models.expense.expense_claim import ExpenseClaim, ExpenseClaimStatus
+        from app.services.expense.expense_service import ExpenseService
 
         refs = data.get("_references", []) or []
         payment_date = data.get("payment_date")
@@ -508,6 +510,8 @@ class PaymentEntrySyncService(BaseSyncService[CustomerPayment]):
                 if isinstance(maybe, str) and maybe.startswith("HR-EXP-"):
                     candidates.append(maybe)
 
+        expense_service = ExpenseService(self.db)
+
         for ref_name in candidates:
             claim_id = self._resolve_entity_id(ref_name, "Expense Claim")
             if not claim_id:
@@ -531,13 +535,32 @@ class PaymentEntrySyncService(BaseSyncService[CustomerPayment]):
             if not claim:
                 continue
 
-            claim.status = ExpenseClaimStatus.PAID
-            if payment_date is not None:
-                claim.paid_on = payment_date
-            if payment_ref:
-                claim.payment_reference = str(payment_ref)[:100]
+            if claim.status == ExpenseClaimStatus.PAID:
+                if payment_date is not None:
+                    claim.paid_on = payment_date
+                if payment_ref:
+                    claim.payment_reference = str(payment_ref)[:100]
                 claim.updated_by_id = self.user_id
                 claim_ids.append(claim_id)
+                continue
+
+            if claim.status != ExpenseClaimStatus.APPROVED:
+                logger.warning(
+                    "Skipping employee payment sync for claim %s with status %s",
+                    claim.claim_id,
+                    claim.status,
+                )
+                continue
+
+            expense_service.mark_paid(
+                self.organization_id,
+                claim.claim_id,
+                payment_reference=str(payment_ref)[:100] if payment_ref else None,
+                payment_date=payment_date,
+                send_notification=False,
+            )
+            claim.updated_by_id = self.user_id
+            claim_ids.append(claim_id)
 
         if not claim_ids:
             return None

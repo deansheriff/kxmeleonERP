@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -169,6 +169,30 @@ def _paystack_client_context(
     return cm
 
 
+def _patch_expense_mark_paid(db: MagicMock):
+    def _side_effect(
+        _service,
+        org_id: uuid.UUID,
+        claim_id: uuid.UUID,
+        *,
+        payment_reference: str | None = None,
+        payment_date=None,
+        send_notification: bool = True,
+    ):
+        claim = db.get.return_value
+        if claim is not None:
+            claim.status = ExpenseClaimStatus.PAID
+            claim.paid_on = payment_date
+            claim.payment_reference = payment_reference
+        return claim
+
+    return patch(
+        "app.services.expense.expense_service.ExpenseService.mark_paid",
+        autospec=True,
+        side_effect=_side_effect,
+    )
+
+
 # ===========================================================================
 # 1. initiate_expense_transfer — status transitions
 # ===========================================================================
@@ -199,9 +223,12 @@ class TestInitiateExpenseTransfer:
 
         svc = self._svc(db, org_id)
 
-        with patch(
-            "app.services.finance.payments.payment_service.PaystackClient",
-            return_value=client_cm,
+        with (
+            patch(
+                "app.services.finance.payments.payment_service.PaystackClient",
+                return_value=client_cm,
+            ),
+            _patch_expense_mark_paid(db),
         ):
             result = svc.initiate_expense_transfer(intent, _CFG)
 
@@ -234,9 +261,12 @@ class TestInitiateExpenseTransfer:
 
         svc = self._svc(db, org_id)
 
-        with patch(
-            "app.services.finance.payments.payment_service.PaystackClient",
-            return_value=client_cm,
+        with (
+            patch(
+                "app.services.finance.payments.payment_service.PaystackClient",
+                return_value=client_cm,
+            ),
+            _patch_expense_mark_paid(db),
         ):
             result = svc.initiate_expense_transfer(intent, _CFG)
 
@@ -404,11 +434,12 @@ class TestProcessSuccessfulTransfer:
         self._setup_db(db, intent, claim)
 
         svc = self._svc(db, org_id)
-        svc.process_successful_transfer(
-            intent=intent,
-            completed_at=datetime.now(UTC),
-            gateway_response={"status": "success"},
-        )
+        with _patch_expense_mark_paid(db):
+            svc.process_successful_transfer(
+                intent=intent,
+                completed_at=datetime.now(UTC),
+                gateway_response={"status": "success"},
+            )
 
         assert intent.status == PaymentIntentStatus.COMPLETED
         assert intent.paid_at is not None
@@ -431,11 +462,12 @@ class TestProcessSuccessfulTransfer:
         self._setup_db(db, intent, claim)
 
         svc = self._svc(db, org_id)
-        svc.process_successful_transfer(
-            intent=intent,
-            completed_at=datetime.now(UTC),
-            gateway_response={"status": "success"},
-        )
+        with _patch_expense_mark_paid(db):
+            svc.process_successful_transfer(
+                intent=intent,
+                completed_at=datetime.now(UTC),
+                gateway_response={"status": "success"},
+            )
 
         assert intent.status == PaymentIntentStatus.COMPLETED
         assert claim.status == ExpenseClaimStatus.PAID
@@ -559,12 +591,13 @@ class TestProcessSuccessfulTransfer:
         self._setup_db(db, intent, claim)
 
         svc = self._svc(db, org_id)
-        svc.process_successful_transfer(
-            intent=intent,
-            completed_at=datetime.now(UTC),
-            gateway_response={"status": "success"},
-            fee_kobo=5375,  # ₦53.75
-        )
+        with _patch_expense_mark_paid(db):
+            svc.process_successful_transfer(
+                intent=intent,
+                completed_at=datetime.now(UTC),
+                gateway_response={"status": "success"},
+                fee_kobo=5375,  # ₦53.75
+            )
 
         assert intent.fee_amount == Decimal("53.75")
 
@@ -581,12 +614,13 @@ class TestProcessSuccessfulTransfer:
         self._setup_db(db, intent, claim)
 
         svc = self._svc(db, org_id)
-        svc.process_successful_transfer(
-            intent=intent,
-            completed_at=datetime.now(UTC),
-            gateway_response={},
-            fee_kobo=0,
-        )
+        with _patch_expense_mark_paid(db):
+            svc.process_successful_transfer(
+                intent=intent,
+                completed_at=datetime.now(UTC),
+                gateway_response={},
+                fee_kobo=0,
+            )
 
         assert intent.fee_amount is None
 
@@ -606,9 +640,12 @@ class TestProcessSuccessfulTransfer:
 
         svc = self._svc(db, org_id)
 
-        with patch(
-            "app.services.expense.expense_posting_adapter.ExpensePostingAdapter",
-        ) as mock_adapter:
+        with (
+            patch(
+                "app.services.expense.expense_posting_adapter.ExpensePostingAdapter",
+            ) as mock_adapter,
+            _patch_expense_mark_paid(db),
+        ):
             mock_adapter.post_expense_reimbursement.side_effect = RuntimeError(
                 "GL boom"
             )
@@ -727,9 +764,12 @@ class TestPollTransferStatus:
 
         svc = self._svc(db, org_id)
 
-        with patch(
-            "app.services.finance.payments.payment_service.PaystackClient",
-            return_value=client_cm,
+        with (
+            patch(
+                "app.services.finance.payments.payment_service.PaystackClient",
+                return_value=client_cm,
+            ),
+            _patch_expense_mark_paid(db),
         ):
             result = svc.poll_transfer_status(intent, _CFG)
 
@@ -1219,9 +1259,12 @@ class TestEdgeCases:
 
         svc = self._svc(db, org_id)
 
-        with patch(
-            "app.services.expense.expense_posting_adapter.ExpensePostingAdapter",
-        ) as mock_adapter:
+        with (
+            patch(
+                "app.services.expense.expense_posting_adapter.ExpensePostingAdapter",
+            ) as mock_adapter,
+            _patch_expense_mark_paid(db),
+        ):
             svc.process_successful_transfer(
                 intent=intent,
                 completed_at=datetime.now(UTC),
@@ -1233,3 +1276,42 @@ class TestEdgeCases:
 
         assert intent.status == PaymentIntentStatus.COMPLETED
         assert claim.status == ExpenseClaimStatus.PAID
+
+    def test_process_successful_transfer_uses_expense_mark_paid(self) -> None:
+        org_id = _org_id()
+        db = MagicMock()
+        claim = _make_claim(org_id=org_id)
+        intent = _make_intent(
+            org_id=org_id,
+            status=PaymentIntentStatus.PROCESSING,
+            source_id=claim.claim_id,
+            transfer_code="TRF_abc",
+        )
+        execute_result = MagicMock()
+        execute_result.scalar_one_or_none.return_value = intent
+        db.execute.return_value = execute_result
+        db.get.return_value = claim
+        db.scalar.return_value = None
+
+        completed_at = datetime.now(UTC)
+        svc = self._svc(db, org_id)
+
+        with patch(
+            "app.services.expense.expense_service.ExpenseService.mark_paid",
+            autospec=True,
+            return_value=claim,
+        ) as mock_mark_paid:
+            svc.process_successful_transfer(
+                intent=intent,
+                completed_at=completed_at,
+                gateway_response={"status": "success"},
+            )
+
+        mock_mark_paid.assert_called_once_with(
+            ANY,
+            org_id,
+            claim.claim_id,
+            payment_reference=intent.paystack_reference,
+            payment_date=completed_at.date(),
+            send_notification=False,
+        )
