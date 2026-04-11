@@ -639,20 +639,28 @@ class PaymentBatchService(ListResponseMixin):
         db: Session,
         organization_id: UUID,
         batch_id: UUID,
-        file_format: str = "ACH",
-    ) -> dict[str, Any]:
-        """
-        Generate bank file for a payment batch.
+        bank_format: str = "zenith",
+    ) -> dict[str, Any]:  # noqa: PYI051
+        """Generate bank upload file for a payment batch.
+
+        Uses the same ``BankUploadService`` as payroll so the output
+        is a proper Excel file accepted by Zenith, Access, GTBank, etc.
 
         Args:
             db: Database session
             organization_id: Organization scope
             batch_id: Batch to generate file for
-            file_format: Bank file format (ACH, BACS, SEPA, etc.)
+            bank_format: Bank format ("zenith", "access", "gtbank", "generic")
 
         Returns:
-            Dictionary with file reference and content
+            Dictionary with file bytes, filename, metadata
         """
+        from app.models.finance.banking.bank_account import BankAccount
+        from app.services.finance.banking.bank_upload import (
+            BankUploadService,
+            PaymentItem,
+        )
+
         org_id = coerce_uuid(organization_id)
         batch_id = coerce_uuid(batch_id)
 
@@ -672,7 +680,16 @@ class PaymentBatchService(ListResponseMixin):
                 detail=f"Cannot generate bank file for batch in {batch.status.value} status",
             )
 
-        # Get payments
+        # Resolve source (debit) bank account number
+        source_bank = db.get(BankAccount, batch.bank_account_id)
+        if not source_bank:
+            raise HTTPException(
+                status_code=400,
+                detail="Batch source bank account not found",
+            )
+        source_account_number = source_bank.account_number or ""
+
+        # Build PaymentItem list from batch payments + supplier bank details
         payments = list(
             db.scalars(
                 select(SupplierPayment).where(
@@ -682,33 +699,69 @@ class PaymentBatchService(ListResponseMixin):
             ).all()
         )
 
-        # Generate file reference
-        file_reference = f"{file_format}-{batch.batch_number}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-
-        # Generate file content (simplified - actual implementation would vary by format)
-        file_lines = [
-            f"HEADER,{batch.batch_number},{batch.batch_date},{batch.total_amount},{batch.currency_code}",
-        ]
-
+        items: builtins.list[PaymentItem] = []
+        skipped: builtins.list[str] = []
         for payment in payments:
-            supplier = db.scalars(
-                select(Supplier).where(
-                    Supplier.supplier_id == payment.supplier_id,
-                    Supplier.organization_id == org_id,
-                )
-            ).first()
+            supplier = db.get(Supplier, payment.supplier_id)
+            supplier_name = "Unknown"
             if supplier:
-                supplier_name = supplier.trading_name or supplier.legal_name
-            else:
-                supplier_name = "Unknown"
+                supplier_name = (
+                    supplier.trading_name or supplier.legal_name or "Unknown"
+                )
 
-            file_lines.append(
-                f"PAYMENT,{payment.payment_number},{supplier_name},{payment.amount},{payment.reference or ''}"
+            bank_details = (supplier.bank_details or {}) if supplier else {}
+            account_number = bank_details.get("account_number", "")
+            bank_name = bank_details.get("bank_name", "")
+            bank_code = bank_details.get("bank_code")
+
+            if not account_number:
+                skipped.append(
+                    f"{supplier_name} ({payment.payment_number}): no bank account"
+                )
+                logger.warning(
+                    "Skipping payment %s in bank file — supplier %s has no bank details",
+                    payment.payment_number,
+                    supplier_name,
+                )
+                continue
+
+            items.append(
+                PaymentItem(
+                    reference=payment.payment_number,
+                    beneficiary_name=bank_details.get("account_name", supplier_name),
+                    amount=payment.amount,
+                    account_number=account_number,
+                    bank_name=bank_name,
+                    bank_code=bank_code,
+                    beneficiary_code=supplier.supplier_code if supplier else None,
+                    narration=f"AP Payment {batch.batch_number} - {supplier_name}",
+                )
             )
 
-        file_lines.append(f"TRAILER,{len(payments)},{batch.total_amount}")
+        if not items:
+            raise HTTPException(
+                status_code=400,
+                detail="No payments with bank details in this batch. "
+                + (f"Skipped: {'; '.join(skipped)}" if skipped else ""),
+            )
 
-        # Update batch
+        # Generate bank file using shared service
+        upload_svc = BankUploadService(db)
+        valid_formats = ("zenith", "access", "gtbank", "generic")
+        fmt = bank_format if bank_format in valid_formats else "zenith"
+        result = upload_svc.generate_upload(
+            items=items,
+            source_account_number=source_account_number,
+            payment_date=batch.batch_date,
+            bank_format=fmt,  # type: ignore[arg-type]
+            batch_reference=batch.batch_number,
+        )
+
+        # Update batch tracking
+        file_reference = (
+            f"{bank_format}-{batch.batch_number}-"
+            f"{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        )
         batch.bank_file_generated = True
         batch.bank_file_reference = file_reference
         batch.bank_file_generated_at = datetime.now(UTC)
@@ -717,10 +770,14 @@ class PaymentBatchService(ListResponseMixin):
 
         return {
             "file_reference": file_reference,
-            "file_format": file_format,
-            "content": "\n".join(file_lines),
-            "payment_count": len(payments),
-            "total_amount": str(batch.total_amount),
+            "file_format": bank_format,
+            "content": result.content,
+            "filename": result.filename,
+            "content_type": result.content_type,
+            "payment_count": result.row_count,
+            "total_amount": str(result.total_amount),
+            "skipped": skipped,
+            "errors": result.errors,
         }
 
     @staticmethod

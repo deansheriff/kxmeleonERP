@@ -3846,6 +3846,36 @@ class APWebService:
                 request, "finance/ap/payment_batch_form.html", context
             )
 
+    def download_batch_bank_file_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+        batch_id: str,
+        *,
+        bank_format: str = "zenith",
+    ) -> Any:
+        """Generate and download bank upload file for a payment batch."""
+        from starlette.responses import Response
+
+        result = payment_batch_service.generate_bank_file(
+            db=db,
+            organization_id=_require_org_id(auth),
+            batch_id=coerce_uuid(batch_id),
+            bank_format=bank_format,
+        )
+        db.commit()
+
+        return Response(
+            content=result["content"],
+            media_type=result["content_type"],
+            headers={
+                "Content-Disposition": f'attachment; filename="{result["filename"]}"',
+                "X-Payment-Count": str(result["payment_count"]),
+                "X-Total-Amount": str(result["total_amount"]),
+            },
+        )
+
     def list_purchase_orders_response(
         self,
         request: Request,

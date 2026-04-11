@@ -56,6 +56,7 @@
                         <th scope="col">Method</th>
                         <th scope="col" class="text-right">Total</th>
                         <th scope="col">Status</th>
+                        <th scope="col" class="text-center">Bank File</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -76,10 +77,23 @@
                         <td class="whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">
                             {{ batch.status.value if batch.status else '' }}
                         </td>
+                        <td class="text-center">
+                            {% if batch.status and batch.status.value in ('APPROVED', 'COMPLETED') %}
+                            <a href="/finance/ap/payment-batches/{{ batch.batch_id }}/download-bank-file"
+                               class="btn btn-sm btn-secondary" title="Download bank upload file">
+                                {{ icon_svg('download', 16) }}
+                                <span class="hidden sm:inline ml-1">Download</span>
+                            </a>
+                            {% elif batch.bank_file_generated %}
+                            <span class="text-xs text-emerald-600 dark:text-emerald-400">Generated</span>
+                            {% else %}
+                            <span class="text-xs text-slate-400">—</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="5" class="py-12">
+                        <td colspan="6" class="py-12">
                             {{ empty_state('No payment batches found', 'Create a batch to process payments in bulk.', 'document', 'New Batch', '/finance/ap/payment-batches/new') }}
                         </td>
                     </tr>

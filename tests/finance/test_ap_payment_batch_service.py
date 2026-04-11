@@ -143,38 +143,73 @@ def test_approve_and_process_batch():
 def test_generate_bank_file_and_get_batch_payments():
     db = MagicMock()
     org_id = uuid4()
+    batch_id = uuid4()
+    supplier_id = uuid4()
     batch = SimpleNamespace(
-        batch_id=uuid4(),
+        batch_id=batch_id,
         organization_id=org_id,
         status=APBatchStatus.APPROVED,
         batch_number="BATCH-1",
         batch_date=date.today(),
         total_amount=Decimal("100.00"),
         currency_code="NGN",
+        bank_account_id=uuid4(),
+        bank_file_generated=False,
+        bank_file_reference=None,
+        bank_file_generated_at=None,
     )
     payment = SimpleNamespace(
         payment_number="PAY-1",
-        supplier_id=uuid4(),
+        supplier_id=supplier_id,
         amount=Decimal("100.00"),
         reference="Ref",
     )
-    supplier = SimpleNamespace(trading_name="Supplier", legal_name=None)
+    supplier = SimpleNamespace(
+        supplier_id=supplier_id,
+        trading_name="Supplier",
+        legal_name=None,
+        supplier_code="SUP-001",
+        bank_details={
+            "account_number": "0123456789",
+            "bank_name": "Zenith Bank",
+            "account_name": "Supplier Ltd",
+        },
+    )
+    bank_account = SimpleNamespace(account_number="1011649523")
 
-    db.scalars.return_value.first.side_effect = [batch, supplier, batch]
-    db.scalars.return_value.all.side_effect = [[payment], [payment]]
+    db.scalars.return_value.first.side_effect = [batch]
+    db.scalars.return_value.all.side_effect = [[payment]]
+    db.get.side_effect = [bank_account, supplier]
 
-    with patch("app.services.finance.ap.payment_batch.datetime") as dt:
+    upload_result = SimpleNamespace(
+        content=b"excel-content",
+        filename="bank_upload.xlsx",
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        row_count=1,
+        total_amount=Decimal("100.00"),
+        errors=[],
+    )
+
+    with (
+        patch("app.services.finance.ap.payment_batch.datetime") as dt,
+        patch(
+            "app.services.finance.banking.bank_upload.BankUploadService.generate_upload",
+            return_value=upload_result,
+        ),
+    ):
         dt.now.return_value = datetime(2024, 1, 1, 10, 0, 0)
         dt.strftime = datetime.strftime
         result = PaymentBatchService.generate_bank_file(
-            db, org_id, batch.batch_id, file_format="ACH"
+            db, org_id, batch.batch_id, bank_format="zenith"
         )
 
     assert result["payment_count"] == 1
-    assert "HEADER" in result["content"]
-    assert "TRAILER" in result["content"]
+    assert result["content"] == b"excel-content"
+    assert result["filename"] == "bank_upload.xlsx"
 
+    db.scalars.return_value.first.side_effect = None
     db.scalars.return_value.first.return_value = batch
+    db.scalars.return_value.all.side_effect = None
     db.scalars.return_value.all.return_value = [payment]
     payments = PaymentBatchService.get_batch_payments(db, org_id, batch.batch_id)
     assert payments == [payment]

@@ -97,6 +97,12 @@ class MockSupplier:
         self.name = name
         self.trading_name = name
         self.legal_name = name
+        self.supplier_code = "SUP-001"
+        self.bank_details = {
+            "account_number": "0123456789",
+            "bank_name": "Zenith Bank",
+            "account_name": name,
+        }
 
 
 @pytest.fixture
@@ -578,7 +584,9 @@ class TestGenerateBankFile:
     """Tests for generate_bank_file method."""
 
     def test_generate_bank_file_success(self, mock_db, org_id):
-        """Test successful bank file generation."""
+        """Test successful bank file generation using BankUploadService."""
+        from types import SimpleNamespace
+
         batch = MockPaymentBatch(
             organization_id=org_id,
             status=APBatchStatus.APPROVED,
@@ -600,26 +608,37 @@ class TestGenerateBankFile:
                 reference="INV-002",
             ),
         ]
+        bank_account = SimpleNamespace(account_number="1011649523")
 
-        # Service calls: scalars().first() for batch, scalars().all() for payments,
-        # then scalars().first() for each payment's supplier
+        # scalars: batch lookup, then payments list
         sr1 = MagicMock()
         sr1.first.return_value = batch
         sr2 = MagicMock()
         sr2.all.return_value = payments
-        sr3 = MagicMock()
-        sr3.first.return_value = supplier
-        sr4 = MagicMock()
-        sr4.first.return_value = supplier
-        mock_db.scalars.side_effect = [sr1, sr2, sr3, sr4]
+        mock_db.scalars.side_effect = [sr1, sr2]
+        # db.get: source bank account, then supplier for each payment
+        mock_db.get.side_effect = [bank_account, supplier, supplier]
 
-        result = PaymentBatchService.generate_bank_file(
-            mock_db, org_id, batch.batch_id, file_format="ACH"
+        upload_result = SimpleNamespace(
+            content=b"excel-bytes",
+            filename="bank_upload_zenith.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            row_count=2,
+            total_amount=Decimal("300.00"),
+            errors=[],
         )
 
+        with patch(
+            "app.services.finance.banking.bank_upload.BankUploadService.generate_upload",
+            return_value=upload_result,
+        ):
+            result = PaymentBatchService.generate_bank_file(
+                mock_db, org_id, batch.batch_id, bank_format="zenith"
+            )
+
         assert "file_reference" in result
-        assert result["file_format"] == "ACH"
-        assert "content" in result
+        assert result["file_format"] == "zenith"
+        assert result["content"] == b"excel-bytes"
         assert result["payment_count"] == 2
         assert batch.bank_file_generated is True
         assert batch.bank_file_reference is not None

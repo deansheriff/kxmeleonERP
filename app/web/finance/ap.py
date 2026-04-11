@@ -728,6 +728,20 @@ async def create_payment_batch(
     return await ap_web_service.create_payment_batch_response(request, auth, db)
 
 
+@router.get("/payment-batches/{batch_id}/download-bank-file")
+def download_batch_bank_file(
+    request: Request,
+    batch_id: str,
+    bank_format: str = Query(default="zenith"),
+    auth: WebAuthContext = Depends(require_web_permission("ap:payment_batches:read")),
+    db: Session = Depends(get_db),
+):
+    """Download bank upload file for a payment batch."""
+    return ap_web_service.download_batch_bank_file_response(
+        request, auth, db, batch_id, bank_format=bank_format
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Purchase Orders
 # ═══════════════════════════════════════════════════════════════════
