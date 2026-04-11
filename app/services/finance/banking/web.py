@@ -3139,6 +3139,7 @@ class BankingWebService:
             import_filename=payload.import_filename,
             imported_by=auth.user_id,
         )
+        db.commit()
         redirect_url = (
             f"/finance/banking/statements/{result.statement.statement_id}"
             f"?success=Statement+imported+successfully"
