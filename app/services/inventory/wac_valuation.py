@@ -4,6 +4,7 @@ Weighted-average cost valuation service.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
@@ -13,6 +14,8 @@ from sqlalchemy.orm import Session
 
 from app.models.inventory.item_wac_ledger import ItemWACLedger
 from app.services.common import coerce_uuid
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -52,16 +55,53 @@ class WACValuationService:
             )
         )
         if not ledger:
-            return WACSnapshot(
-                quantity=Decimal("0"),
-                wac=Decimal("0"),
-                total_value=Decimal("0"),
+            return self._rebuild_snapshot_from_transactions(
+                organization_id, item_id, warehouse_id
             )
         return WACSnapshot(
             quantity=Decimal(str(ledger.quantity_on_hand or 0)),
             wac=Decimal(str(ledger.current_wac or 0)),
             total_value=Decimal(str(ledger.total_value or 0)),
         )
+
+    def _rebuild_snapshot_from_transactions(
+        self,
+        organization_id: UUID,
+        item_id: UUID,
+        warehouse_id: UUID,
+    ) -> WACSnapshot:
+        """Compute WAC snapshot from transaction history when ledger is missing."""
+        from app.services.inventory.transaction import InventoryTransactionService
+
+        qty = InventoryTransactionService.get_current_balance(
+            self.db, organization_id, item_id, warehouse_id
+        )
+        if qty <= 0:
+            return WACSnapshot(
+                quantity=Decimal("0"),
+                wac=Decimal("0"),
+                total_value=Decimal("0"),
+            )
+        # Ledger missing but transactions exist — initialize ledger
+        from app.models.inventory.item import Item
+
+        item = self.db.get(Item, coerce_uuid(item_id))
+        wac = Decimal(str(item.average_cost or 0)) if item else Decimal("0")
+        total_value = (qty * wac).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        # Persist so future lookups don't re-compute
+        ledger = self._get_or_create_ledger(organization_id, item_id, warehouse_id)
+        ledger.current_wac = wac
+        ledger.quantity_on_hand = qty
+        ledger.total_value = total_value
+        self.db.flush()
+        logger.info(
+            "Auto-initialized WAC ledger for item %s warehouse %s: qty=%s wac=%s",
+            item_id,
+            warehouse_id,
+            qty,
+            wac,
+        )
+        return WACSnapshot(quantity=qty, wac=wac, total_value=total_value)
 
     def calculate_receipt_cost(
         self,
