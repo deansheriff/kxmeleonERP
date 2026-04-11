@@ -84,6 +84,18 @@ from app.models.people.hr.lifecycle import (
     SeparationType,
 )
 
+from app.models.people.hr.clearance_checklist import ClearanceCategory, ClearanceItem
+from app.models.people.hr.employment_contract import (
+    ContractStatus,
+    ContractType,
+    EmploymentContract,
+)
+from app.models.people.hr.exit_interview import (
+    ExitInterview,
+    InterviewStatus,
+    OverallExperience,
+    ReasonForLeaving,
+)
 from app.models.people.hr.salary_review import (
     ReviewType,
     SalaryReview,
@@ -163,4 +175,16 @@ __all__ = [
     "ReadinessLevel",
     "RiskLevel",
     "ImpactLevel",
+    # Employment Contracts
+    "EmploymentContract",
+    "ContractType",
+    "ContractStatus",
+    # Exit Interview
+    "ExitInterview",
+    "InterviewStatus",
+    "OverallExperience",
+    "ReasonForLeaving",
+    # Clearance Checklist
+    "ClearanceItem",
+    "ClearanceCategory",
 ]
