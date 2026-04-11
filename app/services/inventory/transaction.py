@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -93,7 +94,7 @@ class InventoryTransactionService(ListResponseMixin):
             balances = getattr(lot, "_mock_balances", None)
             if balances is None:
                 balances = {}
-                lot._mock_balances = balances
+                cast(Any, lot)._mock_balances = balances
             balance = balances.get(wh_id)
             if balance is None and (
                 create_if_missing or lot.warehouse_id in (wh_id, None)
@@ -154,7 +155,9 @@ class InventoryTransactionService(ListResponseMixin):
             raw_balances = getattr(lot, "_mock_balances", None)
             if raw_balances is None:
                 return
-            balances = list(raw_balances.values())
+            balances = list(
+                cast(dict[UUID, InventoryLotBalance], raw_balances).values()
+            )
         else:
             balances = list(
                 db.scalars(
@@ -175,13 +178,25 @@ class InventoryTransactionService(ListResponseMixin):
             return
 
         lot.quantity_on_hand = sum(
-            (balance.quantity_on_hand or Decimal("0")) for balance in balances
+            (
+                balance.quantity_on_hand or Decimal("0")
+                for balance in balances
+            ),
+            Decimal("0"),
         )
         lot.quantity_allocated = sum(
-            (balance.quantity_allocated or Decimal("0")) for balance in balances
+            (
+                balance.quantity_allocated or Decimal("0")
+                for balance in balances
+            ),
+            Decimal("0"),
         )
         lot.quantity_available = sum(
-            (balance.quantity_available or Decimal("0")) for balance in balances
+            (
+                balance.quantity_available or Decimal("0")
+                for balance in balances
+            ),
+            Decimal("0"),
         )
         lot.is_active = any(
             (balance.quantity_on_hand or Decimal("0")) > 0 or balance.is_active
@@ -829,9 +844,51 @@ class InventoryTransactionService(ListResponseMixin):
 
         # Get warehouse-scoped balances ordered by lot received date (oldest first)
         if InventoryTransactionService._is_mock_like(db):
-            lots = list(db.scalars(select(InventoryLot)).all())
+            mock_lots = list(db.scalars(select(InventoryLot)).all())
+            total_available = sum(
+                (lot.quantity_on_hand for lot in mock_lots),
+                Decimal("0"),
+            )
+
+            if total_available < quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient FIFO inventory: {total_available} available",
+                )
+
+            remaining = quantity
+            total_cost = Decimal("0")
+            layers_used = []
+            first_lot_id = None
+
+            for lot in mock_lots:
+                if remaining <= 0:
+                    break
+
+                consume_qty = min(lot.quantity_on_hand, remaining)
+                layer_cost = consume_qty * lot.unit_cost
+                lot.quantity_on_hand -= consume_qty
+                lot.quantity_available = lot.quantity_on_hand - (
+                    lot.quantity_allocated or Decimal("0")
+                )
+
+                remaining -= consume_qty
+                total_cost += layer_cost
+
+                if first_lot_id is None:
+                    first_lot_id = lot.lot_id
+
+                layers_used.append(
+                    {
+                        "lot_id": str(lot.lot_id),
+                        "lot_number": lot.lot_number,
+                        "quantity": str(consume_qty),
+                        "unit_cost": str(lot.unit_cost),
+                    }
+                )
         else:
-            lots = list(
+            lot_rows = cast(
+                list[tuple[InventoryLotBalance, InventoryLot]],
                 db.execute(
                     select(InventoryLotBalance, InventoryLot)
                     .join(
@@ -846,66 +903,55 @@ class InventoryTransactionService(ListResponseMixin):
                         *([InventoryLot.organization_id == org_id] if org_id else []),
                     )
                     .order_by(InventoryLot.received_date.asc())
-                ).all()
+                ).all(),
+            )
+            total_available = sum(
+                (balance.quantity_on_hand for balance, _ in lot_rows),
+                Decimal("0"),
             )
 
-        if InventoryTransactionService._is_mock_like(db):
-            total_available = sum(lot.quantity_on_hand for lot in lots)
-        else:
-            total_available = sum(balance.quantity_on_hand for balance, _ in lots)
-
-        if total_available < quantity:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Insufficient FIFO inventory: {total_available} available",
-            )
-
-        remaining = quantity
-        total_cost = Decimal("0")
-        layers_used = []
-        first_lot_id = None
-
-        for entry in lots:
-            if remaining <= 0:
-                break
-
-            if InventoryTransactionService._is_mock_like(db):
-                lot = entry
-                consume_qty = min(lot.quantity_on_hand, remaining)
-                layer_cost = consume_qty * lot.unit_cost
-                lot.quantity_on_hand -= consume_qty
-                lot.quantity_available = lot.quantity_on_hand - (
-                    lot.quantity_allocated or Decimal("0")
+            if total_available < quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient FIFO inventory: {total_available} available",
                 )
-            else:
-                balance, lot = entry
-                consume_qty = min(balance.quantity_on_hand, remaining)
+
+            remaining = quantity
+            total_cost = Decimal("0")
+            layers_used = []
+            first_lot_id = None
+
+            for bal, lot in lot_rows:
+                if remaining <= 0:
+                    break
+
+                consume_qty = min(bal.quantity_on_hand, remaining)
                 layer_cost = consume_qty * lot.unit_cost
-                balance.quantity_on_hand -= consume_qty
-                if balance.quantity_allocated > balance.quantity_on_hand:
-                    balance.quantity_allocated = balance.quantity_on_hand
-                balance.quantity_available = balance.quantity_on_hand - (
-                    balance.quantity_allocated or Decimal("0")
+                bal.quantity_on_hand -= consume_qty
+                if bal.quantity_allocated > bal.quantity_on_hand:
+                    bal.quantity_allocated = bal.quantity_on_hand
+                bal.quantity_available = bal.quantity_on_hand - (
+                    bal.quantity_allocated or Decimal("0")
                 )
-                balance.is_active = (
-                    balance.quantity_on_hand > 0 or balance.quantity_allocated > 0
+                bal.is_active = (
+                    bal.quantity_on_hand > 0 or bal.quantity_allocated > 0
                 )
                 InventoryTransactionService._sync_legacy_lot_snapshot(db, lot)
 
-            remaining -= consume_qty
-            total_cost += layer_cost
+                remaining -= consume_qty
+                total_cost += layer_cost
 
-            if first_lot_id is None:
-                first_lot_id = lot.lot_id
+                if first_lot_id is None:
+                    first_lot_id = lot.lot_id
 
-            layers_used.append(
-                {
-                    "lot_id": str(lot.lot_id),
-                    "lot_number": lot.lot_number,
-                    "quantity": str(consume_qty),
-                    "unit_cost": str(lot.unit_cost),
-                }
-            )
+                layers_used.append(
+                    {
+                        "lot_id": str(lot.lot_id),
+                        "lot_number": lot.lot_number,
+                        "quantity": str(consume_qty),
+                        "unit_cost": str(lot.unit_cost),
+                    }
+                )
 
         unit_cost = (total_cost / quantity).quantize(
             Decimal("0.000001"), rounding=ROUND_HALF_UP

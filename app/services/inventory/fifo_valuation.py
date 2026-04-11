@@ -11,6 +11,7 @@ import uuid as uuid_lib
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -135,8 +136,9 @@ class FIFOValuationService(ListResponseMixin):
         # Query existing stock BEFORE adding the new balance to avoid
         # double-counting the receipt in the aggregate.
         if FIFOValuationService._is_mock_like(db):
-            total_on_hand = db.scalar(None) or Decimal("0")
-            total_value = db.scalar(None) or Decimal("0")
+            mock_db = cast(Any, db)
+            total_on_hand = mock_db.scalar(None) or Decimal("0")
+            total_value = mock_db.scalar(None) or Decimal("0")
         else:
             total_on_hand = db.scalar(
                 select(func.sum(InventoryLotBalance.quantity_on_hand))
@@ -227,7 +229,7 @@ class FIFOValuationService(ListResponseMixin):
 
         # Get layers ordered by received date (oldest first)
         if FIFOValuationService._is_mock_like(db):
-            layers = list(
+            mock_layers = list(
                 db.scalars(
                     select(InventoryLot)
                     .where(
@@ -238,8 +240,47 @@ class FIFOValuationService(ListResponseMixin):
                     .order_by(InventoryLot.received_date.asc())
                 ).all()
             )
+            total_available = sum(
+                (layer.quantity_on_hand for layer in mock_layers),
+                Decimal("0"),
+            )
+
+            if total_available < quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient inventory. Available: {total_available}, Requested: {quantity}",
+                )
+
+            remaining_to_consume = quantity
+            total_cost = Decimal("0")
+            layers_used = []
+
+            for layer in mock_layers:
+                if remaining_to_consume <= 0:
+                    break
+
+                consume_from_layer = min(layer.quantity_on_hand, remaining_to_consume)
+                layer_cost = consume_from_layer * layer.unit_cost
+                layer.quantity_on_hand -= consume_from_layer
+                layer.quantity_available = (
+                    layer.quantity_on_hand - layer.quantity_allocated
+                )
+
+                remaining_to_consume -= consume_from_layer
+                total_cost += layer_cost
+
+                layers_used.append(
+                    {
+                        "lot_id": str(layer.lot_id),
+                        "lot_number": layer.lot_number,
+                        "quantity": str(consume_from_layer),
+                        "unit_cost": str(layer.unit_cost),
+                        "total_cost": str(layer_cost),
+                    }
+                )
         else:
-            layers = list(
+            layer_rows = cast(
+                list[tuple[InventoryLotBalance, InventoryLot]],
                 db.execute(
                     select(InventoryLotBalance, InventoryLot)
                     .join(
@@ -252,39 +293,27 @@ class FIFOValuationService(ListResponseMixin):
                         InventoryLotBalance.is_active == True,
                     )
                     .order_by(InventoryLot.received_date.asc())
-                ).all()
+                ).all(),
+            )
+            total_available = sum(
+                (balance.quantity_on_hand for balance, _ in layer_rows),
+                Decimal("0"),
             )
 
-        total_available = (
-            sum(l.quantity_on_hand for l in layers)
-            if FIFOValuationService._is_mock_like(db)
-            else sum(balance.quantity_on_hand for balance, _ in layers)
-        )
-
-        if total_available < quantity:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Insufficient inventory. Available: {total_available}, Requested: {quantity}",
-            )
-
-        remaining_to_consume = quantity
-        total_cost = Decimal("0")
-        layers_used = []
-
-        for layer_entry in layers:
-            if remaining_to_consume <= 0:
-                break
-
-            if FIFOValuationService._is_mock_like(db):
-                layer = layer_entry
-                consume_from_layer = min(layer.quantity_on_hand, remaining_to_consume)
-                layer_cost = consume_from_layer * layer.unit_cost
-                layer.quantity_on_hand -= consume_from_layer
-                layer.quantity_available = (
-                    layer.quantity_on_hand - layer.quantity_allocated
+            if total_available < quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient inventory. Available: {total_available}, Requested: {quantity}",
                 )
-            else:
-                balance, layer = layer_entry
+
+            remaining_to_consume = quantity
+            total_cost = Decimal("0")
+            layers_used = []
+
+            for balance, layer in layer_rows:
+                if remaining_to_consume <= 0:
+                    break
+
                 consume_from_layer = min(balance.quantity_on_hand, remaining_to_consume)
                 layer_cost = consume_from_layer * layer.unit_cost
                 balance.quantity_on_hand -= consume_from_layer
@@ -297,18 +326,18 @@ class FIFOValuationService(ListResponseMixin):
                     balance.quantity_on_hand > 0 or balance.quantity_allocated > 0
                 )
 
-            remaining_to_consume -= consume_from_layer
-            total_cost += layer_cost
+                remaining_to_consume -= consume_from_layer
+                total_cost += layer_cost
 
-            layers_used.append(
-                {
-                    "lot_id": str(layer.lot_id),
-                    "lot_number": layer.lot_number,
-                    "quantity": str(consume_from_layer),
-                    "unit_cost": str(layer.unit_cost),
-                    "total_cost": str(layer_cost),
-                }
-            )
+                layers_used.append(
+                    {
+                        "lot_id": str(layer.lot_id),
+                        "lot_number": layer.lot_number,
+                        "quantity": str(consume_from_layer),
+                        "unit_cost": str(layer.unit_cost),
+                        "total_cost": str(layer_cost),
+                    }
+                )
 
         db.flush()
 
@@ -342,7 +371,7 @@ class FIFOValuationService(ListResponseMixin):
 
         org_id = coerce_uuid(organization_id)
         if FIFOValuationService._is_mock_like(db):
-            layers_data = list(
+            mock_layers_data = list(
                 db.scalars(
                     select(InventoryLot).order_by(InventoryLot.received_date.asc())
                 ).all()
@@ -360,7 +389,8 @@ class FIFOValuationService(ListResponseMixin):
             )
             if warehouse_uuid is not None:
                 query = query.where(InventoryLotBalance.warehouse_id == warehouse_uuid)
-            layers_data = list(
+            layer_rows_data = cast(
+                list[tuple[InventoryLotBalance, InventoryLot]],
                 db.execute(query.order_by(InventoryLot.received_date.asc())).all()
             )
 
@@ -368,24 +398,34 @@ class FIFOValuationService(ListResponseMixin):
         total_qty = Decimal("0")
         total_cost = Decimal("0")
 
-        for layer_entry in layers_data:
-            if FIFOValuationService._is_mock_like(db):
-                lot = layer_entry
+        if FIFOValuationService._is_mock_like(db):
+            for lot in mock_layers_data:
                 layer_quantity = lot.quantity_on_hand
-            else:
-                balance, lot = layer_entry
+                layer = FIFOLayer(
+                    layer_date=lot.received_date,
+                    quantity=layer_quantity,
+                    unit_cost=lot.unit_cost,
+                    total_cost=layer_quantity * lot.unit_cost,
+                    lot_id=lot.lot_id,
+                    reference=lot.lot_number,
+                )
+                layers.append(layer)
+                total_qty += layer_quantity
+                total_cost += layer.total_cost
+        else:
+            for balance, lot in layer_rows_data:
                 layer_quantity = balance.quantity_on_hand
-            layer = FIFOLayer(
-                layer_date=lot.received_date,
-                quantity=layer_quantity,
-                unit_cost=lot.unit_cost,
-                total_cost=layer_quantity * lot.unit_cost,
-                lot_id=lot.lot_id,
-                reference=lot.lot_number,
-            )
-            layers.append(layer)
-            total_qty += layer_quantity
-            total_cost += layer.total_cost
+                layer = FIFOLayer(
+                    layer_date=lot.received_date,
+                    quantity=layer_quantity,
+                    unit_cost=lot.unit_cost,
+                    total_cost=layer_quantity * lot.unit_cost,
+                    lot_id=lot.lot_id,
+                    reference=lot.lot_number,
+                )
+                layers.append(layer)
+                total_qty += layer_quantity
+                total_cost += layer.total_cost
 
         avg_cost = (total_cost / total_qty) if total_qty > 0 else Decimal("0")
 

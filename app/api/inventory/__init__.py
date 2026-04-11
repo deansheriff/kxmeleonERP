@@ -16,6 +16,7 @@ from app.api.deps import require_organization_id, require_tenant_auth
 from app.api.finance.utils import parse_enum
 from app.config import settings
 from app.db import SessionLocal
+from app.models.inventory.inventory_lot import InventoryLot
 from app.models.inventory.inventory_transaction import TransactionType
 from app.schemas.finance.common import ListResponse, PostingResultSchema
 from app.schemas.inventory import (
@@ -623,17 +624,17 @@ from app.services.inventory import (  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
-def _serialize_lot(lot) -> LotRead:
+def _serialize_lot(lot: InventoryLot) -> LotRead:
     balances = list(getattr(lot, "balances", []) or [])
     if balances:
-        quantity_on_hand = sum(
+        quantity_on_hand = Decimal(str(sum(
             (getattr(balance, "quantity_on_hand", Decimal("0")) or Decimal("0"))
             for balance in balances
-        )
-        quantity_available = sum(
+        )))
+        quantity_available = Decimal(str(sum(
             (getattr(balance, "quantity_available", Decimal("0")) or Decimal("0"))
             for balance in balances
-        )
+        )))
         is_quarantined = any(
             bool(getattr(balance, "is_quarantined", False)) for balance in balances
         )
@@ -643,8 +644,8 @@ def _serialize_lot(lot) -> LotRead:
             for balance in balances
         )
     else:
-        quantity_on_hand = getattr(lot, "quantity_on_hand", Decimal("0"))
-        quantity_available = getattr(lot, "quantity_available", Decimal("0"))
+        quantity_on_hand = Decimal(str(getattr(lot, "quantity_on_hand", Decimal("0")) or "0"))
+        quantity_available = Decimal(str(getattr(lot, "quantity_available", Decimal("0")) or "0"))
         is_quarantined = bool(getattr(lot, "is_quarantined", False))
         is_active = bool(getattr(lot, "is_active", False))
 
@@ -663,7 +664,7 @@ def _serialize_lot(lot) -> LotRead:
     )
 
 
-def _serialize_lot_list(lots: list) -> list[LotRead]:
+def _serialize_lot_list(lots: list[InventoryLot]) -> list[LotRead]:
     return [_serialize_lot(lot) for lot in lots]
 
 

@@ -5,7 +5,7 @@ Inventory Lot Model - Inventory Schema.
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import (
     Boolean,
@@ -135,7 +135,7 @@ class InventoryLot(Base):
     @property
     def warehouse_id(self) -> uuid.UUID | None:
         if "_snapshot_warehouse_id" in self.__dict__:
-            return self.__dict__["_snapshot_warehouse_id"]
+            return cast(uuid.UUID | None, self.__dict__["_snapshot_warehouse_id"])
         warehouse_ids = {
             balance.warehouse_id
             for balance in self._balance_rows()
@@ -156,10 +156,13 @@ class InventoryLot(Base):
     @property
     def quantity_on_hand(self) -> Decimal:
         if "_snapshot_quantity_on_hand" in self.__dict__:
-            return self.__dict__["_snapshot_quantity_on_hand"]
+            return cast(Decimal, self.__dict__["_snapshot_quantity_on_hand"])
         return sum(
-            (balance.quantity_on_hand or Decimal("0"))
-            for balance in self._balance_rows()
+            (
+                balance.quantity_on_hand or Decimal("0")
+                for balance in self._balance_rows()
+            ),
+            Decimal("0"),
         )
 
     @quantity_on_hand.setter
@@ -169,10 +172,13 @@ class InventoryLot(Base):
     @property
     def quantity_allocated(self) -> Decimal:
         if "_snapshot_quantity_allocated" in self.__dict__:
-            return self.__dict__["_snapshot_quantity_allocated"]
+            return cast(Decimal, self.__dict__["_snapshot_quantity_allocated"])
         return sum(
-            (balance.quantity_allocated or Decimal("0"))
-            for balance in self._balance_rows()
+            (
+                balance.quantity_allocated or Decimal("0")
+                for balance in self._balance_rows()
+            ),
+            Decimal("0"),
         )
 
     @quantity_allocated.setter
@@ -182,10 +188,13 @@ class InventoryLot(Base):
     @property
     def quantity_available(self) -> Decimal:
         if "_snapshot_quantity_available" in self.__dict__:
-            return self.__dict__["_snapshot_quantity_available"]
+            return cast(Decimal, self.__dict__["_snapshot_quantity_available"])
         return sum(
-            (balance.quantity_available or Decimal("0"))
-            for balance in self._balance_rows()
+            (
+                balance.quantity_available or Decimal("0")
+                for balance in self._balance_rows()
+            ),
+            Decimal("0"),
         )
 
     @quantity_available.setter
@@ -195,7 +204,7 @@ class InventoryLot(Base):
     @property
     def is_quarantined(self) -> bool:
         if "_snapshot_is_quarantined" in self.__dict__:
-            return self.__dict__["_snapshot_is_quarantined"]
+            return cast(bool, self.__dict__["_snapshot_is_quarantined"])
         return any(bool(balance.is_quarantined) for balance in self._balance_rows())
 
     @is_quarantined.setter
@@ -205,7 +214,7 @@ class InventoryLot(Base):
     @property
     def quarantine_reason(self) -> str | None:
         if "_snapshot_quarantine_reason" in self.__dict__:
-            return self.__dict__["_snapshot_quarantine_reason"]
+            return cast(str | None, self.__dict__["_snapshot_quarantine_reason"])
         reasons = [
             balance.quarantine_reason
             for balance in self._balance_rows()
@@ -220,7 +229,7 @@ class InventoryLot(Base):
     @property
     def qc_status(self) -> str | None:
         if "_snapshot_qc_status" in self.__dict__:
-            return self.__dict__["_snapshot_qc_status"]
+            return cast(str | None, self.__dict__["_snapshot_qc_status"])
         statuses = [
             balance.qc_status for balance in self._balance_rows() if balance.qc_status
         ]
