@@ -180,7 +180,7 @@
                         <select name="requested_approver_id" id="requested_approver_id" class="form-select w-full" required>
                             <option value="">Select approver...</option>
                             {% for approver in expense_approver_options %}
-                            <option value="{{ approver.id }}">
+                            <option value="{{ approver.id }}" {% if approver.selected %}selected{% endif %}>
                                 {{ approver.label }}
                             </option>
                             {% endfor %}

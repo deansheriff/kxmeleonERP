@@ -66,7 +66,7 @@
                 <select name="requested_approver_id" id="requested_approver_id" class="form-select w-full" required {% if not can_edit %}disabled{% endif %}>
                     <option value="">Select approver...</option>
                     {% for approver in expense_approver_options %}
-                    <option value="{{ approver.id }}" {% if claim.requested_approver_id and (claim.requested_approver_id | string) == (approver.id | string) %}selected{% endif %}>
+                    <option value="{{ approver.id }}" {% if approver.selected %}selected{% endif %}>
                         {{ approver.label }}
                     </option>
                     {% endfor %}

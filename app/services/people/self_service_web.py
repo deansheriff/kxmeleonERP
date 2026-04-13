@@ -44,7 +44,7 @@ from app.models.people.scheduling import ScheduleStatus, SwapRequestStatus
 from app.models.people.scheduling.shift_schedule import ShiftSchedule
 from app.models.person import Gender as PersonGender
 from app.models.person import Person
-from app.models.rbac import PersonRole, Role
+from app.models.rbac import Permission, PersonRole, Role, RolePermission
 from app.services.common import PaginationParams, ValidationError, coerce_uuid
 from app.services.common_filters import build_active_filters
 from app.services.expense.limit_service import ExpenseLimitService
@@ -420,16 +420,18 @@ class SelfServiceWebService:
         db: Session,
         org_id: UUID,
         employee_id: UUID | None = None,
+        selected_approver_id: UUID | None = None,
     ) -> list[dict]:
         """Return valid expense approver options for the given employee.
 
-        Priority:
-        1. Employee's designated expense_approver_id
-        2. Employee's reports_to_id (manager)
-        3. Fallback: all active employees with admin/expense_approver roles
+        Options include all active employees whose roles grant expense claim
+        approval permission. For new claims, the employee's reporting manager is
+        selected by default only when that manager is also an active expense
+        approver. Existing claims can pass selected_approver_id to preserve the
+        saved approver.
         """
 
-        def _build_option(emp: Employee, person: Person | None) -> dict[str, str]:
+        def _build_option(emp: Employee, person: Person | None) -> dict[str, object]:
             label = ""
             if person:
                 label = (
@@ -440,61 +442,98 @@ class SelfServiceWebService:
                 label = f"{label} ({emp.employee_code})" if label else emp.employee_code
             return {"id": str(emp.employee_id), "label": label or "Unnamed"}
 
-        # Try employee-specific approvers first
+        default_approver_id = selected_approver_id
         if employee_id:
             employee = db.get(Employee, employee_id)
-            if employee:
-                candidate_ids: list[UUID] = []
-                if employee.expense_approver_id:
-                    candidate_ids.append(employee.expense_approver_id)
-                if (
-                    employee.reports_to_id
-                    and employee.reports_to_id not in candidate_ids
-                ):
-                    candidate_ids.append(employee.reports_to_id)
-
-                if candidate_ids:
-                    rows = db.execute(
-                        select(Employee, Person)
-                        .join(Person, Person.id == Employee.person_id)
-                        .where(
-                            Employee.organization_id == org_id,
-                            Employee.status == EmployeeStatus.ACTIVE,
-                            Employee.employee_id.in_(candidate_ids),
-                        )
-                        .order_by(Person.first_name, Person.last_name)
-                    ).all()
-                    if rows:
-                        return [_build_option(emp, p) for emp, p in rows]
-
-        # Fallback: all employees with admin or expense_approver roles
-        roles = db.scalars(
-            select(Role).where(
-                Role.is_active == True,
-                Role.name.in_(["admin", "expense_approver"]),
-            )
-        ).all()
-        role_ids = [role.id for role in roles]
-        if not role_ids:
-            return []
+            if employee and default_approver_id is None:
+                default_approver_id = employee.reports_to_id
 
         rows = db.execute(
             select(Employee, Person)
             .join(PersonRole, PersonRole.person_id == Employee.person_id)
+            .join(Role, Role.id == PersonRole.role_id)
+            .outerjoin(RolePermission, RolePermission.role_id == Role.id)
+            .outerjoin(Permission, Permission.id == RolePermission.permission_id)
             .join(Person, Person.id == Employee.person_id)
             .where(
                 Employee.organization_id == org_id,
                 Employee.status == EmployeeStatus.ACTIVE,
-                PersonRole.role_id.in_(role_ids),
+                Role.is_active == True,
+                or_(
+                    func.lower(Role.name) == "admin",
+                    and_(
+                        Permission.is_active == True,
+                        Permission.key.in_(
+                            [
+                                "expense:claims:approve:tier1",
+                                "expense:claims:approve:tier2",
+                                "expense:claims:approve:tier3",
+                            ]
+                        ),
+                    ),
+                ),
             )
             .order_by(Person.first_name, Person.last_name)
         ).all()
 
-        options: dict[str, dict[str, str]] = {}
+        options: dict[str, dict[str, object]] = {}
         for emp, person in rows:
-            options[str(emp.employee_id)] = _build_option(emp, person)
+            option = _build_option(emp, person)
+            option["selected"] = str(emp.employee_id) == str(default_approver_id)
+            options[str(emp.employee_id)] = option
 
         return list(options.values())
+
+    @staticmethod
+    def _is_active_expense_approver(
+        db: Session,
+        org_id: UUID,
+        approver_id: UUID | None,
+    ) -> bool:
+        if approver_id is None:
+            return False
+        return (
+            db.scalar(
+                select(Employee.employee_id)
+                .join(PersonRole, PersonRole.person_id == Employee.person_id)
+                .join(Role, Role.id == PersonRole.role_id)
+                .outerjoin(RolePermission, RolePermission.role_id == Role.id)
+                .outerjoin(Permission, Permission.id == RolePermission.permission_id)
+                .where(
+                    Employee.organization_id == org_id,
+                    Employee.status == EmployeeStatus.ACTIVE,
+                    Employee.employee_id == approver_id,
+                    Role.is_active == True,
+                    or_(
+                        func.lower(Role.name) == "admin",
+                        and_(
+                            Permission.is_active == True,
+                            Permission.key.in_(
+                                [
+                                    "expense:claims:approve:tier1",
+                                    "expense:claims:approve:tier2",
+                                    "expense:claims:approve:tier3",
+                                ]
+                            ),
+                        ),
+                    ),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    def _validate_expense_approver_selection(
+        self,
+        db: Session,
+        org_id: UUID,
+        approver_id: UUID | None,
+    ) -> None:
+        if not self._is_active_expense_approver(db, org_id, approver_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Select an active expense approver",
+            )
 
     @staticmethod
     def _has_team_approvals(
@@ -1864,6 +1903,10 @@ class SelfServiceWebService:
             )
 
         svc = ExpenseService(db, auth)
+        resolved_approver_id = (
+            coerce_uuid(requested_approver_id) if requested_approver_id else None
+        )
+        self._validate_expense_approver_selection(db, org_id, resolved_approver_id)
         claim = svc.create_claim(
             org_id,
             employee_id=employee_id,
@@ -1878,9 +1921,7 @@ class SelfServiceWebService:
             recipient_bank_name=recipient_bank_name,
             recipient_account_number=recipient_account_number,
             recipient_name=recipient_name,
-            requested_approver_id=coerce_uuid(requested_approver_id)
-            if requested_approver_id
-            else None,
+            requested_approver_id=resolved_approver_id,
             items=resolved_items,
         )
         if submit_now:
@@ -1964,7 +2005,10 @@ class SelfServiceWebService:
                     selected_claim_bank.bank_sort_code if selected_claim_bank else ""
                 ),
                 "expense_approver_options": self._get_expense_approver_options(
-                    db, org_id, employee_id=employee_id
+                    db,
+                    org_id,
+                    employee_id=employee_id,
+                    selected_approver_id=claim.requested_approver_id,
                 ),
             }
         )
@@ -2068,6 +2112,8 @@ class SelfServiceWebService:
                     required=True,
                 )
             )
+
+        self._validate_expense_approver_selection(db, org_id, requested_approver_id)
 
         try:
             svc.update_claim(
