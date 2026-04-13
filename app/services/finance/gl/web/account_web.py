@@ -76,6 +76,47 @@ class AccountWebService:
     """Web service methods for GL accounts."""
 
     @staticmethod
+    def category_tree_response(
+        db: Session,
+        organization_id: str,
+        *,
+        active_only: bool = True,
+    ) -> dict:
+        """
+        Return the full category hierarchy as a JSON-ready payload.
+
+        Thin wrapper over ``CategoryService.get_category_tree`` — all the
+        work (recursive CTE, ordering, depth assignment) happens in the
+        business service.
+        """
+        from app.services.finance.gl.category import CategoryService
+
+        nodes = CategoryService.get_category_tree(
+            db,
+            coerce_uuid(organization_id),
+            active_only=active_only,
+        )
+        return {
+            "nodes": [
+                {
+                    "category_id": str(node.category_id),
+                    "parent_category_id": (
+                        str(node.parent_category_id)
+                        if node.parent_category_id
+                        else None
+                    ),
+                    "category_code": node.category_code,
+                    "category_name": node.category_name,
+                    "ifrs_category": node.ifrs_category.value,
+                    "depth": node.depth,
+                    "path": [str(pid) for pid in node.path],
+                }
+                for node in nodes
+            ],
+            "count": len(nodes),
+        }
+
+    @staticmethod
     def list_accounts_context(
         db: Session,
         organization_id: str,

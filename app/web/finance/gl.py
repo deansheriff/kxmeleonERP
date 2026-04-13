@@ -85,6 +85,20 @@ async def export_all_accounts(
     )
 
 
+@router.get("/accounts/category-tree")
+def account_category_tree(
+    active_only: bool = True,
+    auth: WebAuthContext = Depends(require_finance_access),
+    db: Session = Depends(get_db),
+):
+    """Return the category hierarchy as a depth-annotated flat list (JSON)."""
+    return gl_web_service.category_tree_response(
+        db,
+        str(auth.organization_id),
+        active_only=active_only,
+    )
+
+
 @router.get("/accounts/{account_id}", response_class=HTMLResponse)
 def view_account(
     request: Request,

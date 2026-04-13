@@ -18,6 +18,11 @@ if TYPE_CHECKING:  # pragma: no cover
         BalanceInvalidationService,
     )
     from app.services.finance.gl.balance_refresh import BalanceRefreshService  # noqa: F401
+    from app.services.finance.gl.category import (  # noqa: F401
+        CategoryNode,
+        CategoryService,
+        category_service,
+    )
     from app.services.finance.gl.chart_of_accounts import (  # noqa: F401
         AccountInput,
         ChartOfAccountsService,
@@ -80,6 +85,10 @@ __all__ = [
     "ChartOfAccountsService",
     "AccountInput",
     "chart_of_accounts_service",
+    # Category hierarchy
+    "CategoryService",
+    "CategoryNode",
+    "category_service",
     # Fiscal Period
     "FiscalPeriodService",
     "FiscalPeriodInput",
@@ -113,6 +122,9 @@ _NAME_TO_MODULE = {
     "ChartOfAccountsService": "chart_of_accounts",
     "AccountInput": "chart_of_accounts",
     "chart_of_accounts_service": "chart_of_accounts",
+    "CategoryService": "category",
+    "CategoryNode": "category",
+    "category_service": "category",
     "FiscalPeriodService": "fiscal_period",
     "FiscalPeriodInput": "fiscal_period",
     "fiscal_period_service": "fiscal_period",

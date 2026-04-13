@@ -15,10 +15,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.finance.gl.account import Account, AccountType
+from app.models.finance.gl.account_balance import AccountBalance
 from app.models.finance.gl.journal_entry import JournalEntry, JournalStatus
 from app.models.finance.gl.journal_entry_line import JournalEntryLine
 from app.schemas.bulk_actions import BulkActionResult
 from app.services.bulk_actions import BulkActionService
+from app.services.common import coerce_uuid
 from app.services.finance.common.helpers import coerce_scalar_count
 from app.services.finance.gl.journal import JournalService
 
@@ -55,23 +57,25 @@ class AccountBulkService(BulkActionService[Account]):
         ("description", "Description"),
     ]
 
+    def _is_control_account(self, entity: Account) -> bool:
+        """True if the account is a CONTROL type (roll-up, not postable)."""
+        if bool(getattr(entity, "is_control_account", False)):
+            return True
+        account_type = getattr(entity, "account_type", None)
+        if account_type is None:
+            return False
+        if isinstance(account_type, AccountType):
+            return account_type == AccountType.CONTROL
+        value = getattr(account_type, "value", account_type)
+        return str(value).lower() == "control"
+
     def can_delete(self, entity: Account) -> tuple[bool, str]:
         """
         Check if an account can be deleted.
 
         An account cannot be deleted if it has journal entries or is a control account.
         """
-        # Check if this is a control account (not for direct posting)
-        is_control = getattr(entity, "is_control_account", False)
-        account_type = getattr(entity, "account_type", None)
-        if not is_control and account_type is not None:
-            if isinstance(account_type, AccountType):
-                is_control = account_type == AccountType.CONTROL
-            else:
-                value = getattr(account_type, "value", account_type)
-                is_control = str(value).lower() == "control"
-
-        if is_control:
+        if self._is_control_account(entity):
             return (
                 False,
                 f"Cannot delete '{entity.account_name}': is a control account",
@@ -92,6 +96,85 @@ class AccountBulkService(BulkActionService[Account]):
             )
 
         return (True, "")
+
+    async def bulk_delete(self, ids: list[UUID]) -> BulkActionResult:
+        """
+        Atomic bulk delete.
+
+        Pre-flights every account in the batch with a single aggregate query
+        per dependency type. If *any* account fails validation, no delete
+        runs — the entire batch is rejected so the caller never ends up in
+        a half-applied state.
+        """
+        if not ids:
+            return BulkActionResult.failure("No IDs provided")
+
+        entities = self._get_entities(ids)
+        if not entities:
+            return BulkActionResult.failure("No entities found with provided IDs")
+
+        account_ids = [coerce_uuid(e.account_id) for e in entities]
+        by_id = {coerce_uuid(e.account_id): e for e in entities}
+
+        # One query: journal-line counts per account.
+        line_count_rows = self.db.execute(
+            select(
+                JournalEntryLine.account_id,
+                func.count().label("line_count"),
+            )
+            .where(JournalEntryLine.account_id.in_(account_ids))
+            .group_by(JournalEntryLine.account_id)
+        ).all()
+        line_counts = {row[0]: row[1] for row in line_count_rows}
+
+        # One query: balance-row counts per account.
+        balance_count_rows = self.db.execute(
+            select(
+                AccountBalance.account_id,
+                func.count().label("balance_count"),
+            )
+            .where(AccountBalance.account_id.in_(account_ids))
+            .group_by(AccountBalance.account_id)
+        ).all()
+        balance_counts = {row[0]: row[1] for row in balance_count_rows}
+
+        errors: list[str] = []
+        for acc_id in account_ids:
+            account = by_id[acc_id]
+            if self._is_control_account(account):
+                errors.append(
+                    f"Cannot delete '{account.account_name}': is a control account"
+                )
+                continue
+            lc = line_counts.get(acc_id, 0)
+            if lc > 0:
+                errors.append(
+                    f"Cannot delete '{account.account_name}': has {lc} journal entries"
+                )
+                continue
+            bc = balance_counts.get(acc_id, 0)
+            if bc > 0:
+                errors.append(
+                    f"Cannot delete '{account.account_name}': has {bc} balance records"
+                )
+
+        if errors:
+            return BulkActionResult.failure(
+                "Batch rejected — no accounts deleted. " + "; ".join(errors)
+            )
+
+        try:
+            for account in entities:
+                self.db.delete(account)
+            self.db.commit()
+        except Exception as exc:
+            self.db.rollback()
+            logger.exception("Atomic bulk delete failed: %s", exc)
+            return BulkActionResult.failure(f"Delete failed: {exc}")
+
+        return BulkActionResult.success(
+            len(entities), f"Deleted {len(entities)} accounts"
+        )
 
     def _get_export_value(self, entity: Account, field_name: str) -> str:
         """Handle special field formatting for account export."""

@@ -371,12 +371,14 @@ class TestBulkDelete:
 
     @pytest.mark.asyncio
     async def test_bulk_delete_control_account_blocked(self, mock_db, organization_id):
-        """Control accounts should fail to delete."""
+        """Control accounts should fail to delete — entire batch rejected atomically."""
         control_account = MockAccount(
             account_name="AR Control", is_control_account=True
         )
 
         mock_db.scalars.return_value.all.return_value = [control_account]
+        # No journal lines / balances for any id
+        mock_db.execute.return_value.all.return_value = []
 
         with patch("app.services.finance.gl.bulk.Account", MagicMock()):
             from app.services.finance.gl.bulk import AccountBulkService
@@ -385,16 +387,24 @@ class TestBulkDelete:
             result = await service.bulk_delete([control_account.account_id])
 
             assert result.success_count == 0
-            assert result.failed_count == 1
-            assert "control account" in result.errors[0].lower()
+            assert "Batch rejected" in result.message
+            assert "control account" in result.message.lower()
+            mock_db.delete.assert_not_called()
+            mock_db.commit.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_bulk_delete_with_journals_blocked(self, mock_db, organization_id):
-        """Accounts with journal entries should fail to delete."""
+        """Accounts with journal entries should fail to delete — batch rejected atomically."""
         account = MockAccount(account_name="Revenue", is_control_account=False)
 
         mock_db.scalars.return_value.all.return_value = [account]
-        mock_db.scalar.return_value = 100
+
+        # First db.execute() → line counts, second → balance counts
+        line_rows = MagicMock()
+        line_rows.all.return_value = [(account.account_id, 100)]
+        balance_rows = MagicMock()
+        balance_rows.all.return_value = []
+        mock_db.execute.side_effect = [line_rows, balance_rows]
 
         with patch("app.services.finance.gl.bulk.Account", MagicMock()):
             from app.services.finance.gl.bulk import AccountBulkService
@@ -403,20 +413,24 @@ class TestBulkDelete:
             result = await service.bulk_delete([account.account_id])
 
             assert result.success_count == 0
-            assert result.failed_count == 1
-            assert "journal entries" in result.errors[0]
+            assert "Batch rejected" in result.message
+            assert "journal entries" in result.message
+            mock_db.delete.assert_not_called()
+            mock_db.commit.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_bulk_delete_partial(self, mock_db, organization_id):
-        """Mix of deletable and non-deletable accounts."""
+    async def test_bulk_delete_atomic_rejects_whole_batch_on_single_violation(
+        self, mock_db, organization_id
+    ):
+        """
+        Atomicity guarantee: mixing a deletable account with a control account
+        rejects the whole batch — the deletable account is NOT deleted.
+        """
         deletable = MockAccount(account_name="Deletable", is_control_account=False)
         control = MockAccount(account_name="Control", is_control_account=True)
 
-        mock_db.scalars.return_value.all.return_value = [
-            deletable,
-            control,
-        ]
-        mock_db.scalar.return_value = 0
+        mock_db.scalars.return_value.all.return_value = [deletable, control]
+        mock_db.execute.return_value.all.return_value = []
 
         with patch("app.services.finance.gl.bulk.Account", MagicMock()):
             from app.services.finance.gl.bulk import AccountBulkService
@@ -426,8 +440,10 @@ class TestBulkDelete:
                 [deletable.account_id, control.account_id]
             )
 
-            assert result.success_count == 1
-            assert result.failed_count == 1
+            assert result.success_count == 0
+            assert "Batch rejected" in result.message
+            mock_db.delete.assert_not_called()
+            mock_db.commit.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_bulk_delete_empty_ids(self, mock_db, organization_id):
