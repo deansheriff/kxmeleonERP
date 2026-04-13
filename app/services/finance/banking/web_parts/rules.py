@@ -1,9 +1,27 @@
-# ruff: noqa: F403,F405
 """BankingRuleWebService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.web_parts.base import *
+from app.services.finance.banking.web_parts.base import (
+    Account,
+    Any,
+    BankAccount,
+    BankAccountStatus,
+    HTMLResponse,
+    HTTPException,
+    RedirectResponse,
+    Request,
+    Session,
+    UUID,
+    WebAuthContext,
+    base_context,
+    build_active_filters,
+    coerce_uuid,
+    func,
+    json,
+    select,
+    templates,
+)
 
 
 class BankingRuleWebService:
@@ -717,7 +735,7 @@ class BankingRuleWebService:
         auth: WebAuthContext,
         db: Session,
         rule_ids: list[str],
-    ) -> HTMLResponse:
+    ) -> HTMLResponse | RedirectResponse:
         """Render bulk duplicate-rule form."""
         context = base_context(request, auth, "Bulk Duplicate Rules", "banking", db=db)
         try:

@@ -1,9 +1,25 @@
-# ruff: noqa: F403,F405
 """AutoReconciliationSpecialService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.auto_reconciliation_parts.base import *
+from app.services.finance.banking.auto_reconciliation_parts.base import (
+    AutoMatchConfig,
+    AutoMatchResult,
+    BankAccount,
+    BankStatement,
+    BankStatementLine,
+    FINANCE_COST_ACCOUNT_CODE,
+    JournalEntryLine,
+    SETTLEMENT_DATE_WINDOW_DAYS,
+    SYSTEM_USER_ID,
+    Session,
+    UUID,
+    _BANK_FEE_RE,
+    _PAYSTACK_DEPOSIT_RE,
+    _SETTLEMENT_RE,
+    logger,
+    select,
+)
 
 
 class AutoReconciliationSpecialService:
@@ -122,7 +138,7 @@ class AutoReconciliationSpecialService:
                 idempotency_key = BasePostingAdapter.make_idempotency_key(
                     organization_id, "BANKING", line.line_id, action="bank-fee"
                 )
-                posting_result = self._post_with_period_fallback(
+                posting_result = self._post_with_period_fallback(  # type: ignore[attr-defined]
                     db,
                     organization_id=organization_id,
                     journal_entry_id=journal.journal_entry_id,
@@ -147,7 +163,7 @@ class AutoReconciliationSpecialService:
                     continue
 
                 # Find the credit line on the bank GL account
-                journal_line = self._find_journal_line(
+                journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                     db,
                     organization_id,
                     correlation_id,
@@ -160,7 +176,7 @@ class AutoReconciliationSpecialService:
                     )
                     continue
 
-                self._perform_match(
+                self._perform_match(  # type: ignore[attr-defined]
                     db,
                     organization_id,
                     line,
@@ -168,7 +184,7 @@ class AutoReconciliationSpecialService:
                     source_type="BANK_FEE",
                     source_id=None,
                 )
-                self._log_match(
+                self._log_match(  # type: ignore[attr-defined]
                     db,
                     organization_id,
                     line=line,
@@ -367,14 +383,14 @@ class AutoReconciliationSpecialService:
                 # ── Idempotent journal lookup / creation ─────────────
                 # Check if journal already exists (from a previous partial run).
                 # This avoids duplicate journals and idempotency key violations.
-                credit_jl = self._find_journal_line(
+                credit_jl = self._find_journal_line(  # type: ignore[attr-defined]
                     db, organization_id, correlation_id, bank_account.gl_account_id
                 )
                 debit_jl: JournalEntryLine | None = None
 
                 if credit_jl:
                     # Journal already created and posted — reuse it
-                    debit_jl = self._find_journal_line(
+                    debit_jl = self._find_journal_line(  # type: ignore[attr-defined]
                         db, organization_id, correlation_id, dest_bank.gl_account_id
                     )
                     logger.info(
@@ -446,7 +462,7 @@ class AutoReconciliationSpecialService:
                         settlement_line.line_id,
                         action="settlement",
                     )
-                    posting_result = self._post_with_period_fallback(
+                    posting_result = self._post_with_period_fallback(  # type: ignore[attr-defined]
                         db,
                         organization_id=organization_id,
                         journal_entry_id=journal.journal_entry_id,
@@ -472,13 +488,13 @@ class AutoReconciliationSpecialService:
                         continue
 
                     # Find journal lines for matching
-                    credit_jl = self._find_journal_line(
+                    credit_jl = self._find_journal_line(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         correlation_id,
                         bank_account.gl_account_id,
                     )
-                    debit_jl = self._find_journal_line(
+                    debit_jl = self._find_journal_line(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         correlation_id,
@@ -495,7 +511,7 @@ class AutoReconciliationSpecialService:
                     for dup_line in dedup_groups.get(dedup_key, [settlement_line]):
                         if dup_line.line_id not in matched_line_ids:
                             try:
-                                self._perform_match(
+                                self._perform_match(  # type: ignore[attr-defined]
                                     db,
                                     organization_id,
                                     dup_line,
@@ -503,7 +519,7 @@ class AutoReconciliationSpecialService:
                                     source_type="INTER_BANK",
                                     source_id=None,
                                 )
-                                self._log_match(
+                                self._log_match(  # type: ignore[attr-defined]
                                     db,
                                     organization_id,
                                     line=dup_line,
@@ -526,7 +542,7 @@ class AutoReconciliationSpecialService:
                 # ── Match deposit line to debit side ─────────────────
                 if debit_jl and best_deposit.line_id not in matched_deposit_ids:
                     try:
-                        self._perform_match(
+                        self._perform_match(  # type: ignore[attr-defined]
                             db,
                             organization_id,
                             best_deposit,

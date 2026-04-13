@@ -1,9 +1,17 @@
-# ruff: noqa: F403,F405
 """CategorizationEvaluationService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.categorization_parts.base import *
+from app.services.finance.banking.categorization_parts.base import (
+    BankStatementLine,
+    Decimal,
+    Payee,
+    RuleType,
+    StatementLineType,
+    TransactionRule,
+    logger,
+    re,
+)
 
 
 class CategorizationEvaluationService:

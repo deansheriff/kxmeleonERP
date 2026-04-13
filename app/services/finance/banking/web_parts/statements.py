@@ -1,9 +1,60 @@
-# ruff: noqa: F403,F405
 """BankingStatementWebService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.web_parts.base import *
+from app.services.finance.banking.web_parts.base import (
+    Account,
+    Any,
+    BankAccount,
+    BankAccountStatus,
+    BankStatement,
+    BankStatementImport,
+    BankStatementLine,
+    BytesIO,
+    HTMLResponse,
+    HTTPException,
+    JSONResponse,
+    JournalEntry,
+    JournalEntryLine,
+    RedirectResponse,
+    Request,
+    Response,
+    SPREADSHEET_EXTENSIONS,
+    Session,
+    StringIO,
+    UUID,
+    UploadFile,
+    ValidationError,
+    WebAuthContext,
+    _SOURCE_TYPE_LABELS,
+    _account_view,
+    _build_active_filters,
+    _build_match_detail,
+    _datetime,
+    _parse_date,
+    _parse_decimal,
+    _parse_statement_status,
+    _statement_line_view,
+    _statement_view,
+    apply_sort,
+    bank_statement_service,
+    base_context,
+    build_active_filters,
+    builtins,
+    case,
+    coerce_uuid,
+    csv,
+    date,
+    func,
+    logger,
+    or_,
+    org_context_service,
+    re,
+    resolve_payment_metadata_batch,
+    select,
+    spreadsheet_formats_label,
+    templates,
+)
 
 
 class BankingStatementWebService:
@@ -533,9 +584,11 @@ class BankingStatementWebService:
         for lv in lines:
             lid = str(lv["line_id"])
             line_amounts[lid] = lv["raw_amount"]
-            jl_id = lv.get("matched_journal_line_id")
-            if lv["is_matched"] and jl_id:
-                lv["matched_source_url"] = matched_source_urls.get(jl_id, "")
+            matched_journal_line_id = lv.get("matched_journal_line_id")
+            if lv["is_matched"] and matched_journal_line_id:
+                lv["matched_source_url"] = matched_source_urls.get(
+                    str(matched_journal_line_id), ""
+                )
             else:
                 lv["matched_source_url"] = ""
 
@@ -899,7 +952,7 @@ class BankingStatementWebService:
                 mapped_lines_data, org_date_fmt=org_date_fmt
             )
             errors.extend(manual_errors)
-        if has_upload:
+        if has_upload and upload_file is not None:
             # CSRF middleware parses form data first, which can advance the file pointer.
             try:
                 await upload_file.seek(0)

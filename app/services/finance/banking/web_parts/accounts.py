@@ -1,9 +1,45 @@
-# ruff: noqa: F403,F405
 """BankingAccountWebService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.web_parts.base import *
+from app.services.finance.banking.web_parts.base import (
+    Account,
+    Any,
+    BankAccount,
+    BankAccountStatus,
+    BankReconciliation,
+    BankStatement,
+    BankStatementLine,
+    Decimal,
+    HTMLResponse,
+    HTTPException,
+    JournalEntryLine,
+    ReconciliationStatus,
+    RedirectResponse,
+    Request,
+    Response,
+    Session,
+    UUID,
+    WebAuthContext,
+    _account_view,
+    _build_match_detail,
+    _format_currency,
+    _format_date,
+    _parse_account_status,
+    _statement_line_view,
+    _statement_status_label,
+    apply_sort,
+    base_context,
+    coerce_uuid,
+    func,
+    get_currency_context,
+    logger,
+    or_,
+    org_context_service,
+    resolve_payment_metadata,
+    select,
+    templates,
+)
 
 
 class BankingAccountWebService:
@@ -645,6 +681,8 @@ class BankingAccountWebService:
         from app.services.finance.banking.bank_account import bank_account_service
 
         del request
+        if auth.organization_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
         bank_account_service.unlink_mono(
             db,
             auth.organization_id,

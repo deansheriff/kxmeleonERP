@@ -1,9 +1,20 @@
-# ruff: noqa: F403,F405
 """ReconciliationEngineCore component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.reconciliation_engine_parts.base import *
+from app.services.finance.banking.reconciliation_engine_parts.base import (
+    Any,
+    BankAccount,
+    BankStatement,
+    BankStatementLine,
+    Decimal,
+    EngineContext,
+    EngineResult,
+    Session,
+    UUID,
+    _DEFAULT_TOLERANCE,
+    logger,
+)
 
 
 class ReconciliationEngineCore:
@@ -126,11 +137,11 @@ class ReconciliationEngineCore:
     def _get_handler(self, source_doc_type: str) -> Any | None:
         """Return the handler function for a source document type."""
         handlers: dict[str, Any] = {
-            "CUSTOMER_PAYMENT": self._handle_customer_payment,
-            "SUPPLIER_PAYMENT": self._handle_supplier_payment,
-            "PAYMENT_INTENT": self._handle_payment_intent,
-            "BANK_FEE": self._handle_bank_fee,
-            "INTER_BANK": self._handle_inter_bank,
+            "CUSTOMER_PAYMENT": self._handle_customer_payment,  # type: ignore[attr-defined]
+            "SUPPLIER_PAYMENT": self._handle_supplier_payment,  # type: ignore[attr-defined]
+            "PAYMENT_INTENT": self._handle_payment_intent,  # type: ignore[attr-defined]
+            "BANK_FEE": self._handle_bank_fee,  # type: ignore[attr-defined]
+            "INTER_BANK": self._handle_inter_bank,  # type: ignore[attr-defined]
         }
         return handlers.get(source_doc_type)
 

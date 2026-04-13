@@ -1,9 +1,38 @@
-# ruff: noqa: F403,F405
 """ReconciliationMatchingService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.reconciliation_parts.base import *
+from app.services.finance.banking.reconciliation_parts.base import (
+    AutoMatchResult,
+    BankAccount,
+    BankReconciliation,
+    BankReconciliationLine,
+    BankStatement,
+    BankStatementLine,
+    BankStatementLineMatch,
+    Decimal,
+    HTTPException,
+    JournalEntry,
+    JournalEntryLine,
+    JournalStatus,
+    MatchSuggestion,
+    PaymentMetadata,
+    ReconciliationMatchInput,
+    ReconciliationMatchType,
+    ReconciliationStatus,
+    Session,
+    UTC,
+    UUID,
+    _build_source_url,
+    _check_rule_payee_link,
+    _list,
+    and_,
+    date,
+    datetime,
+    delete,
+    logger,
+    select,
+)
 
 
 class ReconciliationMatchingService:
@@ -19,7 +48,7 @@ class ReconciliationMatchingService:
         force_match: bool = False,
     ) -> BankReconciliationLine:
         """Add a match between statement line and GL entry."""
-        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)
+        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)  # type: ignore[attr-defined]
 
         if reconciliation.status not in [
             ReconciliationStatus.draft,
@@ -72,7 +101,7 @@ class ReconciliationMatchingService:
             gl_line.credit_amount or Decimal("0")
         )
         difference = statement_amount - gl_amount
-        self._validate_amount_match(
+        self._validate_amount_match(  # type: ignore[attr-defined]
             statement_amount,
             gl_amount,
             force_match=force_match,
@@ -245,7 +274,7 @@ class ReconciliationMatchingService:
         created_by: UUID | None = None,
     ) -> AutoMatchResult:
         """Automatically match statement lines to GL entries."""
-        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)
+        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)  # type: ignore[attr-defined]
 
         result = AutoMatchResult(
             matches_found=0,
@@ -369,7 +398,7 @@ class ReconciliationMatchingService:
         Returns a dict keyed by statement_line_id.  Read-only — does NOT
         create any matches.
         """
-        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)
+        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)  # type: ignore[attr-defined]
         statement_lines, gl_lines = self._get_unmatched_lines(
             db, organization_id, reconciliation
         )
@@ -467,7 +496,7 @@ class ReconciliationMatchingService:
         *tolerance*, then creates a reconciliation line for each
         statement→GL pair with match_type=split.
         """
-        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)
+        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)  # type: ignore[attr-defined]
 
         if reconciliation.status not in (
             ReconciliationStatus.draft,
@@ -1322,7 +1351,7 @@ class ReconciliationMatchingService:
         )
 
         if not force_match:
-            self._validate_amount_match(stmt_amount, gl_total, force_match=False)
+            self._validate_amount_match(stmt_amount, gl_total, force_match=False)  # type: ignore[attr-defined]
 
         # Remove any stale junction rows (idempotent cleanup)
         db.execute(
@@ -1451,7 +1480,7 @@ class ReconciliationMatchingService:
         gl_amount = (gl_line.debit_amount or Decimal("0")) - (
             gl_line.credit_amount or Decimal("0")
         )
-        self._validate_amount_match(
+        self._validate_amount_match(  # type: ignore[attr-defined]
             statement_amount,
             gl_amount,
             force_match=force_match,

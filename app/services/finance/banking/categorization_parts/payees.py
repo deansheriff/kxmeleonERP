@@ -1,9 +1,17 @@
-# ruff: noqa: F403,F405
 """CategorizationPayeeService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.categorization_parts.base import *
+from app.services.finance.banking.categorization_parts.base import (
+    Payee,
+    PayeeType,
+    Session,
+    UUID,
+    coerce_uuid,
+    datetime,
+    or_,
+    select,
+)
 
 
 class CategorizationPayeeService:

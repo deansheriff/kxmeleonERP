@@ -1,9 +1,26 @@
-# ruff: noqa: F403,F405
 """ReconciliationEngineHelpers component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.reconciliation_engine_parts.base import *
+from typing import cast
+
+from app.services.finance.banking.reconciliation_engine_parts.base import (
+    Any,
+    BankStatementLine,
+    Decimal,
+    EngineContext,
+    JournalEntry,
+    JournalEntryLine,
+    JournalStatus,
+    MultipleResultsFound,
+    ReconciliationMatchRule,
+    UUID,
+    _HEX_REF_RE,
+    date,
+    joinedload,
+    logger,
+    select,
+)
 
 
 class ReconciliationEngineHelpers:
@@ -119,13 +136,13 @@ class ReconciliationEngineHelpers:
             )
         )
         try:
-            journal = self.db.execute(stmt).unique().scalar_one_or_none()
+            journal = self.db.execute(stmt).unique().scalar_one_or_none()  # type: ignore[attr-defined]
         except MultipleResultsFound:
             # Two POSTED journals share this correlation_id — a data condition
             # we can't safely auto-resolve. Skip the candidate so the bank line
             # stays unmatched and surfaces for manual review.
             dup_ids = list(
-                self.db.execute(
+                self.db.execute(  # type: ignore[attr-defined]
                     select(JournalEntry.journal_entry_id).where(
                         JournalEntry.organization_id == ctx.organization_id,
                         JournalEntry.correlation_id == correlation_id,
@@ -149,13 +166,13 @@ class ReconciliationEngineHelpers:
         # Prefer primary GL account
         for jl in journal.lines:
             if jl.account_id == gl_account_id:
-                return jl
+                return cast(JournalEntryLine, jl)
 
         # Fall back to extra GL accounts
         if ctx.extra_gl_account_ids:
             for jl in journal.lines:
                 if jl.account_id in ctx.extra_gl_account_ids:
-                    return jl
+                    return cast(JournalEntryLine, jl)
 
         return None
 

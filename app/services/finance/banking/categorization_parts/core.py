@@ -1,9 +1,28 @@
-# ruff: noqa: F403,F405
 """CategorizationCoreService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.categorization_parts.base import *
+from typing import cast
+
+from app.services.finance.banking.categorization_parts.base import (
+    BankStatement,
+    BankStatementLine,
+    BatchCategorizationResult,
+    CategorizationResult,
+    CategorizationSuggestion,
+    Payee,
+    RuleAction,
+    Session,
+    StatementLineType,
+    TransactionRule,
+    UUID,
+    coerce_uuid,
+    datetime,
+    func,
+    logger,
+    or_,
+    select,
+)
 
 
 class CategorizationCoreService:
@@ -166,7 +185,7 @@ class CategorizationCoreService:
             # Check if descriptions are similar (simple check)
             if line.description and duplicate.description:
                 if (
-                    self._similarity_score(line.description, duplicate.description)
+                    self._similarity_score(line.description, duplicate.description)  # type: ignore[attr-defined]
                     > 0.8
                 ):
                     return duplicate
@@ -208,7 +227,7 @@ class CategorizationCoreService:
         for payee in payees:
             if payee.matches_name(search_text):
                 # Calculate confidence based on match quality
-                confidence = self._calculate_payee_confidence(payee, search_text)
+                confidence = self._calculate_payee_confidence(payee, search_text)  # type: ignore[attr-defined]
                 if best_match is None or confidence > best_match[1]:
                     best_match = (payee, confidence)
 
@@ -265,7 +284,7 @@ class CategorizationCoreService:
                     continue
 
             # Try to match the rule
-            match_result = self._evaluate_rule(rule, line)
+            match_result = self._evaluate_rule(rule, line)  # type: ignore[attr-defined]
             if match_result:
                 confidence, reason = match_result
 
@@ -615,10 +634,13 @@ class CategorizationCoreService:
             return existing
         else:
             # Create new payee
-            return self.create_payee(
-                db=db,
-                organization_id=organization_id,
-                payee_name=payee_name,
-                default_account_id=account_id,
-                created_by=created_by,
+            return cast(
+                Payee,
+                self.create_payee(  # type: ignore[attr-defined]
+                    db=db,
+                    organization_id=organization_id,
+                    payee_name=payee_name,
+                    default_account_id=account_id,
+                    created_by=created_by,
+                ),
             )

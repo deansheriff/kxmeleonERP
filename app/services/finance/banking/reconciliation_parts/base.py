@@ -18,11 +18,7 @@ except ImportError:  # pragma: no cover
     UTC = timezone.utc
 
 from decimal import Decimal
-from typing import TYPE_CHECKING
 from uuid import UUID
-
-if TYPE_CHECKING:
-    from app.services.finance.banking.payment_metadata import PaymentMetadata
 
 from fastapi import HTTPException
 from sqlalchemy import and_, delete, func, select
@@ -44,6 +40,7 @@ from app.models.finance.banking.bank_statement import (
 from app.models.finance.gl.journal_entry import JournalEntry, JournalStatus
 from app.models.finance.gl.journal_entry_line import JournalEntryLine
 from app.services.audit_dispatcher import fire_audit_event
+from app.services.finance.banking.payment_metadata import PaymentMetadata
 
 logger = logging.getLogger(__name__)
 

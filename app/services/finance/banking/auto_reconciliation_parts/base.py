@@ -40,14 +40,10 @@ import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, TypeVar
+from typing import TypeVar
 from uuid import UUID
-
-if TYPE_CHECKING:
-    from datetime import date
-
-    from app.services.finance.posting.base import PostingResult
 
 from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound
@@ -85,6 +81,7 @@ from app.services.finance.banking.reconciliation_policy_service import (
     reconciliation_policy_service,
 )
 from app.services.finance.banking.reconciliation_runtime import ReconciliationRunContext
+from app.services.finance.posting.base import PostingResult
 
 _T = TypeVar("_T")
 

@@ -1,9 +1,21 @@
-# ruff: noqa: F403,F405
 """ReconciliationEngineHandlers component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.reconciliation_engine_parts.base import *
+from app.services.finance.banking.reconciliation_engine_parts.base import (
+    Any,
+    BankAccount,
+    BankStatement,
+    BankStatementLine,
+    EngineContext,
+    JournalEntryLine,
+    ReconciliationMatchRule,
+    UUID,
+    _SYSTEM_USER_ID,
+    logger,
+    select,
+    timedelta,
+)
 
 
 class ReconciliationEngineHandlers:
@@ -23,35 +35,35 @@ class ReconciliationEngineHandlers:
             return
 
         # Build reference lookup: {ref_string → payment}
-        ref_lookup = self._build_payment_ref_lookup(candidates)
+        ref_lookup = self._build_payment_ref_lookup(candidates)  # type: ignore[attr-defined]
 
         # Phase 1: Reference matching
         for line in eligible_lines:
             if line.line_id in ctx.matched_line_ids:
                 continue
 
-            payment = self._find_ref_in_line(line, ref_lookup)
+            payment = self._find_ref_in_line(line, ref_lookup)  # type: ignore[attr-defined]
             if not payment:
                 continue
             if payment.payment_id in ctx.matched_source_ids:
                 continue
 
-            if not self._amounts_match(
+            if not self._amounts_match(  # type: ignore[attr-defined]
                 line.amount, payment.amount, ctx.amount_tolerance
             ):
                 continue
 
-            correlation_id = self._get_correlation_id(payment, "CUSTOMER_PAYMENT")
+            correlation_id = self._get_correlation_id(payment, "CUSTOMER_PAYMENT")  # type: ignore[attr-defined]
             if not correlation_id:
                 continue
 
-            journal_line = self._find_journal_line(
+            journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                 ctx, correlation_id, ctx.bank_account.gl_account_id
             )
             if not journal_line:
                 continue
 
-            self._execute_match(
+            self._execute_match(  # type: ignore[attr-defined]
                 ctx,
                 rule,
                 line,
@@ -66,7 +78,7 @@ class ReconciliationEngineHandlers:
             )
 
         # Phase 2: Date + amount fallback (unique matches only)
-        self._date_amount_fallback(
+        self._date_amount_fallback(  # type: ignore[attr-defined]
             ctx,
             rule,
             eligible_lines,
@@ -79,7 +91,7 @@ class ReconciliationEngineHandlers:
                 if hasattr(p.payment_date, "date")
                 else p.payment_date
             ),
-            get_correlation_id=lambda p: self._get_correlation_id(
+            get_correlation_id=lambda p: self._get_correlation_id(  # type: ignore[attr-defined]
                 p, "CUSTOMER_PAYMENT"
             ),
             rule_service=rule_service,
@@ -104,7 +116,7 @@ class ReconciliationEngineHandlers:
                 CustomerPayment.payment_date
                 < ctx.statement.period_end + buffer + timedelta(days=1),
             )
-        return list(self.db.scalars(stmt).all())
+        return list(self.db.scalars(stmt).all())  # type: ignore[attr-defined]
 
     # ── SUPPLIER_PAYMENT handler ────────────────────────────────────
     def _handle_supplier_payment(
@@ -120,32 +132,32 @@ class ReconciliationEngineHandlers:
         if not candidates:
             return
 
-        ref_lookup = self._build_supplier_ref_lookup(candidates)
+        ref_lookup = self._build_supplier_ref_lookup(candidates)  # type: ignore[attr-defined]
 
         # Phase 1: Reference matching
         for line in eligible_lines:
             if line.line_id in ctx.matched_line_ids:
                 continue
 
-            payment = self._find_ref_in_line(line, ref_lookup)
+            payment = self._find_ref_in_line(line, ref_lookup)  # type: ignore[attr-defined]
             if not payment:
                 continue
             if payment.payment_id in ctx.matched_source_ids:
                 continue
 
-            if not self._amounts_match(
+            if not self._amounts_match(  # type: ignore[attr-defined]
                 line.amount, payment.amount, ctx.amount_tolerance
             ):
                 continue
 
             correlation_id = str(payment.payment_id)
-            journal_line = self._find_journal_line(
+            journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                 ctx, correlation_id, ctx.bank_account.gl_account_id
             )
             if not journal_line:
                 continue
 
-            self._execute_match(
+            self._execute_match(  # type: ignore[attr-defined]
                 ctx,
                 rule,
                 line,
@@ -160,7 +172,7 @@ class ReconciliationEngineHandlers:
             )
 
         # Phase 2: Date + amount fallback
-        self._date_amount_fallback(
+        self._date_amount_fallback(  # type: ignore[attr-defined]
             ctx,
             rule,
             eligible_lines,
@@ -196,7 +208,7 @@ class ReconciliationEngineHandlers:
                 SupplierPayment.payment_date
                 < ctx.statement.period_end + buffer + timedelta(days=1),
             )
-        return list(self.db.scalars(stmt).all())
+        return list(self.db.scalars(stmt).all())  # type: ignore[attr-defined]
 
     # ── PAYMENT_INTENT handler ──────────────────────────────────────
     def _handle_payment_intent(
@@ -224,7 +236,7 @@ class ReconciliationEngineHandlers:
                 PaymentIntent.paid_at
                 < ctx.statement.period_end + buffer + timedelta(days=1),
             )
-        intents = list(self.db.scalars(stmt).all())
+        intents = list(self.db.scalars(stmt).all())  # type: ignore[attr-defined]
         if not intents:
             return
 
@@ -238,18 +250,18 @@ class ReconciliationEngineHandlers:
             if line.line_id in ctx.matched_line_ids:
                 continue
 
-            matched_intent = self._find_ref_in_line(line, ref_lookup)
+            matched_intent = self._find_ref_in_line(line, ref_lookup)  # type: ignore[attr-defined]
             if not matched_intent:
                 continue
             if matched_intent.intent_id in ctx.matched_source_ids:
                 continue
 
-            if not self._amounts_match(
+            if not self._amounts_match(  # type: ignore[attr-defined]
                 line.amount, matched_intent.amount, ctx.amount_tolerance
             ):
                 continue
 
-            journal_line = self._find_journal_line(
+            journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                 ctx,
                 str(matched_intent.intent_id),
                 ctx.bank_account.gl_account_id,
@@ -257,7 +269,7 @@ class ReconciliationEngineHandlers:
             if not journal_line:
                 continue
 
-            self._execute_match(
+            self._execute_match(  # type: ignore[attr-defined]
                 ctx,
                 rule,
                 line,
@@ -290,9 +302,9 @@ class ReconciliationEngineHandlers:
 
         # Determine writeoff account from rule or default
         if rule.writeoff_account_id:
-            finance_cost_account = self.db.get(Account, rule.writeoff_account_id)
+            finance_cost_account = self.db.get(Account, rule.writeoff_account_id)  # type: ignore[attr-defined]
         else:
-            finance_cost_account = self.db.scalar(
+            finance_cost_account = self.db.scalar(  # type: ignore[attr-defined]
                 select(Account).where(
                     Account.organization_id == ctx.organization_id,
                     Account.account_code == "6080",
@@ -315,7 +327,7 @@ class ReconciliationEngineHandlers:
                 correlation_id = f"bank-fee-{line.line_id}"
 
                 # Build journal label from template or default
-                label = self._render_label(
+                label = self._render_label(  # type: ignore[attr-defined]
                     rule.journal_label_template,
                     line,
                     default=f"Bank charge - {line.description}",
@@ -345,7 +357,7 @@ class ReconciliationEngineHandlers:
                 )
 
                 journal, error = BasePostingAdapter.create_and_approve_journal(
-                    self.db,
+                    self.db,  # type: ignore[attr-defined]
                     ctx.organization_id,
                     journal_input,
                     _SYSTEM_USER_ID,
@@ -364,7 +376,7 @@ class ReconciliationEngineHandlers:
                     action="bank-fee",
                 )
                 posting = BasePostingAdapter.post_to_ledger(
-                    self.db,
+                    self.db,  # type: ignore[attr-defined]
                     organization_id=ctx.organization_id,
                     journal_entry_id=journal.journal_entry_id,
                     posting_date=line.transaction_date,
@@ -381,7 +393,7 @@ class ReconciliationEngineHandlers:
                     )
                     continue
 
-                journal_line = self._find_journal_line(
+                journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                     ctx,
                     correlation_id,
                     ctx.bank_account.gl_account_id,
@@ -389,7 +401,7 @@ class ReconciliationEngineHandlers:
                 if not journal_line:
                     continue
 
-                self._execute_match(
+                self._execute_match(  # type: ignore[attr-defined]
                     ctx,
                     rule,
                     line,
@@ -429,7 +441,7 @@ class ReconciliationEngineHandlers:
 
         # Load other bank accounts
         other_banks = list(
-            self.db.scalars(
+            self.db.scalars(  # type: ignore[attr-defined]
                 select(BankAccount).where(
                     BankAccount.organization_id == ctx.organization_id,
                     BankAccount.bank_account_id != ctx.bank_account.bank_account_id,
@@ -451,7 +463,7 @@ class ReconciliationEngineHandlers:
         max_date = max(dates) + timedelta(days=window_days)
 
         deposit_lines = list(
-            self.db.scalars(
+            self.db.scalars(  # type: ignore[attr-defined]
                 select(BankStatementLine)
                 .join(
                     BankStatement,
@@ -493,7 +505,7 @@ class ReconciliationEngineHandlers:
                 )
 
                 # Resolve destination bank account
-                dep_stmt = self.db.get(BankStatement, best.statement_id)
+                dep_stmt = self.db.get(BankStatement, best.statement_id)  # type: ignore[attr-defined]
                 if not dep_stmt:
                     continue
                 dest_bank = bank_by_id.get(dep_stmt.bank_account_id)
@@ -504,7 +516,7 @@ class ReconciliationEngineHandlers:
                 amount = abs(line.amount)
 
                 # Check for existing journal (idempotent)
-                credit_jl = self._find_journal_line(
+                credit_jl = self._find_journal_line(  # type: ignore[attr-defined]
                     ctx,
                     correlation_id,
                     ctx.bank_account.gl_account_id,
@@ -512,11 +524,11 @@ class ReconciliationEngineHandlers:
                 debit_jl: JournalEntryLine | None = None
 
                 if credit_jl:
-                    debit_jl = self._find_journal_line(
+                    debit_jl = self._find_journal_line(  # type: ignore[attr-defined]
                         ctx, correlation_id, dest_bank.gl_account_id
                     )
                 else:
-                    label = self._render_label(
+                    label = self._render_label(  # type: ignore[attr-defined]
                         rule.journal_label_template,
                         line,
                         default=(f"Inter-bank transfer - {line.reference}"),
@@ -545,7 +557,7 @@ class ReconciliationEngineHandlers:
                     )
 
                     journal, error = BasePostingAdapter.create_and_approve_journal(
-                        self.db,
+                        self.db,  # type: ignore[attr-defined]
                         ctx.organization_id,
                         journal_input,
                         _SYSTEM_USER_ID,
@@ -564,7 +576,7 @@ class ReconciliationEngineHandlers:
                         action="interbank",
                     )
                     posting = BasePostingAdapter.post_to_ledger(
-                        self.db,
+                        self.db,  # type: ignore[attr-defined]
                         organization_id=ctx.organization_id,
                         journal_entry_id=journal.journal_entry_id,
                         posting_date=line.transaction_date,
@@ -581,18 +593,18 @@ class ReconciliationEngineHandlers:
                         )
                         continue
 
-                    credit_jl = self._find_journal_line(
+                    credit_jl = self._find_journal_line(  # type: ignore[attr-defined]
                         ctx,
                         correlation_id,
                         ctx.bank_account.gl_account_id,
                     )
-                    debit_jl = self._find_journal_line(
+                    debit_jl = self._find_journal_line(  # type: ignore[attr-defined]
                         ctx, correlation_id, dest_bank.gl_account_id
                     )
 
                 # Match source line
                 if credit_jl:
-                    self._execute_match(
+                    self._execute_match(  # type: ignore[attr-defined]
                         ctx,
                         rule,
                         line,
@@ -608,7 +620,7 @@ class ReconciliationEngineHandlers:
 
                 # Match deposit line
                 if debit_jl and best.line_id not in matched_deposit_ids:
-                    self._perform_match_action(ctx, best, debit_jl, "INTER_BANK", None)
+                    self._perform_match_action(ctx, best, debit_jl, "INTER_BANK", None)  # type: ignore[attr-defined]
                     matched_deposit_ids.add(best.line_id)
 
             except Exception as e:

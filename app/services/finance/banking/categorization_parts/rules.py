@@ -1,9 +1,21 @@
-# ruff: noqa: F403,F405
 """CategorizationRuleService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.categorization_parts.base import *
+from app.services.finance.banking.categorization_parts.base import (
+    BankAccount,
+    BankAccountStatus,
+    RuleAction,
+    RuleType,
+    Session,
+    TransactionRule,
+    UUID,
+    coerce_uuid,
+    func,
+    logger,
+    or_,
+    select,
+)
 
 
 class CategorizationRuleService:
@@ -174,7 +186,7 @@ class CategorizationRuleService:
             clone = self.create_rule(
                 db=db,
                 organization_id=org_id,
-                rule_name=self._next_copy_rule_name(
+                rule_name=self._next_copy_rule_name(  # type: ignore[attr-defined]
                     db,
                     org_id,
                     f"{source_rule.rule_name} - {account.account_name}",
@@ -201,7 +213,7 @@ class CategorizationRuleService:
             clone = self.create_rule(
                 db=db,
                 organization_id=org_id,
-                rule_name=self._next_copy_rule_name(
+                rule_name=self._next_copy_rule_name(  # type: ignore[attr-defined]
                     db,
                     org_id,
                     f"{source_rule.rule_name} - All Accounts",

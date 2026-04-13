@@ -1,9 +1,27 @@
-# ruff: noqa: F403,F405
 """AutoReconciliationPaymentService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.auto_reconciliation_parts.base import *
+from app.services.finance.banking.auto_reconciliation_parts.base import (
+    APPaymentStatus,
+    AutoMatchConfig,
+    AutoMatchResult,
+    BankAccount,
+    BankStatement,
+    BankStatementLine,
+    CustomerPayment,
+    PaymentDirection,
+    PaymentIntent,
+    PaymentIntentStatus,
+    PaymentStatus,
+    Session,
+    StatementLineType,
+    SupplierPayment,
+    UUID,
+    _PAYSTACK_REF_RE,
+    logger,
+    select,
+)
 
 
 class AutoReconciliationPaymentService:
@@ -51,12 +69,12 @@ class AutoReconciliationPaymentService:
 
         for line in unmatched_lines:
             try:
-                intent = self._find_ref_in_line(line, ref_to_intent)
+                intent = self._find_ref_in_line(line, ref_to_intent)  # type: ignore[attr-defined]
                 if not intent:
                     continue
 
                 tolerance = config.amount_tolerance if config else None
-                if not self._amounts_match(
+                if not self._amounts_match(  # type: ignore[attr-defined]
                     line.amount, intent.amount, tolerance=tolerance
                 ):
                     logger.debug(
@@ -69,7 +87,7 @@ class AutoReconciliationPaymentService:
                     )
                     continue
 
-                journal_line = self._find_journal_line(
+                journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                     db,
                     organization_id,
                     str(intent.intent_id),
@@ -84,7 +102,7 @@ class AutoReconciliationPaymentService:
                     )
                     continue
 
-                self._perform_match(
+                self._perform_match(  # type: ignore[attr-defined]
                     db,
                     organization_id,
                     line,
@@ -92,7 +110,7 @@ class AutoReconciliationPaymentService:
                     source_type="PAYMENT_INTENT",
                     source_id=intent.intent_id,
                 )
-                self._log_match(
+                self._log_match(  # type: ignore[attr-defined]
                     db,
                     organization_id,
                     line=line,
@@ -149,7 +167,7 @@ class AutoReconciliationPaymentService:
         """Fallback match for Paystack OPEX expense transfers by date+amount."""
         from datetime import date
 
-        if not self._is_paystack_opex_account(bank_account):
+        if not self._is_paystack_opex_account(bank_account):  # type: ignore[attr-defined]
             return
 
         _DateAmountKey = tuple[date, int]
@@ -167,8 +185,11 @@ class AutoReconciliationPaymentService:
 
         intent_index: dict[_DateAmountKey, list[PaymentIntent]] = {}
         for intent in eligible_intents:
+            paid_at = intent.paid_at
+            if paid_at is None:
+                continue
             key: _DateAmountKey = (
-                intent.paid_at.date(),
+                paid_at.date(),
                 int(round(abs(intent.amount) * 100)),
             )
             intent_index.setdefault(key, []).append(intent)
@@ -195,7 +216,7 @@ class AutoReconciliationPaymentService:
                 intent = key_intents[i]
                 line = available_lines[i]
                 try:
-                    journal_line = self._find_journal_line(
+                    journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         str(intent.intent_id),
@@ -205,7 +226,7 @@ class AutoReconciliationPaymentService:
                     if not journal_line:
                         continue
 
-                    self._perform_match(
+                    self._perform_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line,
@@ -213,7 +234,7 @@ class AutoReconciliationPaymentService:
                         source_type="PAYMENT_INTENT",
                         source_id=intent.intent_id,
                     )
-                    self._log_match(
+                    self._log_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line=line,
@@ -392,12 +413,12 @@ class AutoReconciliationPaymentService:
             if line.line_id in matched_line_ids:
                 continue
             try:
-                payment = self._find_ref_in_line(line, ref_to_payment)
+                payment = self._find_ref_in_line(line, ref_to_payment)  # type: ignore[attr-defined]
                 if not payment:
                     continue
 
                 tolerance = config.amount_tolerance if config else None
-                if not self._amounts_match(
+                if not self._amounts_match(  # type: ignore[attr-defined]
                     line.amount, payment.amount, tolerance=tolerance
                 ):
                     logger.debug(
@@ -414,7 +435,7 @@ class AutoReconciliationPaymentService:
                 if not payment.correlation_id:
                     continue
 
-                journal_line = self._find_journal_line(
+                journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                     db,
                     organization_id,
                     payment.correlation_id,
@@ -429,7 +450,7 @@ class AutoReconciliationPaymentService:
                     )
                     continue
 
-                self._perform_match(
+                self._perform_match(  # type: ignore[attr-defined]
                     db,
                     organization_id,
                     line,
@@ -437,7 +458,7 @@ class AutoReconciliationPaymentService:
                     source_type="CUSTOMER_PAYMENT",
                     source_id=payment.payment_id,
                 )
-                self._log_match(
+                self._log_match(  # type: ignore[attr-defined]
                     db,
                     organization_id,
                     line=line,
@@ -526,7 +547,7 @@ class AutoReconciliationPaymentService:
                     continue
 
                 try:
-                    journal_line = self._find_journal_line(
+                    journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         pmt.correlation_id,  # type: ignore[arg-type]
@@ -540,7 +561,7 @@ class AutoReconciliationPaymentService:
                         )
                         continue
 
-                    self._perform_match(
+                    self._perform_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line,
@@ -548,7 +569,7 @@ class AutoReconciliationPaymentService:
                         source_type="CUSTOMER_PAYMENT",
                         source_id=pmt.payment_id,
                     )
-                    self._log_match(
+                    self._log_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line=line,
@@ -623,12 +644,12 @@ class AutoReconciliationPaymentService:
                 if line.line_id in matched_line_ids:
                     continue
                 try:
-                    payment = self._find_ref_in_line(line, ref_to_payment)
+                    payment = self._find_ref_in_line(line, ref_to_payment)  # type: ignore[attr-defined]
                     if not payment:
                         continue
 
                     tolerance = config.amount_tolerance if config else None
-                    if not self._amounts_match(
+                    if not self._amounts_match(  # type: ignore[attr-defined]
                         line.amount, payment.amount, tolerance=tolerance
                     ):
                         logger.debug(
@@ -643,7 +664,7 @@ class AutoReconciliationPaymentService:
                     if not payment.correlation_id:
                         continue
 
-                    journal_line = self._find_journal_line(
+                    journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         payment.correlation_id,
@@ -658,7 +679,7 @@ class AutoReconciliationPaymentService:
                         )
                         continue
 
-                    self._perform_match(
+                    self._perform_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line,
@@ -666,7 +687,7 @@ class AutoReconciliationPaymentService:
                         source_type="SUPPLIER_PAYMENT",
                         source_id=payment.payment_id,
                     )
-                    self._log_match(
+                    self._log_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line=line,
@@ -732,7 +753,7 @@ class AutoReconciliationPaymentService:
                 if line.line_id in matched_line_ids:
                     continue
                 try:
-                    journal_line = self._find_journal_line(
+                    journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         pmt.correlation_id,  # type: ignore[arg-type]
@@ -746,7 +767,7 @@ class AutoReconciliationPaymentService:
                         )
                         continue
 
-                    self._perform_match(
+                    self._perform_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line,
@@ -754,7 +775,7 @@ class AutoReconciliationPaymentService:
                         source_type="SUPPLIER_PAYMENT",
                         source_id=pmt.payment_id,
                     )
-                    self._log_match(
+                    self._log_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line=line,
@@ -828,12 +849,12 @@ class AutoReconciliationPaymentService:
                 if line.line_id in matched_line_ids:
                     continue
                 try:
-                    payment = self._find_ref_in_line(line, ref_to_payment)
+                    payment = self._find_ref_in_line(line, ref_to_payment)  # type: ignore[attr-defined]
                     if not payment:
                         continue
 
                     tolerance = config.amount_tolerance if config else None
-                    if not self._amounts_match(
+                    if not self._amounts_match(  # type: ignore[attr-defined]
                         line.amount, payment.amount, tolerance=tolerance
                     ):
                         logger.debug(
@@ -848,7 +869,7 @@ class AutoReconciliationPaymentService:
                     if not payment.correlation_id:
                         continue
 
-                    journal_line = self._find_journal_line(
+                    journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         payment.correlation_id,
@@ -863,7 +884,7 @@ class AutoReconciliationPaymentService:
                         )
                         continue
 
-                    self._perform_match(
+                    self._perform_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line,
@@ -871,7 +892,7 @@ class AutoReconciliationPaymentService:
                         source_type="CUSTOMER_PAYMENT",
                         source_id=payment.payment_id,
                     )
-                    self._log_match(
+                    self._log_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line=line,
@@ -937,7 +958,7 @@ class AutoReconciliationPaymentService:
                 if line.line_id in matched_line_ids:
                     continue
                 try:
-                    journal_line = self._find_journal_line(
+                    journal_line = self._find_journal_line(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         pmt.correlation_id,  # type: ignore[arg-type]
@@ -951,7 +972,7 @@ class AutoReconciliationPaymentService:
                         )
                         continue
 
-                    self._perform_match(
+                    self._perform_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line,
@@ -959,7 +980,7 @@ class AutoReconciliationPaymentService:
                         source_type="CUSTOMER_PAYMENT",
                         source_id=pmt.payment_id,
                     )
-                    self._log_match(
+                    self._log_match(  # type: ignore[attr-defined]
                         db,
                         organization_id,
                         line=line,

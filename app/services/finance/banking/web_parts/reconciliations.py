@@ -1,9 +1,49 @@
-# ruff: noqa: F403,F405
 """BankingReconciliationWebService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.web_parts.base import *
+from typing import cast
+
+from app.services.finance.banking.web_parts.base import (
+    Any,
+    BankAccount,
+    BankAccountStatus,
+    BankReconciliation,
+    BankStatement,
+    BankStatementLine,
+    Decimal,
+    HTMLResponse,
+    HTTPException,
+    JSONResponse,
+    JournalEntry,
+    JournalEntryLine,
+    JournalStatus,
+    ReconciliationStatus,
+    RedirectResponse,
+    Request,
+    Response,
+    Session,
+    UUID,
+    WebAuthContext,
+    _account_view,
+    _build_active_filters,
+    _format_currency,
+    _gl_line_view,
+    _line_amount,
+    _parse_date,
+    _parse_reconciliation_status,
+    _reconciliation_line_view,
+    _reconciliation_view,
+    _statement_line_view,
+    base_context,
+    coerce_uuid,
+    date,
+    func,
+    logger,
+    resolve_payment_metadata_batch,
+    select,
+    templates,
+)
 
 
 class BankingReconciliationWebService:
@@ -168,23 +208,27 @@ class BankingReconciliationWebService:
             .order_by(BankStatementLine.transaction_date, BankStatementLine.line_number)
         ).all()
 
-        gl_lines: list[Any] = []
+        gl_lines: list[tuple[JournalEntryLine, JournalEntry]] = []
         if bank_account:
-            gl_lines = db.execute(
-                select(JournalEntryLine, JournalEntry)
-                .join(
-                    JournalEntry,
-                    JournalEntryLine.journal_entry_id == JournalEntry.journal_entry_id,
-                )
-                .where(
-                    JournalEntry.organization_id == org_id,
-                    JournalEntryLine.account_id == bank_account.gl_account_id,
-                    JournalEntry.status == JournalStatus.POSTED,
-                    JournalEntry.entry_date >= reconciliation.period_start,
-                    JournalEntry.entry_date <= reconciliation.period_end,
-                )
-                .order_by(JournalEntry.entry_date, JournalEntryLine.line_number)
-            ).all()
+            gl_lines = cast(
+                list[tuple[JournalEntryLine, JournalEntry]],
+                db.execute(
+                    select(JournalEntryLine, JournalEntry)
+                    .join(
+                        JournalEntry,
+                        JournalEntryLine.journal_entry_id
+                        == JournalEntry.journal_entry_id,
+                    )
+                    .where(
+                        JournalEntry.organization_id == org_id,
+                        JournalEntryLine.account_id == bank_account.gl_account_id,
+                        JournalEntry.status == JournalStatus.POSTED,
+                        JournalEntry.entry_date >= reconciliation.period_start,
+                        JournalEntry.entry_date <= reconciliation.period_end,
+                    )
+                    .order_by(JournalEntry.entry_date, JournalEntryLine.line_number)
+                ).all(),
+            )
 
         # Batch-resolve payment metadata for GL lines
         metadata_pairs: list[tuple[str | None, UUID | None]] = [

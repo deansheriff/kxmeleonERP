@@ -1,9 +1,20 @@
-# ruff: noqa: F403,F405
 """ReconciliationWorkflowService component."""
 
 from __future__ import annotations
 
-from app.services.finance.banking.reconciliation_parts.base import *
+from typing import cast
+
+from app.services.finance.banking.reconciliation_parts.base import (
+    BankReconciliation,
+    Decimal,
+    HTTPException,
+    ReconciliationStatus,
+    Session,
+    UTC,
+    UUID,
+    datetime,
+    logger,
+)
 
 
 class ReconciliationWorkflowService:
@@ -16,7 +27,10 @@ class ReconciliationWorkflowService:
         reconciliation_id: UUID,
     ) -> BankReconciliation:
         """Submit reconciliation for review."""
-        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)
+        reconciliation = cast(
+            BankReconciliation,
+            self._get_for_org(db, organization_id, reconciliation_id),  # type: ignore[attr-defined]
+        )
 
         if reconciliation.status != ReconciliationStatus.draft:
             raise HTTPException(
@@ -56,7 +70,10 @@ class ReconciliationWorkflowService:
         notes: str | None = None,
     ) -> BankReconciliation:
         """Approve a reconciliation."""
-        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)
+        reconciliation = cast(
+            BankReconciliation,
+            self._get_for_org(db, organization_id, reconciliation_id),  # type: ignore[attr-defined]
+        )
 
         if reconciliation.status != ReconciliationStatus.pending_review:
             raise HTTPException(
@@ -117,7 +134,10 @@ class ReconciliationWorkflowService:
         notes: str = "",
     ) -> BankReconciliation:
         """Reject a reconciliation."""
-        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)
+        reconciliation = cast(
+            BankReconciliation,
+            self._get_for_org(db, organization_id, reconciliation_id),  # type: ignore[attr-defined]
+        )
 
         if reconciliation.status != ReconciliationStatus.pending_review:
             raise HTTPException(
@@ -159,7 +179,7 @@ class ReconciliationWorkflowService:
         reconciliation_id: UUID,
     ) -> dict:
         """Generate reconciliation report data."""
-        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)
+        reconciliation = self._get_for_org(db, organization_id, reconciliation_id)  # type: ignore[attr-defined]
 
         # Get all lines
         lines = reconciliation.lines
