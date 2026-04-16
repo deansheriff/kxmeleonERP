@@ -348,7 +348,7 @@ class TestUpdateReconciledBalance:
             mock_db, org_id, account.bank_account_id, recon_date, recon_balance
         )
 
-        assert result.last_reconciled_date == recon_date
+        assert result.last_reconciled_date == recon_date.date()
         assert result.last_reconciled_balance == recon_balance
         assert mock_db.flush.call_count >= 1
 

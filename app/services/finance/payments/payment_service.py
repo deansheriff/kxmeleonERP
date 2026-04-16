@@ -41,6 +41,7 @@ from app.services.finance.payments.paystack_client import (
     PaystackError,
 )
 from app.services.finance.platform.org_context import org_context_service
+from app.services.expense.limit_service import ExpenseLimitServiceError
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
@@ -945,11 +946,31 @@ class PaymentService:
                 from app.services.expense.expense_service import ExpenseService
 
                 expense_svc = ExpenseService(self.db)
-                expense_svc._validate_approver_weekly_budget(
-                    self.organization_id,
-                    locked_claim,
-                    locked_claim.approver_id,
-                )
+                try:
+                    expense_svc._validate_approver_weekly_budget(
+                        self.organization_id,
+                        locked_claim,
+                        locked_claim.approver_id,
+                    )
+                except ExpenseLimitServiceError as exc:
+                    intent.status = PaymentIntentStatus.ABANDONED
+                    intent.expires_at = datetime.now(UTC)
+                    intent.gateway_response = {
+                        **(intent.gateway_response or {}),
+                        "error": str(exc),
+                        "abandoned_reason": "expense_approver_budget_exhausted",
+                        "abandoned_at": datetime.now(UTC).isoformat(),
+                    }
+                    self.db.flush()
+                    self._commit_and_refresh(intent)
+                    logger.info(
+                        "Abandoned expense transfer intent after budget check failure",
+                        extra={
+                            "intent_id": str(intent.intent_id),
+                            "claim_id": str(locked_claim.claim_id),
+                        },
+                    )
+                    raise
 
         # Amount in kobo - use round to avoid truncation
         amount_kobo = int(
@@ -1143,6 +1164,7 @@ class PaymentService:
                         payment_reference=intent.paystack_reference,
                         payment_date=completed_at.date(),
                         send_notification=False,
+                        skip_budget_check=True,
                     )
                 except Exception:
                     logger.exception(

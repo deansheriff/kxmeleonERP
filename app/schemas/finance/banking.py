@@ -85,8 +85,8 @@ class BankAccountRead(BankAccountBase):
     organization_id: UUID
     status: BankAccountStatus
     last_statement_balance: Decimal | None = None
-    last_statement_date: datetime | None = None
-    last_reconciled_date: datetime | None = None
+    last_statement_date: date | None = None
+    last_reconciled_date: date | None = None
     last_reconciled_balance: Decimal | None = None
     created_at: datetime
     updated_at: datetime | None = None

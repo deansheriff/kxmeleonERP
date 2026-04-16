@@ -564,7 +564,9 @@ def seed_scheduled_tasks(db: Session) -> None:
             "interval_seconds": 1800,  # Every 30 minutes
             "enabled": True,
             "args_json": [],
-            "kwargs_json": {"days_back": 3},
+            # Stateful incremental sync — no lookback param; each account
+            # uses its own watermark.
+            "kwargs_json": {},
         },
     ]
 

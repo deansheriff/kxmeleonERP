@@ -6,7 +6,7 @@ Provides CRUD operations for bank accounts and GL account linkage.
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -301,7 +301,7 @@ class BankAccountService:
         db: Session,
         organization_id: UUID,
         bank_account_id: UUID,
-        reconciled_date: datetime,
+        reconciled_date: date | datetime,
         reconciled_balance: Decimal,
     ) -> BankAccount:
         """Update last reconciled date and balance."""
@@ -312,7 +312,11 @@ class BankAccountService:
                 status_code=404, detail=f"Bank account {bank_account_id} not found"
             )
 
-        bank_account.last_reconciled_date = reconciled_date
+        bank_account.last_reconciled_date = (
+            reconciled_date.date()
+            if isinstance(reconciled_date, datetime)
+            else reconciled_date
+        )
         bank_account.last_reconciled_balance = reconciled_balance
         db.flush()
 
@@ -385,12 +389,13 @@ class BankAccountService:
             return None
 
         if require_linked and not bank_account.mono_account_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Bank account is not linked to Mono",
-            )
+            raise ValueError("Bank account is not linked to Mono")
 
         bank_account.mono_account_id = None
+        bank_account.mono_sync_from_date = None
+        bank_account.mono_last_transaction_date = None
+        bank_account.mono_last_synced_at = None
+        bank_account.mono_last_sync_error = None
         bank_account.updated_by = updated_by
         db.flush()
         return bank_account

@@ -85,6 +85,22 @@ def _get_user_id(auth: dict) -> UUID:
     return UUID(auth["person_id"])
 
 
+def _raise_mono_http_error(exc: Exception) -> None:
+    """Translate Mono service-layer exceptions to HTTP responses."""
+    detail = str(exc)
+    if isinstance(exc, LookupError):
+        raise HTTPException(status_code=404, detail=detail) from exc
+    if isinstance(exc, PermissionError):
+        raise HTTPException(status_code=403, detail=detail) from exc
+    if isinstance(exc, ValueError):
+        status_code = 409 if "already linked" in detail else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    if isinstance(exc, RuntimeError):
+        status_code = 503 if "not configured" in detail else 502
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    raise exc
+
+
 def _normalize_form_payload(data: dict, *, include_booleans: bool) -> dict:
     normalized: dict = {}
     for key, value in data.items():
@@ -820,11 +836,14 @@ def link_mono_account(
     """
     from app.services.finance.banking.mono_sync import MonoSyncService
 
-    return MonoSyncService(db).link_account(
-        _get_org_id(auth),
-        account_id,
-        str(payload.get("code", "")),
-    )
+    try:
+        return MonoSyncService(db).link_account(
+            _get_org_id(auth),
+            account_id,
+            str(payload.get("code", "")),
+        )
+    except (LookupError, PermissionError, RuntimeError, ValueError) as exc:
+        _raise_mono_http_error(exc)
 
 
 @router.post("/accounts/{account_id}/unlink-mono")
@@ -835,13 +854,16 @@ def unlink_mono_account(
 ):
     """Remove Mono Connect link from a bank account."""
     organization_id = _get_org_id(auth)
-    account = bank_account_service.unlink_mono(
-        db,
-        organization_id,
-        account_id,
-        require_linked=True,
-        updated_by=_get_user_id(auth),
-    )
+    try:
+        account = bank_account_service.unlink_mono(
+            db,
+            organization_id,
+            account_id,
+            require_linked=True,
+            updated_by=_get_user_id(auth),
+        )
+    except (LookupError, PermissionError, RuntimeError, ValueError) as exc:
+        _raise_mono_http_error(exc)
 
     if not account:
         raise HTTPException(status_code=404, detail="Bank account not found")
@@ -852,24 +874,74 @@ def unlink_mono_account(
 @router.post("/accounts/{account_id}/sync-mono")
 def sync_mono_account(
     account_id: UUID,
-    days_back: int = Query(default=7, ge=1, le=90),
     auth: dict = Depends(require_tenant_permission("banking:statement:create")),
     db: Session = Depends(get_db),
 ):
-    """
-    Manually trigger a Mono transaction sync for a bank account.
+    """Trigger an incremental Mono sync for a bank account.
 
-    Fetches transactions for the specified lookback period and creates
-    bank statement lines.
+    Stateful — the sync computes its own window from the account's
+    watermark, so clicking this repeatedly is safe and idempotent.
     """
     from app.services.finance.banking.mono_sync import MonoSyncService
 
-    return MonoSyncService(db).sync_account_by_id(
-        _get_org_id(auth),
-        account_id,
-        days_back=days_back,
-        user_id=_get_user_id(auth),
-    )
+    try:
+        return MonoSyncService(db).sync_account_by_id(
+            _get_org_id(auth),
+            account_id,
+            user_id=_get_user_id(auth),
+        )
+    except (LookupError, PermissionError, RuntimeError, ValueError) as exc:
+        _raise_mono_http_error(exc)
+
+
+@router.post("/accounts/{account_id}/refresh-mono")
+def refresh_mono_account(
+    account_id: UUID,
+    auth: dict = Depends(require_tenant_permission("banking:statement:create")),
+    db: Session = Depends(get_db),
+):
+    """Trigger a real-time data refresh from the upstream bank via Mono.
+
+    Asks Mono's indexer to re-pull transactions from the bank instead of
+    serving cached data. When the refresh completes, Mono fires a webhook
+    that the existing handler picks up automatically.
+
+    Rate-limited by Mono to one call per account every 5 minutes.
+    """
+    from app.services.finance.banking.mono_sync import MonoSyncService
+
+    try:
+        return MonoSyncService(db).trigger_data_refresh(
+            _get_org_id(auth),
+            account_id,
+        )
+    except (LookupError, PermissionError, RuntimeError, ValueError) as exc:
+        _raise_mono_http_error(exc)
+
+
+@router.post("/accounts/{account_id}/reauthorise-mono")
+def reauthorise_mono_account(
+    account_id: UUID,
+    auth: dict = Depends(require_tenant_permission("banking:account:update")),
+    db: Session = Depends(get_db),
+):
+    """Issue a Mono reauthorisation token for re-entry through Connect widget.
+
+    Used when Mono's transaction index is stale or empty despite a valid
+    link — typically after a ``data_status=FAILED`` webhook. The returned
+    token is passed to the Mono Connect widget as ``reauth_token``; the
+    user re-enters their bank credentials and Mono triggers a fresh data
+    pull, emitting a new ``account_updated`` webhook when complete.
+    """
+    from app.services.finance.banking.mono_sync import MonoSyncService
+
+    try:
+        return MonoSyncService(db).request_reauthorisation_token(
+            _get_org_id(auth),
+            account_id,
+        )
+    except (LookupError, PermissionError, RuntimeError, ValueError) as exc:
+        _raise_mono_http_error(exc)
 
 
 # Webhook endpoint — no auth required, uses secret verification
@@ -889,7 +961,13 @@ async def mono_webhook(
     """
     from app.services.finance.banking.mono_sync import MonoSyncService
 
-    return MonoSyncService(db).process_webhook(
-        request.headers.get("mono-webhook-secret", ""),
-        await request.body(),
-    )
+    try:
+        result = MonoSyncService(db).process_webhook(
+            request.headers.get("mono-webhook-secret", ""),
+            await request.body(),
+        )
+    except (LookupError, PermissionError, RuntimeError, ValueError) as exc:
+        _raise_mono_http_error(exc)
+        return None  # unreachable — _raise_mono_http_error always raises
+    db.commit()
+    return result

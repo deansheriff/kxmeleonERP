@@ -226,6 +226,12 @@ def _account_view(account: BankAccount) -> dict:
         "overdraft_limit": _format_currency(account.overdraft_limit, currency)
         if account.overdraft_limit
         else None,
+        "mono_account_id": account.mono_account_id,
+        "mono_sync_from_date": _format_date(account.mono_sync_from_date),
+        "mono_last_transaction_date": _format_date(account.mono_last_transaction_date),
+        "mono_last_synced_at": account.mono_last_synced_at,
+        "mono_last_sync_error": account.mono_last_sync_error,
+        "mono_sync_buffer_days": account.mono_sync_buffer_days,
     }
 
 

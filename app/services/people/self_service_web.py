@@ -47,12 +47,19 @@ from app.models.person import Person
 from app.models.rbac import Permission, PersonRole, Role, RolePermission
 from app.services.common import PaginationParams, ValidationError, coerce_uuid
 from app.services.common_filters import build_active_filters
-from app.services.expense.limit_service import ExpenseLimitService
+from app.services.expense.limit_service import (
+    ExpenseLimitService,
+    ExpenseLimitServiceError,
+)
 from app.services.finance.banking.bank_directory import BankDirectoryService
 from app.services.people.attendance import AttendanceService
 from app.services.people.attendance.attendance_service import AttendanceServiceError
-from app.services.people.expense import ExpenseService
-from app.services.people.expense.expense_service import ExpenseServiceError
+from app.services.people.expense import (
+    ApproverAuthorityError,
+    ExpenseClaimStatusError,
+    ExpenseService,
+    ExpenseServiceError,
+)
 from app.services.people.hr.employees import EmployeeService
 from app.services.people.hr.employee_types import EmployeeFilters
 from app.services.people.hr.info_change_service import InfoChangeService
@@ -2391,16 +2398,13 @@ class SelfServiceWebService:
             if budget_info is not None:
                 budget_amount, limit_id = budget_info
                 now = datetime.now(UTC)
-                week_start = limit_svc._start_of_week_utc(now)
-                week_end = week_start + timedelta(days=6)
                 latest_reset = limit_svc.get_latest_weekly_reset(
                     org_id,
                     approver_id=approver_employee_id,
                     approver_limit_id=limit_id,
-                    from_datetime=week_start,
+                    from_datetime=None,
                 )
-                usage_start = latest_reset.reset_at if latest_reset else week_start
-                used_amount = db.scalar(
+                usage_query = (
                     select(
                         func.coalesce(
                             func.sum(ExpenseClaim.total_approved_amount), Decimal("0")
@@ -2422,15 +2426,21 @@ class SelfServiceWebService:
                         ExpenseClaim.status.in_(
                             [ExpenseClaimStatus.APPROVED, ExpenseClaimStatus.PAID]
                         ),
-                        ExpenseClaimAction.created_at >= usage_start,
                         ExpenseClaimAction.created_at <= now,
                         ExpenseClaim.approver_id == approver_employee_id,
                     )
-                ) or Decimal("0")
+                )
+                if latest_reset is not None:
+                    usage_query = usage_query.where(
+                        ExpenseClaimAction.created_at >= latest_reset.reset_at
+                    )
+
+                used_amount = db.scalar(usage_query) or Decimal("0")
                 weekly_balance = {
-                    "week_label": (
-                        f"{week_start.date().isoformat()} - "
-                        f"{week_end.date().isoformat()}"
+                    "usage_label": (
+                        f"Since manual reset on {latest_reset.reset_at.date().isoformat()}"
+                        if latest_reset
+                        else "Since budget tracking began; manual reset required"
                     ),
                     "budget": budget_amount,
                     "used": used_amount,
@@ -2460,6 +2470,8 @@ class SelfServiceWebService:
                     "rejected_total": report_data["rejected_total"],
                 },
                 "active_filters": active_filters,
+                "success": request.query_params.get("success"),
+                "error": request.query_params.get("error"),
             }
         )
         context["has_team_approvals"] = self._has_team_approvals(
@@ -2494,13 +2506,58 @@ class SelfServiceWebService:
         if claim.employee_id not in report_ids:
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        ExpenseService(db, auth).approve_claim(
-            org_id=org_id,
-            claim_id=claim_id,
-            approver_id=manager_employee_id,
+        try:
+            ExpenseService(db, auth).approve_claim(
+                org_id=org_id,
+                claim_id=claim_id,
+                approver_id=manager_employee_id,
+            )
+            db.commit()
+        except (ApproverAuthorityError, ExpenseLimitServiceError) as exc:
+            db.rollback()
+            return RedirectResponse(
+                url=f"/people/self/my-approvals?error={quote(str(exc))}",
+                status_code=303,
+            )
+        except ExpenseClaimStatusError:
+            db.rollback()
+            return RedirectResponse(
+                url="/people/self/my-approvals?error=This+claim+can+no+longer+be+approved+in+its+current+status.",
+                status_code=303,
+            )
+        except ValueError as exc:
+            db.rollback()
+            message = str(exc).strip() or "Approval could not be completed."
+            if message == "Approver is not assigned to the current approval step":
+                message = (
+                    "You cannot approve this claim yet because it is assigned "
+                    "to a different approval step."
+                )
+            elif message == "Claim has no pending approval steps":
+                message = "This claim has no pending approval step."
+            return RedirectResponse(
+                url=f"/people/self/my-approvals?error={quote(message)}",
+                status_code=303,
+            )
+        except ExpenseServiceError as exc:
+            db.rollback()
+            return RedirectResponse(
+                url=f"/people/self/my-approvals?error={quote(str(exc))}",
+                status_code=303,
+            )
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "Team expense approval failed", extra={"claim_id": claim_id}
+            )
+            return RedirectResponse(
+                url="/people/self/my-approvals?error=Approval+failed.+Please+refresh+and+try+again.",
+                status_code=303,
+            )
+
+        return RedirectResponse(
+            url="/people/self/my-approvals?success=Claim+approved", status_code=303
         )
-        db.commit()
-        return RedirectResponse(url="/people/self/my-approvals", status_code=302)
 
     def team_expense_reject_response(
         self,

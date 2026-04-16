@@ -960,11 +960,7 @@ class BankStatementService:
 
         # Update bank account with latest statement info
         if statement_date is not None:
-            bank_account.last_statement_date = datetime.combine(
-                statement_date,
-                datetime.min.time(),
-                tzinfo=UTC,
-            )
+            bank_account.last_statement_date = statement_date
         if closing_balance is not None:
             bank_account.last_statement_balance = closing_balance
 

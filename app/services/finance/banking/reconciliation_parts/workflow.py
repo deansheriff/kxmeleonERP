@@ -10,7 +10,6 @@ from app.services.finance.banking.reconciliation_parts.base import (
     HTTPException,
     ReconciliationStatus,
     Session,
-    UTC,
     UUID,
     datetime,
     logger,
@@ -95,11 +94,7 @@ class ReconciliationWorkflowService:
 
         # Update bank account
         bank_account = reconciliation.bank_account
-        bank_account.last_reconciled_date = datetime.combine(
-            reconciliation.reconciliation_date,
-            datetime.min.time(),
-            tzinfo=UTC,
-        )
+        bank_account.last_reconciled_date = reconciliation.reconciliation_date
         bank_account.last_reconciled_balance = reconciliation.statement_closing_balance
 
         db.flush()

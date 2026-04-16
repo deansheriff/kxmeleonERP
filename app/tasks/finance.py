@@ -649,20 +649,15 @@ def sync_paystack_transactions(days_back: int = 1) -> dict[str, Any]:
 
 
 @shared_task
-def sync_mono_transactions(days_back: int = 3) -> dict[str, Any]:
+def sync_mono_transactions(**_legacy_kwargs: Any) -> dict[str, Any]:
+    """Incremental Mono sync across every linked bank account.
+
+    Stateful — each account computes its own window from its own watermark,
+    so missed runs self-heal on the next invocation without requiring a
+    lookback parameter. ``**_legacy_kwargs`` swallows any ``days_back``
+    kwarg from scheduled_tasks rows seeded before the incremental refactor.
     """
-    Sync Mono Connect transactions to bank statements for reconciliation.
-
-    Fetches transactions from all Mono-linked bank accounts and creates
-    bank statement lines for auto-reconciliation.
-
-    Args:
-        days_back: Number of days to look back (default: 3 for overlap safety)
-
-    Returns:
-        Dict with sync statistics
-    """
-    logger.info("Starting Mono sync for last %d days", days_back)
+    logger.info("Starting Mono sync for all linked accounts")
 
     with SessionLocal() as db:
         from app.services.finance.banking.mono_sync import MonoSyncService
@@ -673,11 +668,7 @@ def sync_mono_transactions(days_back: int = 3) -> dict[str, Any]:
             logger.info("Mono Connect not configured, skipping sync")
             return {"success": True, "message": "Mono not configured", "skipped": True}
 
-        results = sync_svc.sync_all_linked_accounts(
-            days_back=days_back,
-        )
-
-        db.commit()
+        results = sync_svc.sync_all_linked_accounts(commit_per_account=True)
 
     logger.info(
         "Mono sync complete: %s accounts synced, %s transactions, %s errors",
@@ -687,6 +678,45 @@ def sync_mono_transactions(days_back: int = 3) -> dict[str, Any]:
     )
 
     return results
+
+
+@shared_task
+def sync_mono_account(mono_account_id: str, **_legacy_kwargs: Any) -> dict[str, Any]:
+    """Incremental sync for a single Mono-linked account.
+
+    Enqueued by the Mono webhook handler when an account transitions to
+    ``data_status=AVAILABLE``, so freshly linked accounts get their first
+    transaction pull without waiting for the next beat cycle.
+    ``**_legacy_kwargs`` swallows any pre-refactor ``days_back`` kwarg.
+    """
+    logger.info("Syncing Mono account %s", mono_account_id)
+
+    with SessionLocal() as db:
+        from app.services.finance.banking.mono_sync import MonoSyncService
+
+        sync_svc = MonoSyncService(db)
+        if not sync_svc.is_configured():
+            logger.info("Mono Connect not configured, skipping webhook sync")
+            return {"success": True, "skipped": True}
+
+        result = sync_svc.sync_by_mono_account_id(mono_account_id)
+        db.commit()
+
+    if not result.success:
+        logger.warning(
+            "Mono account sync failed: mono_id=%s message=%s errors=%s",
+            mono_account_id,
+            result.message,
+            result.errors,
+        )
+
+    return {
+        "success": result.success,
+        "mono_account_id": mono_account_id,
+        "transactions_synced": result.transactions_synced,
+        "duplicates_skipped": result.duplicates_skipped,
+        "message": result.message,
+    }
 
 
 @shared_task

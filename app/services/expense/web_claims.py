@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
+from datetime import date as date_type
 from decimal import Decimal
 from importlib import import_module
 from typing import Any, cast
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from fastapi import Request
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
+    Response,
     RedirectResponse,
     StreamingResponse,
 )
 from sqlalchemy import and_, exists, false, func, or_, select
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.models.domain_settings import SettingDomain
 from app.models.expense import (
@@ -35,7 +39,10 @@ from app.services.expense.expense_service import (
     ExpenseService,
     ExpenseServiceError,
 )
-from app.services.expense.limit_service import ExpenseLimitServiceError
+from app.services.expense.limit_service import (
+    ApproverWeeklyBudgetExhaustedError,
+    ExpenseLimitServiceError,
+)
 from app.services.expense.web_common import ExpenseWebCommonMixin
 from app.services.finance.platform.authorization import AuthorizationService
 from app.services.pm.comment import comment_service
@@ -50,6 +57,105 @@ def _web_facade():
 
 
 class ExpenseClaimsWebMixin(ExpenseWebCommonMixin):
+    @staticmethod
+    def _parse_claim_filter_date(value: str | None) -> date_type | None:
+        if not value:
+            return None
+        try:
+            return date_type.fromisoformat(value)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _claim_status_filter(status: str | None) -> ExpenseClaimStatus | None:
+        if not status:
+            return None
+        try:
+            return ExpenseClaimStatus(status)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _filtered_claims_stmt(
+        auth,
+        org_id,
+        view: str | None,
+        status: str | None,
+        start_date: str | None,
+        end_date: str | None,
+        search: str | None = None,
+        employee_id: str | None = None,
+    ):
+        auth_employee_id = coerce_uuid(auth.employee_id)
+        filter_employee_id = coerce_uuid(employee_id) if employee_id else None
+        filter_view = "submitted_to_me" if view == "submitted_to_me" else "all"
+        status_value = ExpenseClaimsWebMixin._claim_status_filter(status)
+        start = ExpenseClaimsWebMixin._parse_claim_filter_date(start_date)
+        end = ExpenseClaimsWebMixin._parse_claim_filter_date(end_date)
+
+        stmt = select(ExpenseClaim).where(ExpenseClaim.organization_id == org_id)
+        if filter_view == "submitted_to_me":
+            if auth_employee_id:
+                latest_round = (
+                    select(func.max(ExpenseClaimApprovalStep.submission_round))
+                    .where(ExpenseClaimApprovalStep.claim_id == ExpenseClaim.claim_id)
+                    .correlate(ExpenseClaim)
+                    .scalar_subquery()
+                )
+                assigned_in_latest_round = exists(
+                    select(1).where(
+                        ExpenseClaimApprovalStep.claim_id == ExpenseClaim.claim_id,
+                        ExpenseClaimApprovalStep.submission_round == latest_round,
+                        ExpenseClaimApprovalStep.approver_id == auth_employee_id,
+                    )
+                )
+                has_steps = exists(
+                    select(1).where(
+                        ExpenseClaimApprovalStep.claim_id == ExpenseClaim.claim_id
+                    )
+                )
+                legacy_assignment = or_(
+                    ExpenseClaim.requested_approver_id == auth_employee_id,
+                    and_(
+                        ExpenseClaim.requested_approver_id.is_(None),
+                        ExpenseClaim.approver_id == auth_employee_id,
+                    ),
+                )
+                stmt = stmt.where(
+                    or_(
+                        assigned_in_latest_round,
+                        and_(~has_steps, legacy_assignment),
+                    )
+                )
+            else:
+                stmt = stmt.where(false())
+        if filter_employee_id:
+            stmt = stmt.where(ExpenseClaim.employee_id == filter_employee_id)
+        if status_value:
+            stmt = stmt.where(ExpenseClaim.status == status_value)
+        if start:
+            stmt = stmt.where(ExpenseClaim.claim_date >= start)
+        if end:
+            stmt = stmt.where(ExpenseClaim.claim_date <= end)
+        if search:
+            term = f"%{search}%"
+            stmt = stmt.where(
+                or_(
+                    ExpenseClaim.claim_number.ilike(term),
+                    ExpenseClaim.purpose.ilike(term),
+                )
+            )
+        return stmt, filter_view, filter_employee_id
+
+    @staticmethod
+    def _claim_query_options():
+        return (
+            joinedload(ExpenseClaim.employee).joinedload(Employee.person),
+            selectinload(ExpenseClaim.approval_steps),
+            joinedload(ExpenseClaim.requested_approver).joinedload(Employee.person),
+            joinedload(ExpenseClaim.approver).joinedload(Employee.person),
+        )
+
     @staticmethod
     def claim_employee_typeahead(
         db,
@@ -142,97 +248,26 @@ class ExpenseClaimsWebMixin(ExpenseWebCommonMixin):
         limit: int = 25,
     ) -> HTMLResponse:
         org_id = coerce_uuid(auth.organization_id)
-        auth_employee_id = coerce_uuid(auth.employee_id)
-        filter_employee_id = coerce_uuid(employee_id) if employee_id else None
-        filter_view = "submitted_to_me" if view == "submitted_to_me" else "all"
-        status_value = None
-        if status:
-            try:
-                status_value = ExpenseClaimStatus(status)
-            except ValueError:
-                status_value = None
-
-        from datetime import date as date_type
-
-        def _parse_date(value: str | None):
-            if not value:
-                return None
-            try:
-                return date_type.fromisoformat(value)
-            except ValueError:
-                return None
-
-        start = _parse_date(start_date)
-        end = _parse_date(end_date)
-
-        from sqlalchemy.orm import selectinload
-
-        stmt = (
-            select(ExpenseClaim)
-            .options(
-                joinedload(ExpenseClaim.employee).joinedload(Employee.person),
-                selectinload(ExpenseClaim.approval_steps),
-                joinedload(ExpenseClaim.requested_approver).joinedload(Employee.person),
-                joinedload(ExpenseClaim.approver).joinedload(Employee.person),
+        stmt, filter_view, filter_employee_id = (
+            ExpenseClaimsWebMixin._filtered_claims_stmt(
+                auth=auth,
+                org_id=org_id,
+                view=view,
+                status=status,
+                start_date=start_date,
+                end_date=end_date,
+                search=search,
+                employee_id=employee_id,
             )
-            .where(ExpenseClaim.organization_id == org_id)
         )
-        if filter_view == "submitted_to_me":
-            if auth_employee_id:
-                latest_round = (
-                    select(func.max(ExpenseClaimApprovalStep.submission_round))
-                    .where(ExpenseClaimApprovalStep.claim_id == ExpenseClaim.claim_id)
-                    .correlate(ExpenseClaim)
-                    .scalar_subquery()
-                )
-                assigned_in_latest_round = exists(
-                    select(1).where(
-                        ExpenseClaimApprovalStep.claim_id == ExpenseClaim.claim_id,
-                        ExpenseClaimApprovalStep.submission_round == latest_round,
-                        ExpenseClaimApprovalStep.approver_id == auth_employee_id,
-                    )
-                )
-                has_steps = exists(
-                    select(1).where(
-                        ExpenseClaimApprovalStep.claim_id == ExpenseClaim.claim_id
-                    )
-                )
-                legacy_assignment = or_(
-                    ExpenseClaim.requested_approver_id == auth_employee_id,
-                    and_(
-                        ExpenseClaim.requested_approver_id.is_(None),
-                        ExpenseClaim.approver_id == auth_employee_id,
-                    ),
-                )
-                stmt = stmt.where(
-                    or_(
-                        assigned_in_latest_round,
-                        and_(~has_steps, legacy_assignment),
-                    )
-                )
-            else:
-                stmt = stmt.where(false())
-        if filter_employee_id:
-            stmt = stmt.where(ExpenseClaim.employee_id == filter_employee_id)
-        if status_value:
-            stmt = stmt.where(ExpenseClaim.status == status_value)
-        if start:
-            stmt = stmt.where(ExpenseClaim.claim_date >= start)
-        if end:
-            stmt = stmt.where(ExpenseClaim.claim_date <= end)
-        if search:
-            term = f"%{search}%"
-            stmt = stmt.where(
-                or_(
-                    ExpenseClaim.claim_number.ilike(term),
-                    ExpenseClaim.purpose.ilike(term),
-                )
-            )
         total = db.scalar(select(func.count()).select_from(stmt.subquery()))
 
         claims = list(
             db.scalars(
-                stmt.order_by(ExpenseClaim.claim_date.desc())
+                stmt.options(*ExpenseClaimsWebMixin._claim_query_options())
+                .order_by(
+                    ExpenseClaim.claim_date.desc(), ExpenseClaim.claim_number.desc()
+                )
                 .offset(offset)
                 .limit(limit)
             )
@@ -299,6 +334,22 @@ class ExpenseClaimsWebMixin(ExpenseWebCommonMixin):
             if name:
                 claim_approver_names[str(c.claim_id)] = name
 
+        export_params = {
+            key: value
+            for key, value in {
+                "view": filter_view if filter_view == "submitted_to_me" else None,
+                "status": status,
+                "start_date": start_date,
+                "end_date": end_date,
+                "search": search,
+                "employee_id": employee_id,
+            }.items()
+            if value
+        }
+        export_url = "/expense/claims/export"
+        if export_params:
+            export_url = f"{export_url}?{urlencode(export_params)}"
+
         context = _web_facade().base_context(request, auth, "Expense Claims", "claims")
         context.update(
             {
@@ -314,6 +365,7 @@ class ExpenseClaimsWebMixin(ExpenseWebCommonMixin):
                 "filter_employee_id": employee_id or "",
                 "claim_employees": claim_employees,
                 "selected_employee": selected_employee,
+                "export_url": export_url,
                 "total": total or 0,
                 "offset": offset,
                 "limit": limit,
@@ -342,6 +394,128 @@ class ExpenseClaimsWebMixin(ExpenseWebCommonMixin):
             _web_facade().templates.TemplateResponse(
                 request, "expense/claims_list.html", context
             ),
+        )
+
+    @staticmethod
+    def _csv_text(value: object) -> str:
+        text = "" if value is None else str(value)
+        if text.startswith(("=", "+", "-", "@", "\t", "\r")):
+            return f"'{text}"
+        return text
+
+    @staticmethod
+    def _csv_date(value: date_type | None) -> str:
+        return value.isoformat() if value else ""
+
+    @staticmethod
+    def _csv_decimal(value: Decimal | None) -> str:
+        return f"{value:.2f}" if value is not None else ""
+
+    @staticmethod
+    def claims_export_response(
+        auth,
+        db,
+        view: str | None,
+        status: str | None,
+        start_date: str | None,
+        end_date: str | None,
+        search: str | None = None,
+        employee_id: str | None = None,
+    ) -> Response:
+        org_id = coerce_uuid(auth.organization_id)
+        stmt, _filter_view, _filter_employee_id = (
+            ExpenseClaimsWebMixin._filtered_claims_stmt(
+                auth=auth,
+                org_id=org_id,
+                view=view,
+                status=status,
+                start_date=start_date,
+                end_date=end_date,
+                search=search,
+                employee_id=employee_id,
+            )
+        )
+        claims = list(
+            db.scalars(
+                stmt.options(*ExpenseClaimsWebMixin._claim_query_options()).order_by(
+                    ExpenseClaim.claim_date.desc(), ExpenseClaim.claim_number.desc()
+                )
+            )
+            .unique()
+            .all()
+        )
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                "Claim Number",
+                "Claim Date",
+                "Expense Period Start",
+                "Expense Period End",
+                "Purpose",
+                "Raised By",
+                "Employee Code",
+                "Approver",
+                "Status",
+                "Currency",
+                "Claimed Amount",
+                "Approved Amount",
+                "Advance Adjusted",
+                "Net Payable",
+                "Approved On",
+                "Paid On",
+                "Payment Reference",
+                "Recipient Name",
+                "Recipient Bank",
+                "Notes",
+            ]
+        )
+        for claim in claims:
+            employee = claim.employee
+            writer.writerow(
+                [
+                    ExpenseClaimsWebMixin._csv_text(claim.claim_number),
+                    ExpenseClaimsWebMixin._csv_date(claim.claim_date),
+                    ExpenseClaimsWebMixin._csv_date(claim.expense_period_start),
+                    ExpenseClaimsWebMixin._csv_date(claim.expense_period_end),
+                    ExpenseClaimsWebMixin._csv_text(claim.purpose),
+                    ExpenseClaimsWebMixin._csv_text(
+                        employee.full_name if employee else ""
+                    ),
+                    ExpenseClaimsWebMixin._csv_text(
+                        employee.employee_code if employee else ""
+                    ),
+                    ExpenseClaimsWebMixin._csv_text(
+                        ExpenseClaimsWebMixin._current_approver_name(claim)
+                    ),
+                    claim.status.value if claim.status else "",
+                    ExpenseClaimsWebMixin._csv_text(claim.currency_code),
+                    ExpenseClaimsWebMixin._csv_decimal(claim.total_claimed_amount),
+                    ExpenseClaimsWebMixin._csv_decimal(claim.total_approved_amount),
+                    ExpenseClaimsWebMixin._csv_decimal(claim.advance_adjusted),
+                    ExpenseClaimsWebMixin._csv_decimal(claim.net_payable_amount),
+                    ExpenseClaimsWebMixin._csv_date(claim.approved_on),
+                    ExpenseClaimsWebMixin._csv_date(claim.paid_on),
+                    ExpenseClaimsWebMixin._csv_text(claim.payment_reference),
+                    ExpenseClaimsWebMixin._csv_text(claim.recipient_name),
+                    ExpenseClaimsWebMixin._csv_text(claim.recipient_bank_name),
+                    ExpenseClaimsWebMixin._csv_text(claim.notes),
+                ]
+            )
+
+        start = ExpenseClaimsWebMixin._parse_claim_filter_date(start_date)
+        end = ExpenseClaimsWebMixin._parse_claim_filter_date(end_date)
+        filename_parts = ["expense_claims"]
+        if start:
+            filename_parts.append(f"from_{start.isoformat()}")
+        if end:
+            filename_parts.append(f"to_{end.isoformat()}")
+        filename = "_".join(filename_parts) + ".csv"
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     @staticmethod
@@ -818,6 +992,9 @@ class ExpenseClaimsWebMixin(ExpenseWebCommonMixin):
                 )
             db.flush()
         except ApproverAuthorityError as exc:
+            db.rollback()
+            return _claim_error_redirect(str(exc))
+        except ApproverWeeklyBudgetExhaustedError as exc:
             db.rollback()
             return _claim_error_redirect(str(exc))
         except ExpenseLimitServiceError as exc:

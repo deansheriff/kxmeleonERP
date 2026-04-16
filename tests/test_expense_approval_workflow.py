@@ -1,3 +1,5 @@
+import csv
+import io
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -677,6 +679,91 @@ def test_claims_list_includes_selected_employee_filter_label(
             "display_value": f"Employee: {claimant.full_name}",
         }
     ]
+
+
+def test_claims_export_uses_date_filters_and_includes_people(db_session, engine):
+    _ensure_hr_tables(engine)
+    org_id = uuid.uuid4()
+
+    claimant_person = _make_person(org_id, "claimant9@example.com")
+    approver_person = _make_person(org_id, "approver9@example.com")
+    claimant = _make_employee(org_id, claimant_person, "EMP-901")
+    approver = _make_employee(org_id, approver_person, "EMP-902")
+    included_claim = _make_claim(
+        org_id,
+        claimant.employee_id,
+        "CLM-901",
+        requested_approver_id=approver.employee_id,
+        status=ExpenseClaimStatus.APPROVED,
+        amount=Decimal("250.50"),
+    )
+    included_claim.claim_date = date(2026, 2, 10)
+    included_claim.total_approved_amount = Decimal("240.00")
+    included_claim.net_payable_amount = Decimal("240.00")
+    excluded_claim = _make_claim(
+        org_id,
+        claimant.employee_id,
+        "CLM-902",
+        requested_approver_id=approver.employee_id,
+        status=ExpenseClaimStatus.APPROVED,
+    )
+    excluded_claim.claim_date = date(2026, 3, 1)
+
+    db_session.add_all(
+        [
+            claimant_person,
+            approver_person,
+            claimant,
+            approver,
+            included_claim,
+            excluded_claim,
+            ExpenseClaimApprovalStep(
+                organization_id=org_id,
+                claim_id=included_claim.claim_id,
+                submission_round=1,
+                step_number=1,
+                approver_id=approver.employee_id,
+                approver_name=(
+                    f"{approver_person.first_name} {approver_person.last_name}"
+                ),
+                decision="APPROVED",
+                max_amount=Decimal("1000.00"),
+                requires_all_approvals=False,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    auth = WebAuthContext(
+        is_authenticated=True,
+        person_id=approver.person_id,
+        employee_id=approver.employee_id,
+        organization_id=org_id,
+        roles=["admin"],
+    )
+
+    response = ExpenseClaimsWebService.claims_export_response(
+        auth=auth,
+        db=db_session,
+        view=None,
+        status=None,
+        start_date="2026-02-01",
+        end_date="2026-02-28",
+    )
+
+    rows = list(csv.DictReader(io.StringIO(response.body.decode())))
+    assert response.media_type == "text/csv"
+    assert (
+        'filename="expense_claims_from_2026-02-01_to_2026-02-28.csv"'
+        in response.headers["Content-Disposition"]
+    )
+    assert len(rows) == 1
+    assert rows[0]["Claim Number"] == "CLM-901"
+    assert rows[0]["Raised By"] == claimant.full_name
+    assert rows[0]["Employee Code"] == "EMP-901"
+    assert rows[0]["Approver"] == approver.full_name
+    assert rows[0]["Claimed Amount"] == "250.50"
+    assert rows[0]["Approved Amount"] == "240.00"
 
 
 def test_claim_employee_typeahead_returns_claim_employees_only(db_session, engine):

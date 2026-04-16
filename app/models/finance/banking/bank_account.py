@@ -21,10 +21,12 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as SAUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -71,6 +73,12 @@ class BankAccount(Base):
             "account_number",
             "bank_code",
             name="uq_bank_account_number",
+        ),
+        Index(
+            "uq_banking_bank_accounts_mono_account_id",
+            "mono_account_id",
+            unique=True,
+            postgresql_where=text("mono_account_id IS NOT NULL"),
         ),
         {"schema": "banking"},
     )
@@ -153,8 +161,17 @@ class BankAccount(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # External provider linking
-    mono_account_id: Mapped[str | None] = mapped_column(
-        String(50), nullable=True, index=True
+    mono_account_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Mono sync tracking (see alembic/versions/20260415_add_mono_sync_tracking.py)
+    mono_sync_from_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    mono_last_transaction_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    mono_last_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    mono_last_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mono_sync_buffer_days: Mapped[int] = mapped_column(
+        nullable=False, default=7, server_default="7"
     )
 
     # Flags

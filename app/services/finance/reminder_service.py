@@ -459,7 +459,7 @@ class FinanceReminderService:
             BankAccount.status == BankAccountStatus.active,
             or_(
                 BankAccount.last_reconciled_date.is_(None),
-                func.date(BankAccount.last_reconciled_date) < warning_cutoff,
+                BankAccount.last_reconciled_date < warning_cutoff,
             ),
         )
 

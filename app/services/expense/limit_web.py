@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 try:
     from datetime import UTC  # type: ignore
@@ -593,7 +593,7 @@ class ExpenseLimitWebService:
             max_items=100,
         )
 
-        # Current week usage stats
+        # Budget usage carries forward until a reviewer/admin manually resets it.
         current_week_usage = self._build_current_week_usage(db, org_id, limit, service)
 
         context = base_context(request, auth, "Approver Limit Details", "limits")
@@ -1371,7 +1371,7 @@ class ExpenseLimitWebService:
         limit: ExpenseApproverLimit,
         service: ExpenseLimitService,
     ) -> dict[str, object] | None:
-        """Build current week usage stats for the approver limit detail page.
+        """Build manual-reset usage stats for the approver limit detail page.
 
         Returns None when no weekly budget is configured (unlimited).
         """
@@ -1381,7 +1381,7 @@ class ExpenseLimitWebService:
             return None
         if limit.scope_type != "EMPLOYEE" or not limit.scope_id:
             return {
-                "week_label": "Employee-level breakdown unavailable for this scope",
+                "usage_label": "Employee-level breakdown unavailable for this scope",
                 "base_budget": base_budget,
                 "used_amount": Decimal("0"),
                 "remaining_budget": base_budget,
@@ -1389,34 +1389,36 @@ class ExpenseLimitWebService:
             }
 
         now = datetime.now(UTC)
-        week_start = service._start_of_week_utc(now)
-        week_end = week_start + timedelta(days=6)
 
         latest_reset = service.get_latest_weekly_reset(
             org_id,
             approver_id=limit.scope_id,
             approver_limit_id=limit.approver_limit_id,
-            from_datetime=week_start,
+            from_datetime=None,
         )
-        usage_start = latest_reset.reset_at if latest_reset is not None else week_start
-        used_amount = db.scalar(
-            select(
-                func.coalesce(
-                    func.sum(ExpenseClaim.total_approved_amount), Decimal("0")
-                )
-            ).where(
-                ExpenseClaim.organization_id == org_id,
-                ExpenseClaim.status == ExpenseClaimStatus.PAID,
-                ExpenseClaim.paid_on.isnot(None),
-                ExpenseClaim.paid_on >= usage_start.date(),
-                ExpenseClaim.paid_on <= now.date(),
-                ExpenseClaim.approver_id == limit.scope_id,
+        usage_query = select(
+            func.coalesce(func.sum(ExpenseClaim.total_approved_amount), Decimal("0"))
+        ).where(
+            ExpenseClaim.organization_id == org_id,
+            ExpenseClaim.status == ExpenseClaimStatus.PAID,
+            ExpenseClaim.paid_on.isnot(None),
+            ExpenseClaim.paid_on <= now.date(),
+            ExpenseClaim.approver_id == limit.scope_id,
+        )
+        if latest_reset is not None:
+            usage_query = usage_query.where(
+                ExpenseClaim.paid_on >= latest_reset.reset_at.date()
             )
-        ) or Decimal("0")
+
+        used_amount = db.scalar(usage_query) or Decimal("0")
         remaining_budget = base_budget - used_amount
 
         return {
-            "week_label": f"{week_start.date().isoformat()} - {week_end.date().isoformat()}",
+            "usage_label": (
+                f"Since manual reset on {latest_reset.reset_at.date().isoformat()}"
+                if latest_reset
+                else "Since budget tracking began; manual reset required"
+            ),
             "base_budget": base_budget,
             "used_amount": used_amount,
             "remaining_budget": remaining_budget,

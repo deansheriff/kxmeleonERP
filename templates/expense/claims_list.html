@@ -14,18 +14,24 @@
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex flex-wrap items-center gap-2">
-        <a
-            href="/expense/claims/list"
-            class="inline-flex items-center rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors {% if filter_view != 'submitted_to_me' %}border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300{% else %}border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/50{% endif %}"
-        >
-            All Claims
-        </a>
-        <a
-            href="/expense/claims/list?view=submitted_to_me"
-            class="inline-flex items-center rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors {% if filter_view == 'submitted_to_me' %}border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300{% else %}border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/50{% endif %}"
-        >
-            Submitted To Me
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+            <a
+                href="/expense/claims/list"
+                class="inline-flex items-center rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors {% if filter_view != 'submitted_to_me' %}border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300{% else %}border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/50{% endif %}"
+            >
+                All Claims
+            </a>
+            <a
+                href="/expense/claims/list?view=submitted_to_me"
+                class="inline-flex items-center rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors {% if filter_view == 'submitted_to_me' %}border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300{% else %}border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/50{% endif %}"
+            >
+                Submitted To Me
+            </a>
+        </div>
+        <a href="{{ export_url }}" class="btn btn-secondary h-9 px-3">
+            {{ icon_svg("download", "h-4 w-4 mr-1.5") }}
+            Export CSV
         </a>
     </div>
 

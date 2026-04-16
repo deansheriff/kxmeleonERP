@@ -33,6 +33,7 @@ from app.models.finance.payments.payment_intent import (
     PaymentIntentStatus,
 )
 from app.models.finance.payments.payment_webhook import WebhookStatus
+from app.services.expense.limit_service import ApproverWeeklyBudgetExhaustedError
 from app.services.finance.payments.payment_service import PaymentService
 from app.services.finance.payments.paystack_client import PaystackConfig
 from app.services.finance.payments.webhook_service import WebhookService
@@ -66,7 +67,7 @@ def _make_intent(
     bank_account_id: Any = _SENTINEL,
     expires_at: datetime | None = None,
     created_at: datetime | None = None,
-) -> SimpleNamespace:
+) -> Any:
     """Build a lightweight intent object for unit tests."""
     return SimpleNamespace(
         intent_id=uuid.uuid4(),
@@ -183,6 +184,7 @@ def _patch_expense_mark_paid(db: MagicMock):
         payment_reference: str | None = None,
         payment_date=None,
         send_notification: bool = True,
+        skip_budget_check: bool = False,
     ):
         claim = db.get.return_value
         if claim is not None:
@@ -393,6 +395,47 @@ class TestInitiateExpenseTransfer:
 
         assert exc.value.status_code == 400
         assert "CANCELLED" in str(exc.value.detail)
+
+    def test_budget_exhaustion_abandons_intent_before_paystack_call(self) -> None:
+        """Budget failure should close the active intent so payment can restart."""
+        org_id = _org_id()
+        db = MagicMock()
+        approver_id = uuid.uuid4()
+        claim = _make_claim(org_id=org_id, approver_id=approver_id)
+        intent = _make_intent(org_id=org_id, source_id=claim.claim_id)
+
+        db.scalar.return_value = claim
+        budget_error = ApproverWeeklyBudgetExhaustedError(
+            budget=Decimal("50000.00"),
+            used=Decimal("45000.00"),
+            claim_amount=Decimal("10000.00"),
+            period_label="since budget tracking began; manual reset required",
+        )
+
+        svc = self._svc(db, org_id)
+
+        with (
+            patch(
+                "app.services.expense.expense_service.ExpenseService._validate_approver_weekly_budget",
+                side_effect=budget_error,
+            ),
+            patch(
+                "app.services.finance.payments.payment_service.PaystackClient"
+            ) as paystack_client,
+        ):
+            with pytest.raises(ApproverWeeklyBudgetExhaustedError):
+                svc.initiate_expense_transfer(intent, _CFG)
+
+        assert intent.status == PaymentIntentStatus.ABANDONED
+        assert intent.transfer_code is None
+        assert intent.gateway_response is not None
+        assert intent.gateway_response["abandoned_reason"] == (
+            "expense_approver_budget_exhausted"
+        )
+        assert "approval budget is exhausted" in intent.gateway_response["error"]
+        paystack_client.assert_not_called()
+        db.commit.assert_called()
+        db.refresh.assert_called_with(intent)
 
 
 # ===========================================================================
@@ -1348,4 +1391,5 @@ class TestEdgeCases:
             payment_reference=intent.paystack_reference,
             payment_date=completed_at.date(),
             send_notification=False,
+            skip_budget_check=True,
         )

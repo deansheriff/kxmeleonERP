@@ -104,10 +104,14 @@ class ApproverWeeklyBudgetExhaustedError(ExpenseLimitServiceError):
         self.claim_amount = claim_amount
         self.period_label = period_label
         remaining = budget - used
+        self.remaining = remaining
         super().__init__(
-            f"Weekly approval budget for {period_label} exhausted. "
-            f"Budget: {budget:,.2f}, Used: {used:,.2f}, "
-            f"Remaining: {remaining:,.2f}, Claim: {claim_amount:,.2f}."
+            "Approval could not be completed because your approval budget is "
+            f"exhausted for {period_label}. Budget: {budget:,.2f}; "
+            f"used: {used:,.2f}; remaining: {remaining:,.2f}; "
+            f"claim amount: {claim_amount:,.2f}. Ask an expense reviewer or "
+            "administrator to review and manually reset your approver budget, "
+            "or escalate this claim to another approver."
         )
 
 
@@ -1302,7 +1306,7 @@ class ExpenseLimitService(ExpenseServiceBase):
         *,
         approval_at: datetime | None = None,
     ) -> None:
-        """Check if approver has remaining weekly budget for approval."""
+        """Check if approver has remaining budget since the last manual reset."""
         from app.models.people.hr.employee import Employee
 
         approver = self.db.get(Employee, approver_id)
@@ -1315,36 +1319,36 @@ class ExpenseLimitService(ExpenseServiceBase):
 
         budget, limit_id = budget_info
         as_of = approval_at.astimezone(UTC) if approval_at else datetime.now(UTC)
-        week_start = self._start_of_week_utc(as_of)
-
         latest_reset = self.get_latest_weekly_reset(
             org_id,
             approver_id,
             limit_id,
-            from_datetime=week_start,
+            from_datetime=None,
         )
-        usage_start = latest_reset.reset_at if latest_reset else week_start
 
-        used = self.db.scalar(
-            select(
-                func.coalesce(
-                    func.sum(ExpenseClaim.total_approved_amount), Decimal("0")
-                )
-            ).where(
-                ExpenseClaim.organization_id == org_id,
-                ExpenseClaim.approver_id == approver_id,
-                ExpenseClaim.status == ExpenseClaimStatus.PAID,
-                ExpenseClaim.paid_on.isnot(None),
-                ExpenseClaim.paid_on >= usage_start.date(),
-                ExpenseClaim.paid_on <= as_of.date(),
+        usage_query = select(
+            func.coalesce(func.sum(ExpenseClaim.total_approved_amount), Decimal("0"))
+        ).where(
+            ExpenseClaim.organization_id == org_id,
+            ExpenseClaim.approver_id == approver_id,
+            ExpenseClaim.status == ExpenseClaimStatus.PAID,
+            ExpenseClaim.paid_on.isnot(None),
+            ExpenseClaim.paid_on <= as_of.date(),
+        )
+        if latest_reset is not None:
+            usage_query = usage_query.where(
+                ExpenseClaim.paid_on >= latest_reset.reset_at.date()
             )
-        ) or Decimal("0")
+
+        used = self.db.scalar(usage_query) or Decimal("0")
+
+        period_label = (
+            f"since manual reset on {latest_reset.reset_at.date().isoformat()}"
+            if latest_reset is not None
+            else "since budget tracking began; manual reset required"
+        )
 
         if used + claim_amount > budget:
-            week_end = week_start + timedelta(days=6)
-            period_label = (
-                f"{week_start.date().isoformat()} to {week_end.date().isoformat()}"
-            )
             raise ApproverWeeklyBudgetExhaustedError(
                 budget=budget,
                 used=used,

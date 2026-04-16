@@ -26,6 +26,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as SAUUID
@@ -222,6 +223,17 @@ class BankStatementLine(Base):
     __table_args__ = (
         Index("ix_statement_line_date", "statement_id", "transaction_date"),
         Index("ix_statement_line_matched", "statement_id", "is_matched"),
+        UniqueConstraint(
+            "statement_id",
+            "line_number",
+            name="uq_bank_statement_line_number",
+        ),
+        Index(
+            "uq_banking_bank_statement_lines_mono_transaction_id",
+            "transaction_id",
+            unique=True,
+            postgresql_where=text("transaction_id LIKE 'mono_%'"),
+        ),
         {"schema": "banking"},
     )
 

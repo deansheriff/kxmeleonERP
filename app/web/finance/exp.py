@@ -196,6 +196,30 @@ def expense_claims_list(
     )
 
 
+@router.get("/claims/export")
+def expense_claims_export(
+    view: str | None = None,
+    status: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    search: str | None = None,
+    employee_id: str | None = None,
+    auth: WebAuthContext = Depends(require_expense_access),
+    db: Session = Depends(get_db),
+):
+    """Export filtered expense claims as CSV."""
+    return expense_claims_web_service.claims_export_response(
+        auth=auth,
+        db=db,
+        view=view,
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
+        search=search,
+        employee_id=employee_id,
+    )
+
+
 @router.get("/claims/{claim_id}", response_class=HTMLResponse)
 def expense_claim_detail(
     request: Request,

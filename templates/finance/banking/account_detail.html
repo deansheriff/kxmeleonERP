@@ -156,7 +156,7 @@
 
     <!-- Mono Connect Integration -->
     {% if mono_enabled %}
-    <div class="card p-6" x-data='{ syncing: false, linkingMono: false }'>
+    <div class="card p-6" x-data='{ syncing: false, refreshing: false, linkingMono: false }'>
         <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-3">
                 {{ icon_svg("building", "h-5 w-5 text-blue-600 dark:text-blue-400") }}
@@ -175,12 +175,51 @@
         </div>
 
         {% if account.mono_account_id %}
-        <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">
-            This account is linked to Mono. Bank statements are synced automatically.
-        </p>
+        <dl class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 text-sm">
+            <div>
+                <dt class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Last transaction</dt>
+                <dd class="mt-1 font-mono tabular-nums text-slate-900 dark:text-white">
+                    {{ account.last_statement_date if account.last_statement_date else '—' }}
+                </dd>
+            </div>
+            <div>
+                <dt class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Current balance</dt>
+                <dd class="mt-1 font-mono tabular-nums text-slate-900 dark:text-white">
+                    {{ account.last_statement_balance if account.last_statement_balance else '—' }}
+                </dd>
+            </div>
+            <div>
+                <dt class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Integration health</dt>
+                <dd class="mt-1">
+                    {% if account.mono_last_sync_error %}
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-900/20 dark:text-rose-400">
+                        {{ icon_svg("warning", "h-3.5 w-3.5") }}
+                        Error
+                    </span>
+                    {% elif account.mono_last_synced_at %}
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
+                        {{ icon_svg("check-circle", "h-3.5 w-3.5") }}
+                        Healthy
+                    </span>
+                    <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Synced {{ account.mono_last_synced_at.strftime('%d %b %Y %H:%M') }}
+                    </div>
+                    {% else %}
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                        Never synced
+                    </span>
+                    {% endif %}
+                </dd>
+            </div>
+        </dl>
+        {% if account.mono_last_sync_error %}
+        <div class="mb-4 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-400">
+            <strong>Last sync failed:</strong> {{ account.mono_last_sync_error }}
+        </div>
+        {% endif %}
         <div class="flex items-center gap-3">
             <button
-                @click="syncing = true; fetch('/api/v1/banking/accounts/{{ account.bank_account_id }}/sync-mono', { method: 'POST', headers: { 'Authorization': 'Bearer ' + document.cookie.match(/access_token=([^;]+)/)?.[1] } }).then(r => r.json()).then(data => { syncing = false; window.showToast(data.message || 'Sync complete', data.status === 'success' ? 'success' : 'error'); if(data.status === 'success') setTimeout(() => location.reload(), 1500); }).catch(() => { syncing = false; window.showToast('Sync failed', 'error'); })"
+                @click="syncing = true; fetch('/api/v1/banking/accounts/{{ account.bank_account_id }}/sync-mono', { method: 'POST', credentials: 'same-origin' }).then(r => r.json()).then(data => { syncing = false; window.showToast(data.message || data.detail || 'Sync complete', data.status === 'success' ? 'success' : 'error'); if(data.status === 'success') setTimeout(() => location.reload(), 1500); }).catch(() => { syncing = false; window.showToast('Sync failed', 'error'); })"
                 :disabled="syncing"
                 class="btn btn-secondary btn-sm">
                 <template x-if="!syncing">
@@ -199,6 +238,37 @@
                     </span>
                 </template>
             </button>
+            <button
+                @click="refreshing = true; fetch('/api/v1/banking/accounts/{{ account.bank_account_id }}/refresh-mono', { method: 'POST', credentials: 'same-origin' }).then(r => r.json()).then(data => { refreshing = false; window.showToast(data.message || data.detail || 'Refresh requested', data.status === 'success' ? 'success' : (data.status === 'warning' ? 'warning' : 'error')); }).catch(() => { refreshing = false; window.showToast('Refresh request failed', 'error'); })"
+                :disabled="refreshing || syncing"
+                class="btn btn-secondary btn-sm"
+                title="Ask the bank for the latest transactions via Mono. Rate-limited to once every 5 minutes per account.">
+                <template x-if="!refreshing">
+                    <span class="flex items-center gap-1.5">
+                        {{ icon_svg("download", "h-4 w-4") }}
+                        Refresh from bank
+                    </span>
+                </template>
+                <template x-if="refreshing">
+                    <span class="flex items-center gap-1.5">
+                        <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        Requesting...
+                    </span>
+                </template>
+            </button>
+            <button
+                id="mono-reauth-btn"
+                type="button"
+                class="btn btn-ghost btn-sm"
+                title="Re-enter bank credentials when Mono reports stale or failed data.">
+                <span class="flex items-center gap-1.5">
+                    {{ icon_svg("external-link", "h-4 w-4") }}
+                    Re-authorise
+                </span>
+            </button>
             <form method="POST" action="/finance/banking/accounts/{{ account.bank_account_id }}/unlink-mono"
                   onsubmit="return confirm('Disconnect this bank account from Mono? You can reconnect later.')">
                 {{ request.state.csrf_form | safe }}
@@ -207,6 +277,61 @@
                 </button>
             </form>
         </div>
+        <!-- Mono Connect SDK v2 via jsDelivr CDN - also needed for reauth flow -->
+        <script src="https://cdn.jsdelivr.net/npm/@mono.co/connect.js@2.2.0/index.min.js"></script>
+        <script>
+            (function() {
+                var btn = document.getElementById('mono-reauth-btn');
+                if (!btn) return;
+
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    btn.disabled = true;
+
+                    var accountId = '{{ account.bank_account_id }}';
+                    var monoKey = '{{ mono_public_key }}';
+
+                    // Fetch a short-lived reauth token from the server.
+                    fetch('/api/v1/banking/accounts/' + accountId + '/reauthorise-mono', {
+                        method: 'POST',
+                        credentials: 'same-origin'
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.status !== 'success' || !data.data || !data.data.token) {
+                            window.showToast(data.detail || 'Failed to request reauth token', 'error');
+                            btn.disabled = false;
+                            return;
+                        }
+                        var reauthToken = data.data.token;
+
+                        var MonoSDK = window["@mono.co/connect.js"];
+                        var ConnectClass = MonoSDK && (MonoSDK.default || MonoSDK);
+                        if (!ConnectClass) {
+                            window.showToast('Mono Connect widget failed to load.', 'error');
+                            btn.disabled = false;
+                            return;
+                        }
+
+                        var connect = new ConnectClass({
+                            key: monoKey,
+                            reauth_token: reauthToken,
+                            onSuccess: function() {
+                                window.showToast('Reauthenticated. Mono is refreshing your transaction history — this can take a few minutes. Reload the page once the webhook lands.', 'success');
+                                btn.disabled = false;
+                            },
+                            onClose: function() { btn.disabled = false; }
+                        });
+                        connect.setup();
+                        connect.open();
+                    })
+                    .catch(function() {
+                        window.showToast('Failed to start reauthentication', 'error');
+                        btn.disabled = false;
+                    });
+                });
+            })();
+        </script>
         {% else %}
         <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">
             Connect this bank account via Mono to automatically pull bank statements for reconciliation.

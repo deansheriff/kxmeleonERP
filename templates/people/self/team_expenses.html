@@ -15,6 +15,16 @@
 
 {% block content %}
 <div class="space-y-6">
+    {% if error %}
+    <div class="card border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-300">
+        {{ error }}
+    </div>
+    {% elif success %}
+    <div class="card border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">
+        {{ success }}
+    </div>
+    {% endif %}
+
     <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
             <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">My Expense Approvals</h2>
@@ -34,9 +44,9 @@
             <p class="text-xs font-mono text-slate-500 dark:text-slate-400">{{ "{:,.2f}".format(summary.rejected_total) }}</p>
         </div>
         <div class="card p-5">
-            <p class="text-sm text-slate-500 dark:text-slate-400">Current Week Balance</p>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Approval Budget Balance</p>
             {% if weekly_balance %}
-            <p class="text-xs text-slate-500 dark:text-slate-400">{{ weekly_balance.week_label }}</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">{{ weekly_balance.usage_label }}</p>
             <p class="text-2xl font-semibold font-mono {% if weekly_balance.remaining < 0 %}text-rose-600 dark:text-rose-400{% else %}text-emerald-600 dark:text-emerald-400{% endif %}">
                 {{ "{:,.2f}".format(weekly_balance.remaining) }}
             </p>

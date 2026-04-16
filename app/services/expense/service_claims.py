@@ -1147,6 +1147,7 @@ class ExpenseClaimMixin(ExpenseServiceBase):
         payment_reference: str | None = None,
         payment_date: date | None = None,
         send_notification: bool = True,
+        skip_budget_check: bool = False,
     ) -> ExpenseClaim:
         claim = self.get_claim(org_id, claim_id)
         if claim.status == ExpenseClaimStatus.PAID:
@@ -1174,7 +1175,11 @@ class ExpenseClaimMixin(ExpenseServiceBase):
         if not self._begin_action(org_id, claim_id, ExpenseClaimActionType.MARK_PAID):
             return claim
         try:
-            if claim.approver_id is not None:
+            # Skip budget re-validation when called after a completed
+            # Paystack transfer — the money has already left and the
+            # budget was checked at approval time and again before
+            # the transfer was initiated.
+            if not skip_budget_check and claim.approver_id is not None:
                 payment_as_of = datetime.combine(
                     payment_date or date.today(),
                     datetime.min.time(),

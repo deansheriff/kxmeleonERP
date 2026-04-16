@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from datetime import date as date_type
 from decimal import Decimal
 
@@ -552,20 +552,13 @@ class ExpenseCategoriesReportsWebMixin(ExpenseWebCommonMixin):
                 if budget_info is not None:
                     budget_amount, limit_id = budget_info
                     now = datetime.now(UTC)
-                    week_start = limit_svc._start_of_week_utc(now)
-                    week_end = week_start + timedelta(days=6)
                     latest_reset = limit_svc.get_latest_weekly_reset(
                         org_id,
                         approver_id=approver_id,
                         approver_limit_id=limit_id,
-                        from_datetime=week_start,
+                        from_datetime=None,
                     )
-                    usage_start = (
-                        latest_reset.reset_at
-                        if latest_reset is not None
-                        else week_start
-                    )
-                    used_amount = db.scalar(
+                    usage_query = (
                         select(
                             func.coalesce(
                                 func.sum(ExpenseClaim.total_approved_amount),
@@ -588,13 +581,22 @@ class ExpenseCategoriesReportsWebMixin(ExpenseWebCommonMixin):
                             ExpenseClaim.status.in_(
                                 [ExpenseClaimStatus.APPROVED, ExpenseClaimStatus.PAID]
                             ),
-                            ExpenseClaimAction.created_at >= usage_start,
                             ExpenseClaimAction.created_at <= now,
                             ExpenseClaim.approver_id == approver_id,
                         )
-                    ) or Decimal("0")
+                    )
+                    if latest_reset is not None:
+                        usage_query = usage_query.where(
+                            ExpenseClaimAction.created_at >= latest_reset.reset_at
+                        )
+
+                    used_amount = db.scalar(usage_query) or Decimal("0")
                     weekly_balance = {
-                        "week_label": f"{week_start.date().isoformat()} - {week_end.date().isoformat()}",
+                        "usage_label": (
+                            f"Since manual reset on {latest_reset.reset_at.date().isoformat()}"
+                            if latest_reset
+                            else "Since budget tracking began; manual reset required"
+                        ),
                         "budget": budget_amount,
                         "used": used_amount,
                         "remaining": budget_amount - used_amount,

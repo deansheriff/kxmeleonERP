@@ -640,11 +640,7 @@ class PaystackSyncService:
         if latest_statement and latest_statement.closing_balance is not None:
             account.last_statement_balance = latest_statement.closing_balance
             if latest_statement.statement_date is not None:
-                account.last_statement_date = datetime.combine(
-                    latest_statement.statement_date,
-                    datetime.min.time(),
-                    tzinfo=UTC,
-                )
+                account.last_statement_date = latest_statement.statement_date
             account.updated_at = datetime.now(UTC)
 
     def _update_collections_balance_from_api(
@@ -673,7 +669,7 @@ class PaystackSyncService:
                 page += 1
 
             account.last_statement_balance = pending_total
-            account.last_statement_date = datetime.now(UTC)
+            account.last_statement_date = date.today()
             account.updated_at = datetime.now(UTC)
             logger.info(
                 f"Updated {account.account_name} unsettled balance: ₦{pending_total:,.2f}"
@@ -700,7 +696,7 @@ class PaystackSyncService:
                     balance_kobo = b.get("balance", 0)
                     balance_naira = Decimal(balance_kobo) / Decimal("100")
                     account.last_statement_balance = balance_naira
-                    account.last_statement_date = datetime.now(UTC)
+                    account.last_statement_date = date.today()
                     account.updated_at = datetime.now(UTC)
                     logger.info(
                         f"Updated {account.account_name} balance: ₦{balance_naira:,.2f}"
