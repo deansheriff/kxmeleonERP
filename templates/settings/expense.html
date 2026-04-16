@@ -47,6 +47,77 @@
             </div>
         </div>
 
+        <!-- Allowed Expense Accounts -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800"
+             x-data='{
+                 search: "",
+                 get filteredCount() {
+                     if (!this.search) return document.querySelectorAll("[data-account-row]").length;
+                     return document.querySelectorAll("[data-account-row]:not([style*=\"display: none\"])").length;
+                 },
+                 get selectedCount() {
+                     return document.querySelectorAll("input[name=expense_allowed_account_ids]:checked").length;
+                 },
+                 get totalCount() {
+                     return document.querySelectorAll("input[name=expense_allowed_account_ids]").length;
+                 },
+                 filterAccounts() {
+                     const q = this.search.toLowerCase();
+                     document.querySelectorAll("[data-account-row]").forEach(row => {
+                         row.style.display = !q || row.dataset.accountSearch.includes(q) ? "" : "none";
+                     });
+                 },
+                 toggleAll(checked) {
+                     document.querySelectorAll("[data-account-row]").forEach(row => {
+                         if (row.style.display !== "none") {
+                             row.querySelector("input[type=checkbox]").checked = checked;
+                         }
+                     });
+                 }
+             }'>
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Allowed Expense Accounts</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Select which GL accounts employees can choose when submitting expense claims.</p>
+                </div>
+                <span class="inline-flex items-center rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
+                      x-text="selectedCount + ' of ' + totalCount + ' selected'"></span>
+            </div>
+
+            <div class="flex items-center gap-3 mb-4">
+                <input type="search" placeholder="Search accounts..."
+                       x-model="search" @input="filterAccounts()"
+                       class="form-input flex-1 text-sm">
+                <button type="button" @click="toggleAll(true)" class="btn btn-ghost btn-sm text-xs">Select All</button>
+                <button type="button" @click="toggleAll(false)" class="btn btn-ghost btn-sm text-xs">Deselect All</button>
+            </div>
+
+            <div class="rounded-lg border border-slate-200 dark:border-slate-700 max-h-96 overflow-y-auto">
+                <div class="grid grid-cols-1 sm:grid-cols-2">
+                    {% for acct in all_expense_accounts %}
+                    <label data-account-row
+                           data-account-search="{{ acct.account_code }} {{ acct.account_name | lower }}"
+                           class="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700/50 transition-colors">
+                        <input type="checkbox" name="expense_allowed_account_ids" value="{{ acct.account_id }}"
+                               {{ 'checked' if allowed_account_ids is none or acct.account_id in allowed_account_ids else '' }}
+                               class="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-900">
+                        <span class="text-sm">
+                            <span class="font-mono text-xs text-slate-500 dark:text-slate-400">{{ acct.account_code }}</span>
+                            <span class="text-slate-900 dark:text-white ml-1">{{ acct.account_name }}</span>
+                        </span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="rounded-lg bg-blue-50 border border-blue-200 p-3 mt-4 dark:bg-blue-900/20 dark:border-blue-800">
+                <p class="text-xs text-blue-700 dark:text-blue-300">
+                    Only selected accounts will appear in expense claim forms and category setup dropdowns.
+                    Unchecked accounts can still be used by other modules (AP, GL, etc.) — this only affects the Expense module.
+                </p>
+            </div>
+        </div>
+
         {{ settings_ui.settings_actions() }}
     </form>
 </div>

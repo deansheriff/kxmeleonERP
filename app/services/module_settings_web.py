@@ -140,6 +140,7 @@ MODULE_SETTINGS_CONFIGS = [
         template="settings/expense.html",
         setting_keys=[
             "expense_route_to_ap",
+            "expense_allowed_account_ids",
         ],
     ),
 ]
@@ -367,21 +368,78 @@ class ModuleSettingsWebService:
     def get_expense_context(
         self, db: Session, organization_id: uuid.UUID
     ) -> dict[str, Any]:
-        """Get expense settings for the form."""
-        return self._build_settings_context(
-            db, organization_id, MODULE_SETTINGS_BY_KEY["expense"].setting_keys
+        """Get expense settings for the form, including account checklist."""
+        from app.models.finance.gl.account import Account
+        from app.models.finance.gl.account_category import (
+            AccountCategory,
+            IFRSCategory,
         )
+
+        ctx = self._build_settings_context(db, organization_id, ["expense_route_to_ap"])
+
+        # All IFRS expense-type posting accounts for the checklist
+        from sqlalchemy import select
+
+        all_expense_accounts = list(
+            db.scalars(
+                select(Account)
+                .join(
+                    AccountCategory,
+                    Account.category_id == AccountCategory.category_id,
+                )
+                .where(
+                    Account.organization_id == organization_id,
+                    Account.is_active.is_(True),
+                    AccountCategory.ifrs_category == IFRSCategory.EXPENSES,
+                    Account.account_type == "POSTING",
+                )
+                .order_by(Account.account_code)
+            ).all()
+        )
+
+        # Currently saved allowed IDs
+        from app.services.expense.web_common import ExpenseWebCommonMixin
+
+        allowed_ids = ExpenseWebCommonMixin.get_allowed_expense_account_ids(
+            db, organization_id
+        )
+        allowed_id_set = set(allowed_ids) if allowed_ids else None
+
+        ctx["all_expense_accounts"] = all_expense_accounts
+        ctx["allowed_account_ids"] = allowed_id_set
+        return ctx
 
     def update_expense_settings(
         self,
         db: Session,
         organization_id: uuid.UUID,
         data: dict[str, Any],
+        *,
+        allowed_account_ids: list[str] | None = None,
     ) -> tuple[bool, str | None]:
-        """Update expense settings."""
-        return self._update_settings(
-            db, organization_id, data, MODULE_SETTINGS_BY_KEY["expense"].setting_keys
+        """Update expense settings including allowed account list."""
+        # Handle the simple key-value settings (expense_route_to_ap)
+        success, error = self._update_settings(
+            db, organization_id, data, ["expense_route_to_ap"]
         )
+        if error:
+            return False, error
+
+        # Handle the allowed account IDs (multi-select from form)
+        if allowed_account_ids is not None:
+            account_id_strings = [
+                str(v).strip() for v in allowed_account_ids if str(v).strip()
+            ]
+            self._set_setting_value(
+                db,
+                organization_id,
+                "expense_allowed_account_ids",
+                account_id_strings if account_id_strings else None,
+                SettingValueType.json,
+            )
+            db.commit()
+
+        return True, None
 
     def _build_settings_context(
         self,

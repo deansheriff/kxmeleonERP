@@ -158,61 +158,22 @@ class ExpenseWebService:
         """Get context for expense form (new/edit)."""
         org_id = coerce_uuid(organization_id)
 
-        # Get expense accounts (EXPENSES category), excluding accounts that
-        # are not valid for employee expense claims / reimbursements.
-        # Only accounts for things employees actually pay out-of-pocket.
-        _non_reimbursable_codes = {
-            # COS accounts — procurement / AP invoices, not pocket expenses
-            "5000",  # Purchases
-            "5010",  # Customer Terminal Devices
-            "5011",  # Direct Labour COS
-            "5012",  # Direct Labour Project
-            "5013",  # Materials COS
-            "5014",  # Subcontractors COS
-            "5020",  # Installation & maintenance fiber
-            "5030",  # Bandwidth and Interconnect
-            # Payroll / statutory — automated, not reimbursable
-            "6000",  # Staff Salaries & Wage
-            "6001",  # PAYE expenses
-            "6002",  # NHF Charges/Expenses
-            "6039",  # Pension Expense
-            "6040",  # ITF
-            "6041",  # NHF
-            "6101",  # Payroll Rounding Expense
-            # AP invoice items — not out-of-pocket
-            "6010",  # Statutory Expenses
-            "6021",  # Rent or Lease Payment
-            "6030",  # Consultancy
-            "6038",  # Membership dues
-            "6060",  # Commission & Fees
-            "6061",  # Insurance Expenses
-            "6070",  # Legal & Professional Fee
-            "6071",  # NCC Operating Licence
-            "6080",  # Finance Cost (bank charges)
-            "6090",  # Audit Fee
-            # System / accounting — automated, not claimable
-            "6031",  # Exchange gain or Loss
-            "6034",  # Reconciliation Discrepancies
-            "6035",  # Undeposited Funds
-            "6036",  # Unearned Revenue
-            "6062",  # Bad Debt
-            "6091",  # Depreciation
-            "6092",  # Tax Audit Expense
-            "6094",  # Discount
-            "6095",  # Discounts given - COS
-            "6100",  # VAT Paid
-        }
-        expense_accounts = db.scalars(
+        # Get expense accounts, filtered by the admin-configured allowed list
+        from app.services.expense.web_common import ExpenseWebCommonMixin
+
+        allowed_ids = ExpenseWebCommonMixin.get_allowed_expense_account_ids(db, org_id)
+        stmt = (
             select(Account)
             .join(AccountCategory, Account.category_id == AccountCategory.category_id)
             .where(
                 Account.organization_id == org_id,
                 Account.is_active.is_(True),
                 AccountCategory.ifrs_category == IFRSCategory.EXPENSES,
-                Account.account_code.notin_(_non_reimbursable_codes),
             )
-            .order_by(Account.account_code)
-        ).all()
+        )
+        if allowed_ids is not None:
+            stmt = stmt.where(Account.account_id.in_(allowed_ids))
+        expense_accounts = db.scalars(stmt.order_by(Account.account_code)).all()
 
         expense_account_options = [
             {

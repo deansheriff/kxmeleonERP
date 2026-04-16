@@ -190,7 +190,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         key="timezone",
         env_var="CELERY_TIMEZONE",
         value_type=SettingValueType.string,
-        default="UTC",
+        default="Africa/Lagos",
     ),
     SettingSpec(
         domain=SettingDomain.scheduler,

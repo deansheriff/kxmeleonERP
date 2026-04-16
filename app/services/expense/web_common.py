@@ -83,3 +83,30 @@ class ExpenseWebCommonMixin:
     def _is_remote_receipt(receipt_url: str) -> bool:
         parsed = urlparse(receipt_url)
         return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+    @staticmethod
+    def get_allowed_expense_account_ids(
+        db: Session, organization_id: UUID
+    ) -> list[UUID] | None:
+        """Return the configured list of allowed expense account IDs.
+
+        Returns ``None`` when no restriction has been configured (all
+        IFRS EXPENSES accounts are allowed).  Returns a list of UUIDs
+        when the admin has explicitly selected which accounts to show
+        in expense forms.
+        """
+        from app.models.domain_settings import DomainSetting, SettingDomain
+
+        setting = db.scalar(
+            select(DomainSetting).where(
+                DomainSetting.domain == SettingDomain.expense,
+                DomainSetting.key == "expense_allowed_account_ids",
+                DomainSetting.organization_id == organization_id,
+            )
+        )
+        if setting is None or setting.value_json is None:
+            return None
+        raw = setting.value_json
+        if not isinstance(raw, list) or len(raw) == 0:
+            return None
+        return [UUID(str(v)) for v in raw]
