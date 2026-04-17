@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any
-from unittest.mock import Mock
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -35,8 +34,8 @@ ASSET_STATUS_UPDATE_ERROR = "Cannot update '{key}' after asset activation"
 
 
 def _record_lifecycle_event(db: Session, **kwargs: Any) -> None:
-    """Skip lifecycle persistence when tests use mocked DB sessions."""
-    if isinstance(db, Mock):
+    """Persist lifecycle events only for real SQLAlchemy sessions."""
+    if not isinstance(db, Session):
         return
     record_asset_lifecycle_event(db, **kwargs)
 
