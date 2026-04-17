@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -23,6 +23,11 @@ from app.models.people.assets.audit import (
 from app.services.common import NotFoundError, PaginatedResult, PaginationParams, ValidationError
 
 __all__ = ["AssetAuditService"]
+
+try:
+    from datetime import UTC  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    UTC = timezone.utc
 
 
 class AssetAuditService:

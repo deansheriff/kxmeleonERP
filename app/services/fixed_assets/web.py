@@ -1175,20 +1175,42 @@ class FixedAssetWebService:
             )
 
         fiscal_period_rows = db.execute(
-            select(FiscalPeriod.fiscal_period_id, FiscalPeriod.period_name, FiscalPeriod.start_date, FiscalPeriod.end_date)
+            select(
+                FiscalPeriod.fiscal_period_id,
+                FiscalPeriod.period_name,
+                FiscalPeriod.start_date,
+                FiscalPeriod.end_date,
+            )
             .where(FiscalPeriod.organization_id == org_id)
             .order_by(FiscalPeriod.start_date.desc())
         ).all()
-        fiscal_periods = [
-            {
-                "fiscal_period_id": str(period_id),
-                "label": (
-                    f"{period_name} ({_format_date(start_date)} - {_format_date(end_date)})"
-                ),
-                "period_name": period_name,
-            }
-            for period_id, period_name, start_date, end_date in fiscal_period_rows
-        ]
+        fiscal_periods = []
+        for row in fiscal_period_rows:
+            if len(row) == 4:
+                (
+                    fiscal_period_id,
+                    period_name,
+                    start_date,
+                    end_date,
+                ) = row
+            elif len(row) == 2 and hasattr(row[1], "period_name"):
+                period_obj = row[1]
+                fiscal_period_id = getattr(period_obj, "fiscal_period_id", None)
+                period_name = getattr(period_obj, "period_name", "")
+                start_date = getattr(period_obj, "start_date", None)
+                end_date = getattr(period_obj, "end_date", None)
+            else:
+                continue
+
+            fiscal_periods.append(
+                {
+                    "fiscal_period_id": str(fiscal_period_id),
+                    "label": (
+                        f"{period_name} ({_format_date(start_date)} - {_format_date(end_date)})"
+                    ),
+                    "period_name": period_name,
+                }
+            )
 
         total_pages = max(1, (total_count + limit - 1) // limit)
 

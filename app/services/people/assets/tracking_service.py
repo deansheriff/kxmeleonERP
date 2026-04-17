@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -20,6 +20,11 @@ from app.services.people.assets.lifecycle_event_service import record_asset_life
 from app.services.common import NotFoundError, PaginatedResult, PaginationParams
 
 __all__ = ["AssetTrackingService"]
+
+try:
+    from datetime import UTC  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    UTC = timezone.utc
 
 
 class AssetTrackingService:

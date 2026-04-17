@@ -63,7 +63,7 @@ class ImportResultResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
     @classmethod
-    def from_import_result(cls, result: ImportResult) -> "ImportResultResponse":
+    def from_import_result(cls, result: ImportResult) -> ImportResultResponse:
         return cls(
             entity_type=result.entity_type,
             status=result.status.value,
@@ -104,7 +104,7 @@ class ImportPreviewResponse(BaseModel):
     is_valid: bool
 
     @classmethod
-    def from_preview_result(cls, result: PreviewResult) -> "ImportPreviewResponse":
+    def from_preview_result(cls, result: PreviewResult) -> ImportPreviewResponse:
         return cls(
             entity_type=result.entity_type,
             total_rows=result.total_rows,

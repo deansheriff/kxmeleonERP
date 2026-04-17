@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -33,6 +33,11 @@ from app.services.procurement.requisition import RequisitionService
 from app.services.people.assets.lifecycle_event_service import record_asset_lifecycle_event
 
 __all__ = ["AssetMaintenanceService"]
+
+try:
+    from datetime import UTC  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    UTC = timezone.utc
 
 
 class AssetMaintenanceService:
@@ -420,7 +425,8 @@ class AssetMaintenanceService:
                 self.db.add(row)
                 pending_part_rows.append(row)
 
-        work_order.actual_cost = (work_order.actual_cost or Decimal("0")) + total_issued_cost
+        current_actual_cost = float(work_order.actual_cost or 0)
+        work_order.actual_cost = current_actual_cost + float(total_issued_cost)
 
         requisition_id: UUID | None = None
         if shortages:
@@ -541,9 +547,10 @@ class AssetMaintenanceService:
         work_order.completed_at = datetime.now(UTC)
         work_order.completion_notes = completion_notes
         if labor_hours is not None:
-            work_order.labor_hours = labor_hours
+            work_order.labor_hours = float(labor_hours)
         if additional_cost:
-            work_order.actual_cost = (work_order.actual_cost or Decimal("0")) + additional_cost
+            current_actual_cost = float(work_order.actual_cost or 0)
+            work_order.actual_cost = current_actual_cost + float(additional_cost)
         self._set_work_order_status(
             work_order,
             MaintenanceWorkOrderStatus.COMPLETED,

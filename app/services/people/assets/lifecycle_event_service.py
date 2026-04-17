@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from app.models.people.assets.audit import AssetLifecycleEvent
+
+try:
+    from datetime import UTC  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    UTC = timezone.utc
 
 
 def record_asset_lifecycle_event(
@@ -51,4 +56,3 @@ def record_asset_lifecycle_event(
     )
     db.add(event)
     return event
-
