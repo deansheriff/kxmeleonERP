@@ -560,8 +560,17 @@ def seed_scheduled_tasks(db: Session) -> None:
         {
             "name": "Banking: Mono Statement Sync",
             "task_name": "app.tasks.finance.sync_mono_transactions",
-            "schedule_type": ScheduleType.interval,
-            "interval_seconds": 1800,  # Every 30 minutes
+            # Daily at 05:00 UTC (06:00 WAT) — early enough that finance
+            # has fresh balances when they arrive, late enough for upstream
+            # bank overnight reconciliations to settle. On-demand sync is
+            # still available via the webhook path and the "Sync Now"
+            # button, so this only sets the unattended cadence.
+            "schedule_type": ScheduleType.crontab,
+            "cron_minute": "0",
+            "cron_hour": "5",
+            "cron_day_of_week": "*",
+            "cron_day_of_month": "*",
+            "cron_month_of_year": "*",
             "enabled": True,
             "args_json": [],
             # Stateful incremental sync — no lookback param; each account
