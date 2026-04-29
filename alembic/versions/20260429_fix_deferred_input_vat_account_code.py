@@ -72,6 +72,12 @@ def upgrade() -> None:
             WHERE organization_id = '{ORG_ID}'::uuid
               AND account_code = '{DEFERRED_INPUT_VAT_CODE}'
         )
+          AND EXISTS (
+            SELECT 1
+            FROM gl.account
+            WHERE organization_id = '{ORG_ID}'::uuid
+              AND account_code = '1440'
+          )
         """
     )
 
