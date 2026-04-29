@@ -9,11 +9,12 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from decimal import Decimal
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
@@ -38,12 +39,14 @@ from app.models.people.assets.audit import AssetAuditDiscrepancy
 from app.services.common import coerce_uuid
 from app.services.common_filters import build_active_filters
 from app.services.finance.platform.currency_context import get_currency_context
+from app.services.finance.platform.org_context import org_context_service
 from app.services.fixed_assets.asset import (
     AssetCategoryInput,
     AssetInput,
     asset_category_service,
     asset_service,
 )
+from app.services.fixed_assets.depreciation import DepreciationService
 from app.services.formatters import format_currency as _format_currency
 from app.services.formatters import format_date as _format_date
 from app.templates import templates
@@ -249,6 +252,115 @@ class FixedAssetWebService:
             )
 
         return resolved_department_id, resolved_employee_id
+
+    @staticmethod
+    def _build_depreciation_posting_preview(
+        db: Session,
+        organization_id: UUID,
+        run: DepreciationRun,
+        fiscal_period: FiscalPeriod | None,
+        schedules: list[dict[str, object]],
+    ) -> dict[str, object] | None:
+        if not schedules:
+            return None
+
+        schedule_rows = list(
+            db.scalars(
+                select(DepreciationSchedule).where(DepreciationSchedule.run_id == run.run_id)
+            ).all()
+        )
+        if not schedule_rows:
+            return None
+
+        expense_by_account: dict[UUID, Decimal] = {}
+        accum_by_account: dict[UUID, Decimal] = {}
+
+        for schedule in schedule_rows:
+            if schedule.depreciation_amount <= 0:
+                continue
+            expense_by_account[schedule.expense_account_id] = (
+                expense_by_account.get(schedule.expense_account_id, Decimal("0"))
+                + schedule.depreciation_amount
+            )
+            accum_by_account[schedule.accumulated_depreciation_account_id] = (
+                accum_by_account.get(
+                    schedule.accumulated_depreciation_account_id, Decimal("0")
+                )
+                + schedule.depreciation_amount
+            )
+
+        account_ids = list({*expense_by_account.keys(), *accum_by_account.keys()})
+        if not account_ids:
+            return None
+
+        accounts = {
+            account.account_id: account
+            for account in db.scalars(
+                select(Account).where(
+                    Account.organization_id == organization_id,
+                    Account.account_id.in_(account_ids),
+                )
+            ).all()
+        }
+
+        currency_code = org_context_service.get_functional_currency(db, organization_id)
+
+        def _sorted_items(
+            balances: dict[UUID, Decimal],
+        ) -> list[tuple[UUID, Decimal]]:
+            return sorted(
+                balances.items(),
+                key=lambda item: (
+                    accounts[item[0]].account_code if item[0] in accounts else "ZZZ",
+                    str(item[0]),
+                ),
+            )
+
+        lines: list[dict[str, str]] = []
+        total_debits = Decimal("0")
+        total_credits = Decimal("0")
+
+        for account_id, amount in _sorted_items(expense_by_account):
+            account = accounts.get(account_id)
+            total_debits += amount
+            lines.append(
+                {
+                    "entry_type": "Debit",
+                    "account_code": account.account_code if account else "Unknown",
+                    "account_name": account.account_name if account else str(account_id),
+                    "description": f"Depreciation expense - Run #{run.run_number}",
+                    "amount": _format_currency(amount, currency_code),
+                }
+            )
+
+        for account_id, amount in _sorted_items(accum_by_account):
+            account = accounts.get(account_id)
+            total_credits += amount
+            lines.append(
+                {
+                    "entry_type": "Credit",
+                    "account_code": account.account_code if account else "Unknown",
+                    "account_name": account.account_name if account else str(account_id),
+                    "description": f"Accumulated depreciation - Run #{run.run_number}",
+                    "amount": _format_currency(amount, currency_code),
+                }
+            )
+
+        suggested_posting_date = date.today()
+        if fiscal_period:
+            suggested_posting_date = min(fiscal_period.end_date, date.today())
+
+        return {
+            "currency_code": currency_code,
+            "line_count": len(lines),
+            "lines": lines,
+            "total_debits": _format_currency(total_debits, currency_code),
+            "total_credits": _format_currency(total_credits, currency_code),
+            "posting_date_default": suggested_posting_date.isoformat(),
+            "can_post": (
+                run.status == DepreciationRunStatus.CALCULATED and total_debits > 0
+            ),
+        }
 
     @staticmethod
     def _sequence_preview(sequence: NumberingSequence | None) -> str | None:
@@ -881,6 +993,28 @@ class FixedAssetWebService:
             status=status,
             location=location,
         )
+        filtered_assets = query.subquery()
+
+        summary_row = db.execute(
+            select(
+                func.count(filtered_assets.c.asset_id).label("total_assets"),
+                func.coalesce(func.sum(filtered_assets.c.acquisition_cost), 0).label(
+                    "total_cost"
+                ),
+                func.coalesce(func.sum(filtered_assets.c.net_book_value), 0).label(
+                    "total_nbv"
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (filtered_assets.c.status == AssetStatus.IN_USE, 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("active_count"),
+            )
+        ).one()
 
         total_count = db.scalar(select(func.count()).select_from(query.subquery())) or 0
         rows = db.execute(
@@ -900,6 +1034,7 @@ class FixedAssetWebService:
                     "asset_id": asset.asset_id,
                     "asset_number": asset.asset_number,
                     "asset_name": asset.asset_name,
+                    "description": getattr(asset, "description", None),
                     "serial_number": asset.serial_number,
                     "location_name": (
                         location_row.location_name if location_row else None
@@ -977,6 +1112,9 @@ class FixedAssetWebService:
             "offset": offset,
             "total_count": total_count,
             "total_pages": total_pages,
+            "active_count": int(summary_row.active_count or 0),
+            "total_cost": _format_currency(summary_row.total_cost),
+            "total_nbv": _format_currency(summary_row.total_nbv),
             "active_filters": active_filters,
         }
 
@@ -1464,6 +1602,7 @@ class FixedAssetWebService:
                     "run_id": run.run_id,
                     "run_number": run.run_number,
                     "run_description": run.run_description,
+                    "detail_url": f"/fixed-assets/depreciation/runs/{run.run_id}",
                     "period_name": fiscal_period.period_name,
                     "period_start": _format_date(fiscal_period.start_date),
                     "period_end": _format_date(fiscal_period.end_date),
@@ -1528,6 +1667,111 @@ class FixedAssetWebService:
             "total_pages": total_pages,
         }
 
+    @staticmethod
+    def depreciation_run_detail_context(
+        db: Session,
+        organization_id: str,
+        run_id: str,
+    ) -> dict:
+        """Build view context for a single depreciation run."""
+        org_id = coerce_uuid(organization_id)
+        run = DepreciationService.get(db, run_id, organization_id=org_id)
+        fiscal_period = db.get(FiscalPeriod, run.fiscal_period_id)
+
+        schedule_rows = db.execute(
+            select(DepreciationSchedule, Asset, AssetCategory)
+            .join(Asset, Asset.asset_id == DepreciationSchedule.asset_id)
+            .outerjoin(AssetCategory, AssetCategory.category_id == Asset.category_id)
+            .where(
+                DepreciationSchedule.run_id == run.run_id,
+                Asset.organization_id == org_id,
+            )
+            .order_by(Asset.asset_number.asc(), Asset.asset_name.asc())
+        ).all()
+
+        schedules = []
+        for schedule, asset, category in schedule_rows:
+            schedules.append(
+                {
+                    "schedule_id": str(schedule.schedule_id),
+                    "asset_id": str(asset.asset_id),
+                    "asset_number": asset.asset_number,
+                    "asset_name": asset.asset_name,
+                    "asset_url": f"/fixed-assets/assets/{asset.asset_id}",
+                    "category_name": category.category_name if category else "",
+                    "depreciation_amount": _format_currency(
+                        schedule.depreciation_amount, asset.currency_code
+                    ),
+                    "opening_nbv": _format_currency(
+                        schedule.net_book_value_opening, asset.currency_code
+                    ),
+                    "closing_nbv": _format_currency(
+                        schedule.net_book_value_closing, asset.currency_code
+                    ),
+                    "opening_accumulated_depreciation": _format_currency(
+                        schedule.accumulated_depreciation_opening, asset.currency_code
+                    ),
+                    "closing_accumulated_depreciation": _format_currency(
+                        schedule.accumulated_depreciation_closing, asset.currency_code
+                    ),
+                    "remaining_life_opening": int(
+                        schedule.remaining_life_months_opening
+                    ),
+                    "remaining_life_closing": int(
+                        schedule.remaining_life_months_closing
+                    ),
+                }
+            )
+
+        posting_preview = FixedAssetWebService._build_depreciation_posting_preview(
+            db,
+            org_id,
+            run,
+            fiscal_period,
+            schedules,
+        )
+
+        return {
+            "run": {
+                "run_id": str(run.run_id),
+                "run_number": run.run_number,
+                "run_description": run.run_description,
+                "status": run.status.value,
+                "assets_processed": run.assets_processed,
+                "total_depreciation": _format_currency(run.total_depreciation),
+                "journal_entry_id": (
+                    str(run.journal_entry_id) if run.journal_entry_id else None
+                ),
+                "created_at": _format_date(
+                    run.created_at.date() if run.created_at else None
+                ),
+                "calculation_started_at": _format_date(
+                    run.calculation_started_at.date()
+                    if run.calculation_started_at
+                    else None
+                ),
+                "calculation_completed_at": _format_date(
+                    run.calculation_completed_at.date()
+                    if run.calculation_completed_at
+                    else None
+                ),
+                "posted_at": _format_date(
+                    run.posted_at.date() if run.posted_at else None
+                ),
+            },
+            "period": {
+                "period_name": fiscal_period.period_name if fiscal_period else "",
+                "period_start": (
+                    _format_date(fiscal_period.start_date) if fiscal_period else ""
+                ),
+                "period_end": (
+                    _format_date(fiscal_period.end_date) if fiscal_period else ""
+                ),
+            },
+            "posting_preview": posting_preview,
+            "schedules": schedules,
+        }
+
     def depreciation_run_form_context(
         self,
         db: Session,
@@ -1536,6 +1780,7 @@ class FixedAssetWebService:
     ) -> dict:
         """Context for the dedicated depreciation run creation page."""
         org_id = coerce_uuid(organization_id)
+        recommended_period = DepreciationService.get_next_automation_period(db, org_id)
 
         fiscal_period_rows = db.execute(
             select(
@@ -1543,24 +1788,53 @@ class FixedAssetWebService:
                 FiscalPeriod.period_name,
                 FiscalPeriod.start_date,
                 FiscalPeriod.end_date,
+                FiscalPeriod.status,
             )
             .where(FiscalPeriod.organization_id == org_id)
             .order_by(FiscalPeriod.start_date.desc())
         ).all()
-        fiscal_periods = [
-            {
-                "fiscal_period_id": str(row_id),
-                "label": (
-                    f"{period_name} ({_format_date(start_date)} - {_format_date(end_date)})"
-                ),
-                "period_name": period_name,
-            }
-            for row_id, period_name, start_date, end_date in fiscal_period_rows
-        ]
+        fallback_period_id = None
+        fiscal_periods = []
+        for row_id, period_name, start_date, end_date, status in fiscal_period_rows:
+            row_id_str = str(row_id)
+            is_posting_eligible = status in PeriodStatus.accepts_postings()
+            if fallback_period_id is None and is_posting_eligible:
+                fallback_period_id = row_id_str
+
+            is_recommended = (
+                recommended_period is not None
+                and row_id == recommended_period.fiscal_period_id
+            )
+            fiscal_periods.append(
+                {
+                    "fiscal_period_id": row_id_str,
+                    "label": (
+                        f"{period_name} ({_format_date(start_date)} - "
+                        f"{_format_date(end_date)})"
+                    ),
+                    "period_name": period_name,
+                    "is_recommended": is_recommended,
+                    "status": status.value if status else None,
+                }
+            )
+
+        selected_period = (
+            period
+            or (
+                str(recommended_period.fiscal_period_id)
+                if recommended_period is not None
+                else fallback_period_id
+            )
+        )
 
         return {
             "fiscal_periods": fiscal_periods,
-            "period": period,
+            "period": selected_period,
+            "recommended_period_id": (
+                str(recommended_period.fiscal_period_id)
+                if recommended_period is not None
+                else None
+            ),
         }
 
     def asset_detail_response(
@@ -1593,20 +1867,24 @@ class FixedAssetWebService:
                     "asset_code": asset.asset_number,
                     "asset_name": asset.asset_name,
                     "serial_number": asset.serial_number,
-                    "description": asset.description,
+                    "description": getattr(asset, "description", None),
                     "category_name": category.category_name if category else None,
                     "status": asset.status.value if asset.status else "IN_USE",
                     "acquisition_date": _format_date(asset.acquisition_date),
                     "acquisition_cost": _format_currency(
                         asset.acquisition_cost, asset.currency_code
                     ),
+                    "revalued_amount": _format_currency(
+                        asset.revalued_amount, asset.currency_code
+                    ),
                     "accumulated_depreciation": _format_currency(
                         asset.accumulated_depreciation, asset.currency_code
                     ),
+                    "impairment_loss": _format_currency(
+                        asset.impairment_loss, asset.currency_code
+                    ),
                     "net_book_value": _format_currency(
-                        (asset.acquisition_cost or Decimal(0))
-                        - (asset.accumulated_depreciation or Decimal(0)),
-                        asset.currency_code,
+                        asset.net_book_value, asset.currency_code
                     ),
                     "currency_code": asset.currency_code,
                     "useful_life_months": asset.useful_life_months,
@@ -1966,11 +2244,8 @@ class FixedAssetWebService:
                 raise HTTPException(status_code=401, detail="Authentication required")
             if not fiscal_period_id:
                 raise ValueError("Fiscal period is required")
-            posting_date = (
+            if posting_date_text:
                 datetime.strptime(posting_date_text, "%Y-%m-%d").date()
-                if posting_date_text
-                else None
-            )
 
             from app.services.fixed_assets.depreciation import DepreciationService
 
@@ -1981,21 +2256,60 @@ class FixedAssetWebService:
                 user_id,
             )
             DepreciationService.calculate_run(db, org_id, run.run_id)
-            DepreciationService.post_run(
-                db,
-                org_id,
-                run.run_id,
-                posted_by_user_id=user_id,
-                posting_date=posting_date,
-            )
 
             return RedirectResponse(
-                url="/fixed-assets/depreciation?success=Depreciation+run+posted",
+                url=(
+                    f"/fixed-assets/depreciation/runs/{run.run_id}"
+                    "?success=Depreciation+run+calculated.+Awaiting+posting"
+                ),
                 status_code=303,
             )
         except Exception as e:
             return RedirectResponse(
                 url=f"/fixed-assets/depreciation?error={str(e)}",
+                status_code=303,
+            )
+
+    async def post_depreciation_run_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+        run_id: str,
+    ) -> RedirectResponse:
+        """Post a calculated depreciation run to the general ledger."""
+        try:
+            form_data = await request.form()
+            posting_date_text = _safe_form_text(form_data.get("posting_date"))
+            org_id = auth.organization_id
+            user_id = auth.user_id
+            if org_id is None:
+                raise HTTPException(status_code=401, detail="Authentication required")
+            if user_id is None:
+                raise HTTPException(status_code=401, detail="Authentication required")
+
+            posting_date = None
+            if posting_date_text:
+                posting_date = datetime.strptime(posting_date_text, "%Y-%m-%d").date()
+
+            DepreciationService.post_run(
+                db,
+                org_id,
+                coerce_uuid(run_id),
+                user_id,
+                posting_date=posting_date,
+            )
+            return RedirectResponse(
+                url=(
+                    f"/fixed-assets/depreciation/runs/{run_id}"
+                    "?success=Depreciation+posted+successfully"
+                ),
+                status_code=303,
+            )
+        except Exception as e:
+            db.rollback()
+            return RedirectResponse(
+                url=f"/fixed-assets/depreciation/runs/{run_id}?error={quote(str(e))}",
                 status_code=303,
             )
 

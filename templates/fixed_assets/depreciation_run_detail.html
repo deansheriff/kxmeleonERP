@@ -1,0 +1,167 @@
+{% extends "fixed_assets/base_fixed_assets.html" %}
+{% from "components/macros.html" import empty_state, status_badge, icon_svg %}
+
+{% block page_title %}Depreciation Run {{ run.run_number }}{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/dashboard" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Dashboard</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/fixed-assets/depreciation" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Depreciation</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">Run {{ run.run_number }}</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+            <p class="text-sm font-medium uppercase tracking-[0.2em] text-teal-600 dark:text-teal-300">{{ period.period_name }}</p>
+            <h1 class="mt-1 text-2xl font-semibold text-slate-900 dark:text-white">Depreciation Run {{ run.run_number }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                {{ period.period_start }} - {{ period.period_end }}
+                {% if run.run_description %} · {{ run.run_description }}{% endif %}
+            </p>
+        </div>
+        <div class="flex items-center gap-3">
+            {{ status_badge(run.status | default('draft'), 'sm') }}
+            <a href="/fixed-assets/depreciation" class="btn btn-secondary">Back to runs</a>
+        </div>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Assets Processed</p>
+            <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ run.assets_processed }}</p>
+        </div>
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Total Depreciation</p>
+            <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ run.total_depreciation }}</p>
+        </div>
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Created</p>
+            <p class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{{ run.created_at or "-" }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Calculated: {{ run.calculation_completed_at or "-" }}</p>
+        </div>
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Posted</p>
+            <p class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{{ run.posted_at or "-" }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Journal: {{ run.journal_entry_id or "-" }}</p>
+        </div>
+    </div>
+
+    {% if posting_preview %}
+    <div class="card">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-800">
+            <h2 class="text-base font-semibold text-slate-900 dark:text-white">Posting Preview</h2>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Preview the journal lines that will be created when this depreciation run is posted.</p>
+        </div>
+        <div class="grid gap-4 border-b border-slate-200 px-6 py-4 md:grid-cols-3 dark:border-slate-800">
+            <div>
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Journal Lines</p>
+                <p class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{{ posting_preview.line_count }}</p>
+            </div>
+            <div>
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Total Debits</p>
+                <p class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{{ posting_preview.total_debits }}</p>
+            </div>
+            <div>
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Total Credits</p>
+                <p class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{{ posting_preview.total_credits }}</p>
+            </div>
+        </div>
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Entry</th>
+                        <th scope="col">Account</th>
+                        <th scope="col">Description</th>
+                        <th scope="col" class="text-right">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for line in posting_preview.lines %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td class="text-sm font-medium text-slate-900 dark:text-white">{{ line.entry_type }}</td>
+                        <td>
+                            <div class="font-mono text-sm text-slate-900 dark:text-white">{{ line.account_code }}</div>
+                            <div class="text-sm text-slate-500 dark:text-slate-400">{{ line.account_name }}</div>
+                        </td>
+                        <td class="text-sm text-slate-600 dark:text-slate-300">{{ line.description }}</td>
+                        <td class="table-cell-amount text-slate-900 dark:text-white">{{ line.amount }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if posting_preview.can_post %}
+        <form method="post" action="/fixed-assets/depreciation/runs/{{ run.run_id }}/post" class="border-t border-slate-200 px-6 py-4 dark:border-slate-800">
+            {{ request.state.csrf_form | safe }}
+            <div class="grid gap-4 md:grid-cols-[minmax(0,16rem)_1fr] md:items-end">
+                <div>
+                    <label for="posting_date" class="form-label text-xs">Posting Date</label>
+                    <input id="posting_date" type="date" name="posting_date" value="{{ posting_preview.posting_date_default }}" class="form-input w-full">
+                </div>
+                <div class="flex items-center gap-3">
+                    <button type="submit" class="btn btn-primary">Post Depreciation</button>
+                    <p class="text-sm text-slate-500 dark:text-slate-400">This creates and posts the GL journal for the depreciation lines above.</p>
+                </div>
+            </div>
+        </form>
+        {% elif run.status == 'POSTED' %}
+        <div class="border-t border-slate-200 px-6 py-4 dark:border-slate-800">
+            <p class="text-sm text-slate-500 dark:text-slate-400">This run has already been posted.</p>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-800">
+            <h2 class="text-base font-semibold text-slate-900 dark:text-white">Monthly Asset Depreciation Table</h2>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">One row per asset included in this month's run.</p>
+        </div>
+        {% if schedules %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Asset</th>
+                        <th scope="col">Category</th>
+                        <th scope="col" class="text-right">Opening NBV</th>
+                        <th scope="col" class="text-right">Depreciation</th>
+                        <th scope="col" class="text-right">Closing NBV</th>
+                        <th scope="col" class="text-right">Opening Accum.</th>
+                        <th scope="col" class="text-right">Closing Accum.</th>
+                        <th scope="col" class="text-right">Life (Months)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for schedule in schedules %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td>
+                            <a href="{{ schedule.asset_url }}" class="font-medium text-teal-700 hover:text-teal-800 dark:text-teal-300 dark:hover:text-teal-200">{{ schedule.asset_number }}</a>
+                            <div class="text-sm text-slate-500 dark:text-slate-400">{{ schedule.asset_name }}</div>
+                        </td>
+                        <td class="text-sm text-slate-600 dark:text-slate-300">{{ schedule.category_name or "-" }}</td>
+                        <td class="table-cell-amount text-slate-600 dark:text-slate-300">{{ schedule.opening_nbv }}</td>
+                        <td class="table-cell-amount text-slate-900 dark:text-white">{{ schedule.depreciation_amount }}</td>
+                        <td class="table-cell-amount text-slate-600 dark:text-slate-300">{{ schedule.closing_nbv }}</td>
+                        <td class="table-cell-amount text-slate-600 dark:text-slate-300">{{ schedule.opening_accumulated_depreciation }}</td>
+                        <td class="table-cell-amount text-slate-600 dark:text-slate-300">{{ schedule.closing_accumulated_depreciation }}</td>
+                        <td class="table-cell-amount text-slate-600 dark:text-slate-300">{{ schedule.remaining_life_opening }} -> {{ schedule.remaining_life_closing }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="p-8">
+            {{ empty_state("No schedule rows yet", "This run does not have any asset depreciation lines yet.", "document") }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

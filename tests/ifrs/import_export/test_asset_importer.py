@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+import pytest
+
+from app.models.fixed_assets.asset import AssetStatus
 from app.services.finance.import_export.assets import AssetImporter
 
 
-def test_asset_importer_generates_sequence_number_ignoring_file_value(
-    import_config, mock_db, monkeypatch
-):
-    importer = AssetImporter(
+@pytest.fixture(autouse=True)
+def _stub_asset_sequence(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.finance.import_export.assets.SequenceService.get_next_number",
+        lambda db, organization_id, sequence_type: "FA-TEST-0001",
+    )
+
+
+def _make_importer(mock_db, import_config) -> AssetImporter:
+    return AssetImporter(
         mock_db,
         import_config,
         uuid4(),
@@ -17,6 +27,12 @@ def test_asset_importer_generates_sequence_number_ignoring_file_value(
         uuid4(),
         uuid4(),
     )
+
+
+def test_asset_importer_generates_sequence_number_ignoring_file_value(
+    import_config, mock_db, monkeypatch
+):
+    importer = _make_importer(mock_db, import_config)
 
     monkeypatch.setattr(
         "app.services.finance.import_export.assets.SequenceService.get_next_number",
@@ -45,14 +61,7 @@ def test_asset_importer_duplicate_check_uses_serial_number(import_config, mock_d
     existing = MagicMock()
     mock_db.execute.return_value.scalar_one_or_none.return_value = existing
 
-    importer = AssetImporter(
-        mock_db,
-        import_config,
-        uuid4(),
-        uuid4(),
-        uuid4(),
-        uuid4(),
-    )
+    importer = _make_importer(mock_db, import_config)
 
     result = importer.check_duplicate({"Serial Number": "8CC9491MB2"})
 
@@ -62,14 +71,7 @@ def test_asset_importer_duplicate_check_uses_serial_number(import_config, mock_d
 def test_asset_importer_import_rows_handles_uppercase_category_header(
     import_config, mock_db, monkeypatch
 ):
-    importer = AssetImporter(
-        mock_db,
-        import_config,
-        uuid4(),
-        uuid4(),
-        uuid4(),
-        uuid4(),
-    )
+    importer = _make_importer(mock_db, import_config)
 
     monkeypatch.setattr(
         "app.services.finance.import_export.assets.SequenceService.get_next_number",
@@ -102,14 +104,7 @@ def test_asset_importer_import_rows_handles_uppercase_category_header(
 def test_asset_importer_create_entity_assigns_employee_by_email(
     import_config, mock_db, monkeypatch
 ):
-    importer = AssetImporter(
-        mock_db,
-        import_config,
-        uuid4(),
-        uuid4(),
-        uuid4(),
-        uuid4(),
-    )
+    importer = _make_importer(mock_db, import_config)
     employee_id = uuid4()
     department_id = uuid4()
 
@@ -149,14 +144,7 @@ def test_asset_importer_create_entity_assigns_employee_by_email(
 def test_asset_importer_resolve_department_name_is_case_insensitive(
     import_config, mock_db
 ):
-    importer = AssetImporter(
-        mock_db,
-        import_config,
-        uuid4(),
-        uuid4(),
-        uuid4(),
-        uuid4(),
-    )
+    importer = _make_importer(mock_db, import_config)
     department_id = uuid4()
     importer._department_lookup_loaded = True
     importer._department_by_normalized_name = {
@@ -169,14 +157,7 @@ def test_asset_importer_resolve_department_name_is_case_insensitive(
 
 
 def test_asset_importer_department_name_suggests_closest_match(import_config, mock_db):
-    importer = AssetImporter(
-        mock_db,
-        import_config,
-        uuid4(),
-        uuid4(),
-        uuid4(),
-        uuid4(),
-    )
+    importer = _make_importer(mock_db, import_config)
     importer._department_lookup_loaded = True
     importer._department_by_normalized_name = {
         "admin": [(uuid4(), "Admin")],
@@ -195,14 +176,7 @@ def test_asset_importer_department_name_suggests_closest_match(import_config, mo
 
 
 def test_asset_importer_department_name_rejects_ambiguous_match(import_config, mock_db):
-    importer = AssetImporter(
-        mock_db,
-        import_config,
-        uuid4(),
-        uuid4(),
-        uuid4(),
-        uuid4(),
-    )
+    importer = _make_importer(mock_db, import_config)
     importer._department_lookup_loaded = True
     importer._department_by_normalized_name = {
         "finance and admin": [
@@ -224,14 +198,7 @@ def test_asset_importer_department_name_rejects_ambiguous_match(import_config, m
 def test_asset_importer_resolve_employee_by_email_and_department(
     import_config, mock_db
 ):
-    importer = AssetImporter(
-        mock_db,
-        import_config,
-        uuid4(),
-        uuid4(),
-        uuid4(),
-        uuid4(),
-    )
+    importer = _make_importer(mock_db, import_config)
     employee_id = uuid4()
     department_id = uuid4()
     importer._employee_lookup_loaded = True
@@ -250,14 +217,7 @@ def test_asset_importer_resolve_employee_by_email_and_department(
 def test_asset_importer_import_rows_reports_department_suggestion_error(
     import_config, mock_db, monkeypatch
 ):
-    importer = AssetImporter(
-        mock_db,
-        import_config,
-        uuid4(),
-        uuid4(),
-        uuid4(),
-        uuid4(),
-    )
+    importer = _make_importer(mock_db, import_config)
 
     monkeypatch.setattr(
         "app.services.finance.import_export.assets.SequenceService.get_next_number",
@@ -296,3 +256,131 @@ def test_asset_importer_import_rows_reports_department_suggestion_error(
         'Department "Admins" not found. Did you mean: Admin?'
         in result.errors[0].message
     )
+
+
+def test_asset_importer_parses_in_use_status_label(import_config, mock_db):
+    importer = _make_importer(mock_db, import_config)
+
+    assert importer._parse_status("In use") == AssetStatus.IN_USE
+
+
+def test_asset_importer_defaults_missing_status_to_in_use(import_config, mock_db):
+    importer = _make_importer(mock_db, import_config)
+
+    asset = importer.create_entity(
+        {
+            "asset_name": "Core Router",
+            "asset_number": "FA-001",
+            "category_name": "Network Equipment",
+            "acquisition_cost": Decimal("1500.00"),
+        }
+    )
+
+    assert asset.status == AssetStatus.IN_USE
+
+
+def test_asset_importer_rounds_acquisition_cost_to_two_decimal_places(
+    import_config, mock_db
+):
+    importer = _make_importer(mock_db, import_config)
+
+    asset = importer.create_entity(
+        {
+            "asset_name": "Core Router",
+            "asset_number": "FA-002",
+            "category_name": "Network Equipment",
+            "acquisition_cost": Decimal("1500.125"),
+        }
+    )
+
+    assert asset.acquisition_cost == Decimal("1500.13")
+    assert asset.functional_currency_cost == Decimal("1500.13")
+
+
+def test_asset_importer_accepts_migration_snake_case_headers(import_config, mock_db):
+    category_id = uuid4()
+    location_id = uuid4()
+
+    importer = _make_importer(mock_db, import_config)
+    importer._category_importer._category_cache["ICT_EQUIPMENT"] = category_id
+    importer._location_cache["head office."] = location_id
+
+    asset = importer.create_entity(
+        {
+            "asset_name": "All in One Desktop",
+            "asset_number": "Dotmac/OE/Dt001",
+            "category_name": "ICT Equipment",
+            "location": "Head Office.",
+            "department_alt": "Facility",
+            "serial_number": "8CC841051K",
+            "model": "HP 24-XA0057C",
+            "manufacturer": "HP",
+            "acquisition_date": "2021-04-28",
+            "acquisition_cost": Decimal("853000"),
+            "currency_code": "NGN",
+            "depreciation_method_str": "STRAIGHT_LINE",
+            "useful_life_months": 60,
+            "residual_value": Decimal("0"),
+            "status_str": "In use",
+        }
+    )
+
+    assert asset.category_id == category_id
+    assert asset.location_id == location_id
+    assert asset.status == AssetStatus.IN_USE
+
+
+def test_asset_importer_preserves_asset_name_from_title_case_header(
+    import_config, mock_db
+):
+    importer = _make_importer(mock_db, import_config)
+    importer._category_importer._category_cache["ICT_EQUIPMENT"] = uuid4()
+
+    transformed = importer.transform_row(
+        {
+            "Asset Name": "All in One Desktop",
+            "Asset Category": "ICT Equipment",
+            "Acquisition Cost": "853000",
+        },
+        row_num=1,
+    )
+
+    assert transformed["asset_name"] == "All in One Desktop"
+    assert transformed["category_name"] == "ICT Equipment"
+
+
+def test_asset_category_importer_ensure_categories_accepts_snake_case_category_name(
+    import_config, mock_db
+):
+    importer = _make_importer(mock_db, import_config)
+
+    importer._category_importer.ensure_categories(
+        [
+            {"category_name": "ICT Equipment"},
+            {"asset_class_alt": "Motor Vehicles"},
+        ]
+    )
+
+    assert "ICT_EQUIPMENT" in importer._category_importer._category_cache
+    assert "MOTOR_VEHICLES" in importer._category_importer._category_cache
+
+
+def test_asset_importer_creates_missing_category_from_mapped_category_name(
+    import_config, mock_db
+):
+    importer = _make_importer(mock_db, import_config)
+    added_entities: list[object] = []
+    mock_db.add.side_effect = added_entities.append
+
+    asset = importer.create_entity(
+        {
+            "asset_name": "Core Router",
+            "asset_number": "FA-003",
+            "category_name": "Network Equipment",
+            "acquisition_cost": Decimal("1500.00"),
+        }
+    )
+
+    assert asset.category_id is not None
+    assert "NETWORK_EQUIPMENT" in importer._category_importer._category_cache
+    assert len(added_entities) == 1

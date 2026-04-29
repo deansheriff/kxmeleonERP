@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "components/macros.html" import topbar, success_banner, icon_svg %}
+{% from "components/macros.html" import topbar, success_banner, error_banner, icon_svg %}
 
 {% block head %}
 <meta name="currency" content="{{ presentation_currency_code | default('USD') }}">
@@ -183,6 +183,9 @@
             <div class="app-page">
                 {% include "partials/_license_banner.html" %}
                 {% if saved %}{{ success_banner("Record saved successfully.") }}{% endif %}
+                {% if request.query_params.get('error') %}
+                    {{ error_banner(request.query_params.get('error') | urldecode) }}
+                {% endif %}
                 {% block content %}{% endblock %}
             </div>
         </main>

@@ -549,6 +549,7 @@ async def run_depreciation(
     return await fa_web_service.run_depreciation_response(request, auth, db)
 
 
+@router.get("/depreciation/run", response_class=HTMLResponse)
 @router.get("/depreciation/runs/new", response_class=HTMLResponse)
 def new_depreciation_run(
     request: Request,
@@ -567,4 +568,41 @@ def new_depreciation_run(
     )
     return templates.TemplateResponse(
         request, "fixed_assets/depreciation_run_form.html", context
+    )
+
+
+@router.get("/depreciation/runs/{run_id}", response_class=HTMLResponse)
+def depreciation_run_detail(
+    run_id: str,
+    request: Request,
+    auth: WebAuthContext = Depends(require_fixed_assets_access),
+    db: Session = Depends(get_db),
+):
+    """Depreciation run detail page."""
+    context = base_context(request, auth, "Depreciation Run", "fixed_assets")
+    context.update(
+        fa_web_service.depreciation_run_detail_context(
+            db,
+            str(auth.organization_id),
+            run_id,
+        )
+    )
+    return templates.TemplateResponse(
+        request, "fixed_assets/depreciation_run_detail.html", context
+    )
+
+
+@router.post("/depreciation/runs/{run_id}/post")
+async def post_depreciation_run(
+    run_id: str,
+    request: Request,
+    auth: WebAuthContext = Depends(require_fixed_assets_access),
+    db: Session = Depends(get_db),
+):
+    """Post a calculated depreciation run."""
+    return await fa_web_service.post_depreciation_run_response(
+        request,
+        auth,
+        db,
+        run_id,
     )
