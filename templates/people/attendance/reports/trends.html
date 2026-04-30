@@ -119,7 +119,7 @@
                              {% if m.attendance_percentage >= 90 %}bg-green-500 dark:bg-green-400{% elif m.attendance_percentage >= 75 %}bg-amber-500 dark:bg-amber-400{% else %}bg-rose-500 dark:bg-rose-400{% endif %}"
                              style="height: {{ height_pct }}%; min-height: {% if m.total_records > 0 %}4px{% else %}0{% endif %}">
                             <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                                {{ m.attendance_percentage }}% ({{ m.present }}/{{ m.total_records }})
+                                {{ m.attendance_percentage }}% ({{ m.attendance_credit_days }}/{{ m.eligible_days }} eligible)
                             </div>
                         </div>
                     </div>

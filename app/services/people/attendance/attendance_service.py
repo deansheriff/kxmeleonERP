@@ -256,6 +256,25 @@ class AttendanceService:
             dt = dt.replace(tzinfo=tzinfo)
         return dt
 
+    @staticmethod
+    def _attendance_percentage(
+        present_count: int | float | Decimal,
+        half_day_count: int | float | Decimal,
+        total_count: int | float | Decimal,
+        on_leave_count: int | float | Decimal = 0,
+    ) -> Decimal:
+        """Compute attendance percentage excluding approved leave days."""
+        present = Decimal(str(present_count or 0))
+        half_day = Decimal(str(half_day_count or 0))
+        total = Decimal(str(total_count or 0))
+        on_leave = Decimal(str(on_leave_count or 0))
+        eligible_days = total - on_leave
+        if eligible_days <= 0:
+            return Decimal("0")
+        return ((present + (half_day * Decimal("0.5"))) / eligible_days) * Decimal(
+            "100"
+        )
+
     def _validate_geofence(
         self,
         org_id: UUID,
@@ -1351,24 +1370,34 @@ class AttendanceService:
         late_count = sum(1 for r in records if r.late_entry)
         early_exit_count = sum(1 for r in records if r.early_exit)
         total_hours = sum((r.working_hours or Decimal("0")) for r in records)
+        eligible_days = total_days - on_leave_count
+        attendance_credit = Decimal(str(present_count)) + (
+            Decimal(str(half_day_count)) * Decimal("0.5")
+        )
 
         return {
             "employee_id": employee_id,
             "year": year,
             "month": month,
             "total_days": total_days,
+            "eligible_days": eligible_days,
             "present": present_count,
             "absent": absent_count,
             "half_day": half_day_count,
             "on_leave": on_leave_count,
+            "attendance_credit_days": attendance_credit,
             "late_entries": late_count,
             "early_exits": early_exit_count,
             "total_working_hours": total_hours,
             "attendance_percentage": round(
-                (present_count + half_day_count * Decimal("0.5")) / total_days * 100, 2
-            )
-            if total_days > 0
-            else Decimal("0"),
+                self._attendance_percentage(
+                    present_count,
+                    half_day_count,
+                    total_days,
+                    on_leave_count,
+                ),
+                2,
+            ),
         }
 
     def get_daily_summary(
@@ -1512,16 +1541,28 @@ class AttendanceService:
         total = result.total_records or 0
         present = result.present or 0
         half_day = result.half_day or 0
-        attendance_pct = ((present + half_day * 0.5) / total * 100) if total > 0 else 0
+        on_leave = result.on_leave or 0
+        eligible_days = total - on_leave
+        attendance_credit = Decimal(str(present)) + (
+            Decimal(str(half_day)) * Decimal("0.5")
+        )
+        attendance_pct = self._attendance_percentage(
+            present,
+            half_day,
+            total,
+            on_leave,
+        )
 
         return {
             "start_date": start_date,
             "end_date": end_date,
             "total_records": total,
+            "eligible_days": eligible_days,
             "present": present,
             "absent": result.absent or 0,
             "half_day": half_day,
-            "on_leave": result.on_leave or 0,
+            "on_leave": on_leave,
+            "attendance_credit_days": attendance_credit,
             "late_entries": result.late_entries or 0,
             "early_exits": result.early_exits or 0,
             "total_working_hours": result.total_working_hours or Decimal("0"),
@@ -1564,6 +1605,12 @@ class AttendanceService:
                 func.count(
                     case((Attendance.status == AttendanceStatus.ABSENT, 1))
                 ).label("absent"),
+                func.count(
+                    case((Attendance.status == AttendanceStatus.HALF_DAY, 1))
+                ).label("half_day"),
+                func.count(
+                    case((Attendance.status == AttendanceStatus.ON_LEAVE, 1))
+                ).label("on_leave"),
                 func.count(case((Attendance.late_entry == True, 1))).label(
                     "late_entries"
                 ),
@@ -1600,15 +1647,30 @@ class AttendanceService:
         for row in results:
             total_days = row.total_days or 0
             present = row.present or 0
-            attendance_pct = (present / total_days * 100) if total_days > 0 else 0
+            half_day = row.half_day or 0
+            on_leave = row.on_leave or 0
+            eligible_days = total_days - on_leave
+            attendance_credit = Decimal(str(present)) + (
+                Decimal(str(half_day)) * Decimal("0.5")
+            )
+            attendance_pct = self._attendance_percentage(
+                present,
+                half_day,
+                total_days,
+                on_leave,
+            )
             employees.append(
                 {
                     "employee_id": str(row.employee_id),
                     "employee_name": row.employee_name,
                     "department_name": row.department_name or "No Department",
                     "total_days": total_days,
+                    "eligible_days": eligible_days,
                     "present": present,
                     "absent": row.absent or 0,
+                    "half_day": half_day,
+                    "on_leave": on_leave,
+                    "attendance_credit_days": attendance_credit,
                     "late_entries": row.late_entries or 0,
                     "early_exits": row.early_exits or 0,
                     "total_hours": row.total_hours or Decimal("0"),
@@ -1737,6 +1799,12 @@ class AttendanceService:
                 func.count(
                     case((Attendance.status == AttendanceStatus.ABSENT, 1))
                 ).label("absent"),
+                func.count(
+                    case((Attendance.status == AttendanceStatus.HALF_DAY, 1))
+                ).label("half_day"),
+                func.count(
+                    case((Attendance.status == AttendanceStatus.ON_LEAVE, 1))
+                ).label("on_leave"),
                 func.count(case((Attendance.late_entry == True, 1))).label(
                     "late_entries"
                 ),
@@ -1757,13 +1825,28 @@ class AttendanceService:
             month_key = row.month.strftime("%Y-%m")
             total = row.total_records or 0
             present = row.present or 0
-            att_pct = (present / total * 100) if total > 0 else 0
+            half_day = row.half_day or 0
+            on_leave = row.on_leave or 0
+            eligible_days = total - on_leave
+            attendance_credit = Decimal(str(present)) + (
+                Decimal(str(half_day)) * Decimal("0.5")
+            )
+            att_pct = self._attendance_percentage(
+                present,
+                half_day,
+                total,
+                on_leave,
+            )
             monthly_data[month_key] = {
                 "month": month_key,
                 "month_label": row.month.strftime("%b %Y"),
                 "total_records": total,
+                "eligible_days": eligible_days,
                 "present": present,
                 "absent": row.absent or 0,
+                "half_day": half_day,
+                "on_leave": on_leave,
+                "attendance_credit_days": attendance_credit,
                 "late_entries": row.late_entries or 0,
                 "total_hours": row.total_hours or Decimal("0"),
                 "attendance_percentage": round(att_pct, 1),
@@ -1787,8 +1870,12 @@ class AttendanceService:
                         "month": month_key,
                         "month_label": current.strftime("%b %Y"),
                         "total_records": 0,
+                        "eligible_days": 0,
                         "present": 0,
                         "absent": 0,
+                        "half_day": 0,
+                        "on_leave": 0,
+                        "attendance_credit_days": Decimal("0"),
                         "late_entries": 0,
                         "total_hours": Decimal("0"),
                         "attendance_percentage": 0,
@@ -1797,8 +1884,13 @@ class AttendanceService:
             current = current + relativedelta(months=1)
 
         num_months = len(months_list)
-        average_attendance_pct = (
-            (total_present / total_records * 100) if total_records > 0 else 0
+        total_half_day = sum(month["half_day"] for month in months_list)
+        total_on_leave = sum(month["on_leave"] for month in months_list)
+        average_attendance_pct = self._attendance_percentage(
+            total_present,
+            total_half_day,
+            total_records,
+            total_on_leave,
         )
 
         return {
