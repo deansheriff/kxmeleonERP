@@ -63,6 +63,14 @@ class CountLineInput:
 
 
 @dataclass
+class BulkCountLineInput:
+    """Input for bulk-recording line quantities."""
+
+    line_id: UUID
+    counted_quantity: Decimal
+
+
+@dataclass
 class CountSummary:
     """Summary statistics for an inventory count."""
 
@@ -85,6 +93,194 @@ class InventoryCountService(ListResponseMixin):
     """
 
     @staticmethod
+    def _get_scoped_items(
+        db: Session,
+        organization_id: UUID,
+        input: CountInput,
+    ) -> builtins.list[Item]:
+        """Get inventory-tracked items matching the count scope."""
+        items_query = select(Item).where(
+            and_(
+                Item.organization_id == organization_id,
+                Item.is_active == True,
+                Item.track_inventory == True,
+            )
+        )
+
+        if input.category_id:
+            items_query = items_query.where(
+                Item.category_id == coerce_uuid(input.category_id)
+            )
+
+        return list(db.scalars(items_query).all())
+
+    @staticmethod
+    def _get_scoped_warehouses(
+        db: Session,
+        organization_id: UUID,
+        input: CountInput,
+    ) -> builtins.list[Warehouse]:
+        """Get warehouses matching the count scope."""
+        if input.warehouse_id:
+            warehouse = db.get(Warehouse, coerce_uuid(input.warehouse_id))
+            if (
+                warehouse
+                and warehouse.organization_id == organization_id
+                and warehouse.is_active
+            ):
+                return [warehouse]
+            raise HTTPException(status_code=404, detail="Warehouse not found")
+
+        return list(
+            db.scalars(
+                select(Warehouse).where(
+                    and_(
+                        Warehouse.organization_id == organization_id,
+                        Warehouse.is_active == True,
+                    )
+                )
+            ).all()
+        )
+
+    @staticmethod
+    def _recalculate_count_stats(
+        db: Session,
+        count: InventoryCount,
+    ) -> None:
+        """Refresh count header statistics from current lines."""
+        count.total_items = (
+            db.scalar(
+                select(func.count(InventoryCountLine.line_id)).where(
+                    InventoryCountLine.count_id == count.count_id
+                )
+            )
+            or 0
+        )
+        count.items_counted = (
+            db.scalar(
+                select(func.count(InventoryCountLine.line_id)).where(
+                    and_(
+                        InventoryCountLine.count_id == count.count_id,
+                        InventoryCountLine.counted_quantity.isnot(None),
+                    )
+                )
+            )
+            or 0
+        )
+        count.items_with_variance = (
+            db.scalar(
+                select(func.count(InventoryCountLine.line_id)).where(
+                    and_(
+                        InventoryCountLine.count_id == count.count_id,
+                        InventoryCountLine.variance_quantity.isnot(None),
+                        InventoryCountLine.variance_quantity != 0,
+                    )
+                )
+            )
+            or 0
+        )
+
+    @staticmethod
+    def _apply_count_to_line(
+        *,
+        line: InventoryCountLine,
+        counted_quantity: Decimal,
+        counted_by_user_id: UUID,
+        reason_code: str | None = None,
+        notes: str | None = None,
+    ) -> None:
+        """Apply count values and variance calculations to a single line."""
+        user_id = coerce_uuid(counted_by_user_id)
+
+        if line.counted_quantity is None:
+            line.counted_quantity = counted_quantity
+            line.counted_by_user_id = user_id
+            line.counted_at = datetime.now(UTC)
+        else:
+            line.recount_quantity = counted_quantity
+            line.recounted_by_user_id = user_id
+            line.recounted_at = datetime.now(UTC)
+
+        line.final_quantity = counted_quantity
+        line.reason_code = reason_code
+        line.notes = notes
+
+        line.variance_quantity = line.final_quantity - line.system_quantity
+        line.variance_value = line.variance_quantity * line.unit_cost
+
+        if line.system_quantity > 0:
+            line.variance_percent = (
+                (line.variance_quantity / line.system_quantity) * 100
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        else:
+            line.variance_percent = (
+                Decimal("100") if line.variance_quantity > 0 else Decimal("0")
+            )
+
+    @staticmethod
+    def _build_count_snapshot(
+        db: Session,
+        count: InventoryCount,
+    ) -> None:
+        """Create frozen count lines for the count scope."""
+        from app.services.inventory.balance import inventory_balance_service
+
+        existing_lines = db.scalar(
+            select(func.count(InventoryCountLine.line_id)).where(
+                InventoryCountLine.count_id == count.count_id
+            )
+        )
+        if existing_lines:
+            raise HTTPException(
+                status_code=400,
+                detail="Count snapshot already exists for this count",
+            )
+
+        count_input = CountInput(
+            count_number=count.count_number,
+            count_date=count.count_date,
+            fiscal_period_id=count.fiscal_period_id,
+            count_description=count.count_description,
+            warehouse_id=count.warehouse_id,
+            location_id=count.location_id,
+            category_id=count.category_id,
+            is_full_count=count.is_full_count,
+            is_cycle_count=count.is_cycle_count,
+        )
+        items = InventoryCountService._get_scoped_items(
+            db, count.organization_id, count_input
+        )
+        warehouses = InventoryCountService._get_scoped_warehouses(
+            db, count.organization_id, count_input
+        )
+
+        for item in items:
+            for warehouse in warehouses:
+                system_qty = inventory_balance_service.get_on_hand(
+                    db=db,
+                    organization_id=count.organization_id,
+                    item_id=item.item_id,
+                    warehouse_id=warehouse.warehouse_id,
+                )
+
+                if system_qty > 0 or count.is_full_count:
+                    db.add(
+                        InventoryCountLine(
+                            count_id=count.count_id,
+                            item_id=item.item_id,
+                            warehouse_id=warehouse.warehouse_id,
+                            location_id=count.location_id,
+                            system_quantity=system_qty,
+                            uom=item.base_uom,
+                            unit_cost=item.average_cost
+                            or item.standard_cost
+                            or Decimal("0"),
+                        )
+                    )
+
+        InventoryCountService._recalculate_count_stats(db, count)
+
+    @staticmethod
     def start_count(
         db: Session,
         organization_id: UUID,
@@ -103,6 +299,7 @@ class InventoryCountService(ListResponseMixin):
         if count.status != CountStatus.DRAFT:
             raise HTTPException(status_code=400, detail="Count must be in DRAFT status")
 
+        InventoryCountService._build_count_snapshot(db, count)
         count.status = CountStatus.IN_PROGRESS
         db.commit()
         db.refresh(count)
@@ -130,8 +327,6 @@ class InventoryCountService(ListResponseMixin):
         Returns:
             Created InventoryCount with lines
         """
-        from app.services.inventory.balance import inventory_balance_service
-
         org_id = coerce_uuid(organization_id)
         user_id = coerce_uuid(created_by_user_id)
 
@@ -170,71 +365,7 @@ class InventoryCountService(ListResponseMixin):
         )
 
         db.add(count)
-        db.flush()  # Get count_id
-
-        # Build query for items in scope
-        items_query = select(Item).where(
-            and_(
-                Item.organization_id == org_id,
-                Item.is_active == True,
-                Item.track_inventory == True,
-            )
-        )
-
-        if input.category_id:
-            items_query = items_query.where(
-                Item.category_id == coerce_uuid(input.category_id)
-            )
-
-        items = list(db.scalars(items_query).all())
-
-        # Create count lines for each item
-        total_items = 0
-        warehouses = []
-
-        if input.warehouse_id:
-            wh = db.get(Warehouse, coerce_uuid(input.warehouse_id))
-            if wh:
-                warehouses = [wh]
-        else:
-            warehouses = list(
-                db.scalars(
-                    select(Warehouse).where(
-                        and_(
-                            Warehouse.organization_id == org_id,
-                            Warehouse.is_active == True,
-                        )
-                    )
-                ).all()
-            )
-
-        for item in items:
-            for warehouse in warehouses:
-                # Get system quantity
-                system_qty = inventory_balance_service.get_on_hand(
-                    db=db,
-                    organization_id=org_id,
-                    item_id=item.item_id,
-                    warehouse_id=warehouse.warehouse_id,
-                )
-
-                # Only include items with stock (or all for full count)
-                if system_qty > 0 or input.is_full_count:
-                    line = InventoryCountLine(
-                        count_id=count.count_id,
-                        item_id=item.item_id,
-                        warehouse_id=warehouse.warehouse_id,
-                        location_id=count.location_id,
-                        system_quantity=system_qty,
-                        uom=item.base_uom,
-                        unit_cost=item.average_cost
-                        or item.standard_cost
-                        or Decimal("0"),
-                    )
-                    db.add(line)
-                    total_items += 1
-
-        count.total_items = total_items
+        db.flush()
         db.commit()
         db.refresh(count)
 
@@ -277,6 +408,11 @@ class InventoryCountService(ListResponseMixin):
                 status_code=400,
                 detail="Cannot record counts on posted or cancelled counts",
             )
+        if count.status != CountStatus.IN_PROGRESS:
+            raise HTTPException(
+                status_code=400,
+                detail="Count must be IN_PROGRESS before recording quantities",
+            )
 
         # Find or create line
         line = db.scalars(
@@ -310,59 +446,65 @@ class InventoryCountService(ListResponseMixin):
                 unit_cost=item.average_cost or item.standard_cost or Decimal("0"),
             )
             db.add(line)
-            count.total_items += 1
 
-        # Record count
-        if line.counted_quantity is None:
-            line.counted_quantity = input.counted_quantity
-            line.counted_by_user_id = user_id
-            line.counted_at = datetime.now(UTC)
-            count.items_counted += 1
-        else:
-            # Recount
-            line.recount_quantity = input.counted_quantity
-            line.recounted_by_user_id = user_id
-            line.recounted_at = datetime.now(UTC)
+        InventoryCountService._apply_count_to_line(
+            line=line,
+            counted_quantity=input.counted_quantity,
+            counted_by_user_id=user_id,
+            reason_code=input.reason_code,
+            notes=input.notes,
+        )
 
-        line.final_quantity = input.counted_quantity
-        line.reason_code = input.reason_code
-        line.notes = input.notes
-
-        # Calculate variance
-        line.variance_quantity = line.final_quantity - line.system_quantity
-        line.variance_value = line.variance_quantity * line.unit_cost
-
-        if line.system_quantity > 0:
-            line.variance_percent = (
-                (line.variance_quantity / line.system_quantity) * 100
-            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        else:
-            line.variance_percent = (
-                Decimal("100") if line.variance_quantity > 0 else Decimal("0")
-            )
-
-        # Update count stats
-        if line.variance_quantity != 0:
-            # Recalculate items with variance
-            variance_count = db.scalar(
-                select(func.count(InventoryCountLine.line_id)).where(
-                    and_(
-                        InventoryCountLine.count_id == cnt_id,
-                        InventoryCountLine.variance_quantity != 0,
-                        InventoryCountLine.variance_quantity.isnot(None),
-                    )
-                )
-            )
-            count.items_with_variance = variance_count or 0
-
-        # Update status to IN_PROGRESS
-        if count.status == CountStatus.DRAFT:
-            count.status = CountStatus.IN_PROGRESS
+        InventoryCountService._recalculate_count_stats(db, count)
 
         db.commit()
         db.refresh(line)
 
         return line
+
+    @staticmethod
+    def record_count_bulk(
+        db: Session,
+        organization_id: UUID,
+        count_id: UUID,
+        inputs: builtins.list[BulkCountLineInput],
+        counted_by_user_id: UUID,
+    ) -> builtins.list[InventoryCountLine]:
+        """Record counted quantities for multiple existing count lines."""
+        org_id = coerce_uuid(organization_id)
+        cnt_id = coerce_uuid(count_id)
+        user_id = coerce_uuid(counted_by_user_id)
+
+        count = db.get(InventoryCount, cnt_id)
+        if not count or count.organization_id != org_id:
+            raise HTTPException(status_code=404, detail="Count not found")
+        if count.status != CountStatus.IN_PROGRESS:
+            raise HTTPException(
+                status_code=400,
+                detail="Count must be IN_PROGRESS before recording quantities",
+            )
+
+        updated_lines: builtins.list[InventoryCountLine] = []
+        for entry in inputs:
+            line = db.get(InventoryCountLine, coerce_uuid(entry.line_id))
+            if (
+                not line
+                or line.count_id != cnt_id
+            ):
+                raise HTTPException(status_code=404, detail="Count line not found")
+
+            InventoryCountService._apply_count_to_line(
+                line=line,
+                counted_quantity=entry.counted_quantity,
+                counted_by_user_id=user_id,
+            )
+            updated_lines.append(line)
+
+        InventoryCountService._recalculate_count_stats(db, count)
+        db.commit()
+        for line in updated_lines:
+            db.refresh(line)
+        return updated_lines
 
     @staticmethod
     def complete_count(
@@ -388,10 +530,22 @@ class InventoryCountService(ListResponseMixin):
         if not count or count.organization_id != org_id:
             raise HTTPException(status_code=404, detail="Count not found")
 
-        if count.status not in [CountStatus.DRAFT, CountStatus.IN_PROGRESS]:
+        if count.status != CountStatus.IN_PROGRESS:
             raise HTTPException(
                 status_code=400,
-                detail="Count must be in DRAFT or IN_PROGRESS status",
+                detail="Count must be IN_PROGRESS before completion",
+            )
+
+        InventoryCountService._recalculate_count_stats(db, count)
+        if count.total_items == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Count has no lines. Start the count to generate items first",
+            )
+        if count.items_counted < count.total_items:
+            raise HTTPException(
+                status_code=400,
+                detail="All count lines must be recorded before completion",
             )
 
         count.status = CountStatus.COMPLETED

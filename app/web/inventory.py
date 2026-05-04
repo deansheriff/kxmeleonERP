@@ -1329,6 +1329,20 @@ def count_detail(
     )
 
 
+@router.get("/counts/{count_id}/export")
+def export_count_csv(
+    count_id: str,
+    auth: WebAuthContext = Depends(require_inventory_access),
+    db: Session = Depends(get_db),
+):
+    """Export a posted inventory count as CSV."""
+    return operations_inv_web_service.export_count_csv_response(
+        count_id=count_id,
+        auth=auth,
+        db=db,
+    )
+
+
 @router.post("/counts/{count_id}/start", response_class=HTMLResponse)
 def start_count(
     request: Request,
@@ -1387,6 +1401,22 @@ async def record_count_line(
         request=request,
         count_id=count_id,
         line_id=line_id,
+        auth=auth,
+        db=db,
+    )
+
+
+@router.post("/counts/{count_id}/bulk-record", response_class=HTMLResponse)
+async def bulk_record_count_lines(
+    request: Request,
+    count_id: str,
+    auth: WebAuthContext = Depends(require_inventory_access),
+    db: Session = Depends(get_db),
+):
+    """Record counted quantities for multiple selected count lines."""
+    return await operations_inv_web_service.bulk_record_count_lines_response(
+        request=request,
+        count_id=count_id,
         auth=auth,
         db=db,
     )

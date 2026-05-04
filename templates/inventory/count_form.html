@@ -76,7 +76,7 @@
                 <select id="fiscal_period_id" name="fiscal_period_id" class="form-select" required>
                     <option value="">Select Period</option>
                     {% for period in fiscal_periods | default([]) %}
-                    <option value="{{ period.period_id }}" {{ 'selected' if count and count.fiscal_period_id == period.period_id else ('selected' if period.is_current else '') }}>
+                    <option value="{{ period.fiscal_period_id }}" {{ 'selected' if count and count.fiscal_period_id == period.fiscal_period_id else '' }}>
                         {{ period.period_name }} ({{ period.start_date | format_date }} - {{ period.end_date | format_date }})
                     </option>
                     {% endfor %}

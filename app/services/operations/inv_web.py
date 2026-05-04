@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 from datetime import timezone
 from datetime import date as date_type
+from io import StringIO
 from typing import Any, cast
 
 try:
@@ -16,7 +18,7 @@ except ImportError:  # pragma: no cover
 from math import ceil
 
 from fastapi import HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 from starlette.datastructures import UploadFile
@@ -1919,9 +1921,7 @@ class OperationsInventoryWebService:
         db: Session,
     ) -> HTMLResponse | RedirectResponse:
         """Create new inventory count from form data."""
-        from uuid import UUID as UUID_Type
-
-        from app.models.inventory.inventory_count import CountStatus, InventoryCount
+        from app.services.inventory.count import CountInput, InventoryCountService
 
         org_id = auth.organization_id
         user_id = auth.user_id
@@ -1943,37 +1943,37 @@ class OperationsInventoryWebService:
 
         try:
             from datetime import date as date_cls
+            from uuid import UUID as UUID_Type
 
             count_date = (
                 date_cls.fromisoformat(count_date_str)
                 if count_date_str
                 else date_cls.today()
             )
-            count = InventoryCount(
+            count = InventoryCountService.create_count(
+                db=db,
                 organization_id=org_id,
-                count_number=count_number,
-                count_date=count_date,
-                fiscal_period_id=UUID_Type(fiscal_period_id),
-                warehouse_id=UUID_Type(warehouse_id) if warehouse_id else None,
-                category_id=UUID_Type(category_id) if category_id else None,
-                count_description=count_description,
-                is_full_count=is_full_count,
-                is_cycle_count=is_cycle_count,
-                status=CountStatus.DRAFT,
+                input=CountInput(
+                    count_number=count_number,
+                    count_date=count_date,
+                    fiscal_period_id=UUID_Type(fiscal_period_id),
+                    warehouse_id=UUID_Type(warehouse_id) if warehouse_id else None,
+                    category_id=UUID_Type(category_id) if category_id else None,
+                    count_description=count_description,
+                    is_full_count=is_full_count,
+                    is_cycle_count=is_cycle_count,
+                ),
                 created_by_user_id=user_id,
             )
-            db.add(count)
-            db.commit()
             return RedirectResponse(
                 f"/inventory/counts/{count.count_id}", status_code=303
             )
         except Exception as e:
             db.rollback()
             logger.warning("Failed to create inventory count: %s", e)
-            context = base_context(request, auth, "New Stock Count", "counts")
-            context["error"] = str(e)
-            # Re-populate form context
-            return self.new_count_form_response(request, auth, db)
+            response = self.new_count_form_response(request, auth, db)
+            cast(Any, response).context["error"] = str(e)
+            return response
 
     # ------------------------------------------------------------------
     # Bill of Materials — Form / Create
@@ -2436,6 +2436,110 @@ class OperationsInventoryWebService:
             request, "inventory/count_detail.html", context
         )
 
+    def export_count_csv_response(
+        self,
+        count_id: str,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> Response | RedirectResponse:
+        """Export a posted stock count as CSV."""
+        from uuid import UUID as UUID_Type
+
+        from app.models.inventory.inventory_count import CountStatus, InventoryCount
+        from app.models.inventory.item import Item
+        from app.models.inventory.warehouse import Warehouse
+        from app.services.inventory.count import InventoryCountService
+
+        try:
+            cnt_id = UUID_Type(count_id)
+        except ValueError:
+            return RedirectResponse("/inventory/counts", status_code=302)
+
+        count = db.get(InventoryCount, cnt_id)
+        if not count or count.organization_id != auth.organization_id:
+            return RedirectResponse("/inventory/counts", status_code=302)
+        if count.status != CountStatus.POSTED:
+            return RedirectResponse(f"/inventory/counts/{count_id}", status_code=303)
+
+        lines = InventoryCountService.list_lines(db, count_id, limit=5000)
+        item_ids = {line.item_id for line in lines}
+        wh_ids = {line.warehouse_id for line in lines}
+
+        items_map: dict[UUID_Type, Item] = {}
+        if item_ids:
+            items_map = {
+                item.item_id: item
+                for item in db.scalars(
+                    select(Item).where(Item.item_id.in_(item_ids))
+                ).all()
+            }
+
+        warehouses_map: dict[UUID_Type, Warehouse] = {}
+        if wh_ids:
+            warehouses_map = {
+                warehouse.warehouse_id: warehouse
+                for warehouse in db.scalars(
+                    select(Warehouse).where(Warehouse.warehouse_id.in_(wh_ids))
+                ).all()
+            }
+
+        buffer = StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(
+            [
+                "Count Number",
+                "Count Date",
+                "Status",
+                "Item Code",
+                "Item Name",
+                "Warehouse",
+                "System Quantity",
+                "Counted Quantity",
+                "Final Quantity",
+                "Variance Quantity",
+                "Variance Value",
+                "Reason Code",
+                "Notes",
+            ]
+        )
+        for line in lines:
+            item = items_map.get(line.item_id)
+            warehouse = warehouses_map.get(line.warehouse_id)
+            writer.writerow(
+                [
+                    count.count_number,
+                    count.count_date.isoformat() if count.count_date else "",
+                    count.status.value,
+                    item.item_code if item else "",
+                    item.item_name if item else "",
+                    warehouse.warehouse_name if warehouse else "",
+                    f"{line.system_quantity or 0}",
+                    f"{line.counted_quantity or 0}"
+                    if line.counted_quantity is not None
+                    else "",
+                    f"{line.final_quantity or 0}"
+                    if line.final_quantity is not None
+                    else "",
+                    f"{line.variance_quantity or 0}"
+                    if line.variance_quantity is not None
+                    else "",
+                    f"{line.variance_value or 0}"
+                    if line.variance_value is not None
+                    else "",
+                    line.reason_code or "",
+                    line.notes or "",
+                ]
+            )
+
+        filename = f"stock_count_{count.count_number}.csv"
+        return Response(
+            content=buffer.getvalue(),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+
     def start_count_response(
         self,
         count_id: str,
@@ -2537,7 +2641,9 @@ class OperationsInventoryWebService:
             raise HTTPException(status_code=401, detail="Authentication required")
 
         form = await request.form()
-        counted_qty_str = _safe_form_text(form.get("counted_quantity"))
+        counted_qty_str = _safe_form_text(
+            form.get("counted_quantity") or form.get(f"counted_quantity_{line_id}")
+        )
         reason_code = _safe_form_text(form.get("reason_code")) or None
         notes = _safe_form_text(form.get("notes")) or None
 
@@ -2576,6 +2682,82 @@ class OperationsInventoryWebService:
                 "Failed to record count line %s on count %s: %s",
                 line_id,
                 count_id,
+                e,
+            )
+        return RedirectResponse(f"/inventory/counts/{count_id}", status_code=303)
+
+    async def bulk_record_count_lines_response(
+        self,
+        request: Request,
+        count_id: str,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> RedirectResponse:
+        """Bulk record counted quantities for selected count lines."""
+        from decimal import Decimal, InvalidOperation
+        from uuid import UUID as UUID_Type
+
+        from app.services.common import coerce_uuid
+        from app.services.inventory.count import (
+            BulkCountLineInput,
+            InventoryCountService,
+        )
+
+        org_id = auth.organization_id
+        user_id = auth.user_id
+        if org_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        form = await request.form()
+        selected_line_ids = []
+        getlist = getattr(form, "getlist", None)
+        if callable(getlist):
+            selected_line_ids = [
+                _safe_form_text(value) for value in getlist("selected_line_ids")
+            ]
+
+        bulk_inputs: list[BulkCountLineInput] = []
+        for raw_line_id in selected_line_ids:
+            try:
+                line_id = UUID_Type(raw_line_id)
+            except ValueError:
+                continue
+
+            counted_qty_str = _safe_form_text(
+                form.get(f"counted_quantity_{raw_line_id}")
+            )
+            try:
+                counted_qty = (
+                    Decimal(counted_qty_str) if counted_qty_str else Decimal("0")
+                )
+            except (InvalidOperation, ValueError):
+                counted_qty = Decimal("0")
+
+            bulk_inputs.append(
+                BulkCountLineInput(
+                    line_id=line_id,
+                    counted_quantity=counted_qty,
+                )
+            )
+
+        if not bulk_inputs:
+            return RedirectResponse(f"/inventory/counts/{count_id}", status_code=303)
+
+        try:
+            InventoryCountService.record_count_bulk(
+                db=db,
+                organization_id=org_id,
+                count_id=coerce_uuid(count_id),
+                inputs=bulk_inputs,
+                counted_by_user_id=user_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed bulk count save on count %s for %s lines: %s",
+                count_id,
+                len(bulk_inputs),
                 e,
             )
         return RedirectResponse(f"/inventory/counts/{count_id}", status_code=303)

@@ -14,6 +14,7 @@ from fastapi import HTTPException
 
 from app.models.inventory.inventory_count import CountStatus
 from app.services.inventory.count import (
+    BulkCountLineInput,
     CountInput,
     CountLineInput,
     CountSummary,
@@ -170,7 +171,7 @@ def mock_count(org_id, count_id, warehouse_id):
         count_number="CNT-001",
         count_date=date.today(),
         warehouse_id=warehouse_id,
-        status=CountStatus.DRAFT,
+        status=CountStatus.IN_PROGRESS,
         total_items=5,
         items_counted=0,
     )
@@ -251,7 +252,6 @@ class TestCreateCount:
     ):
         """Should create count in DRAFT status."""
         mock_db.scalars.return_value.first.return_value = None
-        mock_db.scalars.return_value.all.return_value = []  # No items
 
         input = CountInput(
             count_number="CNT-NEW",
@@ -260,11 +260,7 @@ class TestCreateCount:
             count_description="Test count",
         )
 
-        with patch(
-            "app.services.inventory.balance.InventoryBalanceService.get_on_hand",
-            return_value=Decimal("0"),
-        ):
-            InventoryCountService.create_count(mock_db, org_id, input, user_id)
+        InventoryCountService.create_count(mock_db, org_id, input, user_id)
 
         mock_db.add.assert_called()
         mock_db.commit.assert_called()
@@ -274,8 +270,6 @@ class TestCreateCount:
     ):
         """Should create count scoped to specific warehouse."""
         mock_db.scalars.return_value.first.return_value = None
-        mock_db.scalars.return_value.all.return_value = []  # No items
-        mock_db.get.return_value = mock_warehouse
 
         input = CountInput(
             count_number="CNT-WH1",
@@ -284,64 +278,106 @@ class TestCreateCount:
             warehouse_id=warehouse_id,
         )
 
-        with patch(
-            "app.services.inventory.balance.InventoryBalanceService.get_on_hand",
-            return_value=Decimal("0"),
-        ):
-            InventoryCountService.create_count(mock_db, org_id, input, user_id)
+        InventoryCountService.create_count(mock_db, org_id, input, user_id)
 
         mock_db.add.assert_called()
 
-    def test_creates_lines_for_items_with_stock(
-        self, mock_db, org_id, user_id, fiscal_period_id, mock_item, mock_warehouse
+    def test_create_does_not_snapshot_lines(
+        self, mock_db, org_id, user_id, fiscal_period_id
     ):
-        """Should create count lines for items with stock."""
+        """Create should only persist the header; snapshot occurs on start."""
         mock_db.scalars.return_value.first.return_value = None
-        mock_db.scalars.return_value.all.side_effect = [
-            [mock_item],  # Items query
-            [mock_warehouse],  # Warehouses query
-        ]
 
         input = CountInput(
-            count_number="CNT-LINES",
+            count_number="CNT-DRAFT",
             count_date=date.today(),
             fiscal_period_id=fiscal_period_id,
         )
+
+        InventoryCountService.create_count(mock_db, org_id, input, user_id)
+
+        assert mock_db.add.call_count == 1
+
+
+# ============ Tests for start_count ============
+
+
+class TestStartCount:
+    """Tests for start_count method."""
+
+    def test_raises_error_when_not_found(self, mock_db, org_id, count_id, user_id):
+        """Should raise HTTPException when count not found."""
+        mock_db.get.return_value = None
+
+        with pytest.raises(HTTPException) as exc:
+            InventoryCountService.start_count(mock_db, org_id, count_id, user_id)
+
+        assert exc.value.status_code == 404
+
+    def test_raises_error_when_not_draft(
+        self, mock_db, org_id, mock_count, user_id
+    ):
+        """Should raise HTTPException when count is not DRAFT."""
+        mock_count.status = CountStatus.IN_PROGRESS
+        mock_db.get.return_value = mock_count
+
+        with pytest.raises(HTTPException) as exc:
+            InventoryCountService.start_count(
+                mock_db, org_id, mock_count.count_id, user_id
+            )
+
+        assert exc.value.status_code == 400
+
+    def test_generates_snapshot_lines_for_stocked_items(
+        self, mock_db, org_id, mock_count, user_id, mock_item, mock_warehouse
+    ):
+        """Should create count lines and totals when starting."""
+        mock_count.status = CountStatus.DRAFT
+        mock_db.get.side_effect = lambda model, id: (
+            mock_count if id == mock_count.count_id else mock_warehouse
+        )
+        mock_db.scalars.return_value.all.side_effect = [
+            [mock_item],
+        ]
+        mock_db.scalar.side_effect = [0, 1, 0, 0]
 
         with patch(
             "app.services.inventory.balance.InventoryBalanceService.get_on_hand",
             return_value=Decimal("100"),
         ):
-            InventoryCountService.create_count(mock_db, org_id, input, user_id)
+            result = InventoryCountService.start_count(
+                mock_db, org_id, mock_count.count_id, user_id
+            )
 
-        # Should add header + at least one line
+        assert result.status == CountStatus.IN_PROGRESS
         assert mock_db.add.call_count >= 1
 
-    def test_creates_lines_for_all_items_on_full_count(
+    def test_full_count_includes_zero_stock_items(
         self, mock_db, org_id, user_id, fiscal_period_id, mock_item, mock_warehouse
     ):
-        """Should include zero-stock items in full count."""
-        mock_db.scalars.return_value.first.return_value = None
-        mock_db.scalars.return_value.all.side_effect = [
-            [mock_item],  # Items query
-            [mock_warehouse],  # Warehouses query
-        ]
-
-        input = CountInput(
-            count_number="CNT-FULL",
-            count_date=date.today(),
+        """Full counts should snapshot zero-stock items too."""
+        count = MockInventoryCount(
+            organization_id=org_id,
             fiscal_period_id=fiscal_period_id,
+            status=CountStatus.DRAFT,
             is_full_count=True,
         )
+        mock_db.get.side_effect = lambda model, id: (
+            count if id == count.count_id else mock_warehouse
+        )
+        mock_db.scalars.return_value.all.side_effect = [
+            [mock_item],
+            [mock_warehouse],
+        ]
+        mock_db.scalar.side_effect = [0, 1, 0, 0]
 
         with patch(
             "app.services.inventory.balance.InventoryBalanceService.get_on_hand",
             return_value=Decimal("0"),
         ):
-            InventoryCountService.create_count(mock_db, org_id, input, user_id)
+            InventoryCountService.start_count(mock_db, org_id, count.count_id, user_id)
 
-        # Should still add line for zero-stock item
-        assert mock_db.add.call_count >= 2  # Header + line
+        assert mock_db.add.call_count >= 1
 
 
 # ============ Tests for record_count ============
@@ -410,6 +446,27 @@ class TestRecordCount:
 
         assert exc.value.status_code == 400
 
+    def test_raises_error_when_count_not_in_progress(
+        self, mock_db, org_id, mock_count, user_id, item_id, warehouse_id
+    ):
+        """Should reject quantity recording before the count is started."""
+        mock_count.status = CountStatus.DRAFT
+        mock_db.get.return_value = mock_count
+
+        input = CountLineInput(
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+            counted_quantity=Decimal("95"),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            InventoryCountService.record_count(
+                mock_db, org_id, mock_count.count_id, input, user_id
+            )
+
+        assert exc.value.status_code == 400
+        assert "IN_PROGRESS" in str(exc.value.detail)
+
     def test_updates_existing_line(
         self, mock_db, org_id, mock_count, user_id, item_id, warehouse_id
     ):
@@ -424,7 +481,7 @@ class TestRecordCount:
         )
         mock_db.get.return_value = mock_count
         mock_db.scalars.return_value.first.return_value = existing_line
-        mock_db.scalar.return_value = 1
+        mock_db.scalar.side_effect = [1, 1, 1]
 
         input = CountLineInput(
             item_id=item_id,
@@ -454,7 +511,7 @@ class TestRecordCount:
         )
         mock_db.get.return_value = mock_count
         mock_db.scalars.return_value.first.return_value = existing_line
-        mock_db.scalar.return_value = 1
+        mock_db.scalar.side_effect = [1, 1, 1]
 
         input = CountLineInput(
             item_id=item_id,
@@ -483,7 +540,7 @@ class TestRecordCount:
         )
         mock_db.get.return_value = mock_count
         mock_db.scalars.return_value.first.return_value = existing_line
-        mock_db.scalar.return_value = 1
+        mock_db.scalar.side_effect = [1, 1, 1]
 
         input = CountLineInput(
             item_id=item_id,
@@ -505,7 +562,7 @@ class TestRecordCount:
             mock_count if id == mock_count.count_id else mock_item
         )
         mock_db.scalars.return_value.first.return_value = None  # No existing line
-        mock_db.scalar.return_value = 0
+        mock_db.scalar.side_effect = [1, 1, 1]
 
         input = CountLineInput(
             item_id=mock_item.item_id,
@@ -518,34 +575,6 @@ class TestRecordCount:
         )
 
         mock_db.add.assert_called()
-
-    def test_updates_status_to_in_progress(
-        self, mock_db, org_id, mock_count, user_id, item_id, warehouse_id
-    ):
-        """Should update count status from DRAFT to IN_PROGRESS."""
-        mock_count.status = CountStatus.DRAFT
-        existing_line = MockCountLine(
-            count_id=mock_count.count_id,
-            item_id=item_id,
-            warehouse_id=warehouse_id,
-            system_quantity=Decimal("100"),
-            counted_quantity=None,
-        )
-        mock_db.get.return_value = mock_count
-        mock_db.scalars.return_value.first.return_value = existing_line
-        mock_db.scalar.return_value = 0
-
-        input = CountLineInput(
-            item_id=item_id,
-            warehouse_id=warehouse_id,
-            counted_quantity=Decimal("100"),
-        )
-
-        InventoryCountService.record_count(
-            mock_db, org_id, mock_count.count_id, input, user_id
-        )
-
-        assert mock_count.status == CountStatus.IN_PROGRESS
 
     def test_records_recount(
         self, mock_db, org_id, mock_count, user_id, item_id, warehouse_id
@@ -561,7 +590,7 @@ class TestRecordCount:
         )
         mock_db.get.return_value = mock_count
         mock_db.scalars.return_value.first.return_value = existing_line
-        mock_db.scalar.return_value = 0
+        mock_db.scalar.side_effect = [1, 1, 1]
 
         input = CountLineInput(
             item_id=item_id,
@@ -575,6 +604,81 @@ class TestRecordCount:
 
         assert existing_line.recount_quantity == Decimal("98")
         assert existing_line.final_quantity == Decimal("98")
+
+
+class TestRecordCountBulk:
+    """Tests for bulk count recording."""
+
+    def test_raises_error_when_count_not_in_progress(
+        self, mock_db, org_id, mock_count, user_id
+    ):
+        """Bulk recording should require IN_PROGRESS status."""
+        mock_count.status = CountStatus.DRAFT
+        mock_db.get.return_value = mock_count
+
+        with pytest.raises(HTTPException) as exc:
+            InventoryCountService.record_count_bulk(
+                mock_db,
+                org_id,
+                mock_count.count_id,
+                [BulkCountLineInput(line_id=uuid.uuid4(), counted_quantity=Decimal("4"))],
+                user_id,
+            )
+
+        assert exc.value.status_code == 400
+        assert "IN_PROGRESS" in str(exc.value.detail)
+
+    def test_updates_selected_lines_and_recalculates_stats(
+        self, mock_db, org_id, mock_count, user_id
+    ):
+        """Bulk recording should update checked lines in one operation."""
+        line_one = MockCountLine(
+            count_id=mock_count.count_id,
+            counted_quantity=None,
+            system_quantity=Decimal("10"),
+            unit_cost=Decimal("2.00"),
+        )
+        line_two = MockCountLine(
+            count_id=mock_count.count_id,
+            counted_quantity=None,
+            system_quantity=Decimal("6"),
+            unit_cost=Decimal("3.00"),
+        )
+        mock_count.status = CountStatus.IN_PROGRESS
+
+        def fake_get(model, id):
+            if id == mock_count.count_id:
+                return mock_count
+            if id == line_one.line_id:
+                return line_one
+            if id == line_two.line_id:
+                return line_two
+            return None
+
+        mock_db.get.side_effect = fake_get
+        mock_db.scalar.side_effect = [2, 2, 2]
+
+        result = InventoryCountService.record_count_bulk(
+            mock_db,
+            org_id,
+            mock_count.count_id,
+            [
+                BulkCountLineInput(
+                    line_id=line_one.line_id, counted_quantity=Decimal("8")
+                ),
+                BulkCountLineInput(
+                    line_id=line_two.line_id, counted_quantity=Decimal("9")
+                ),
+            ],
+            user_id,
+        )
+
+        assert len(result) == 2
+        assert line_one.final_quantity == Decimal("8")
+        assert line_one.variance_quantity == Decimal("-2")
+        assert line_two.final_quantity == Decimal("9")
+        assert line_two.variance_quantity == Decimal("3")
+        mock_db.commit.assert_called_once()
 
 
 # ============ Tests for complete_count ============
@@ -593,7 +697,7 @@ class TestCompleteCount:
         assert exc.value.status_code == 404
 
     def test_raises_error_when_wrong_status(self, mock_db, org_id, mock_count):
-        """Should raise HTTPException when count not in DRAFT or IN_PROGRESS."""
+        """Should raise HTTPException when count not IN_PROGRESS."""
         mock_count.status = CountStatus.COMPLETED
         mock_db.get.return_value = mock_count
 
@@ -602,10 +706,25 @@ class TestCompleteCount:
 
         assert exc.value.status_code == 400
 
+    def test_raises_error_when_not_all_lines_counted(
+        self, mock_db, org_id, mock_count
+    ):
+        """Should block completion until all lines have counted quantities."""
+        mock_count.status = CountStatus.IN_PROGRESS
+        mock_db.get.return_value = mock_count
+        mock_db.scalar.side_effect = [5, 4, 1]
+
+        with pytest.raises(HTTPException) as exc:
+            InventoryCountService.complete_count(mock_db, org_id, mock_count.count_id)
+
+        assert exc.value.status_code == 400
+        assert "All count lines must be recorded" in str(exc.value.detail)
+
     def test_sets_status_to_completed(self, mock_db, org_id, mock_count):
         """Should set status to COMPLETED."""
         mock_count.status = CountStatus.IN_PROGRESS
         mock_db.get.return_value = mock_count
+        mock_db.scalar.side_effect = [5, 5, 0]
 
         result = InventoryCountService.complete_count(
             mock_db, org_id, mock_count.count_id
