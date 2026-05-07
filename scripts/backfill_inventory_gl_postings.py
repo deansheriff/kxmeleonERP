@@ -240,7 +240,9 @@ def prepare_inventory_fiscal_periods(
     db.commit()
 
     if restored:
-        logger.info("  Temporarily opened %d non-postable periods for backfill", len(restored))
+        logger.info(
+            "  Temporarily opened %d non-postable periods for backfill", len(restored)
+        )
 
     return restored
 
@@ -397,7 +399,9 @@ def main() -> None:
             return
 
         if counts["missing_gl"] == 0:
-            logger.info("Nothing to do — all inventory transactions are already posted.")
+            logger.info(
+                "Nothing to do — all inventory transactions are already posted."
+            )
             return
 
         reopened_periods = prepare_inventory_fiscal_periods(db, org_id, txn_type)
