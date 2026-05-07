@@ -366,6 +366,18 @@ def seed_automation_settings(db: Session) -> None:
         value_type=SettingValueType.boolean,
         value_text=os.getenv("OPENBAO_ALLOW_INSECURE", "false"),
     )
+    automation_settings.ensure_by_key(
+        db,
+        key="fa_depreciation_auto_run_enabled",
+        value_type=SettingValueType.boolean,
+        value_text="false",
+    )
+    automation_settings.ensure_by_key(
+        db,
+        key="fa_depreciation_auto_post_enabled",
+        value_type=SettingValueType.boolean,
+        value_text="false",
+    )
 
 
 def seed_features_settings(db: Session) -> None:
@@ -575,6 +587,19 @@ def seed_scheduled_tasks(db: Session) -> None:
             "args_json": [],
             # Stateful incremental sync — no lookback param; each account
             # uses its own watermark.
+            "kwargs_json": {},
+        },
+        {
+            "name": "Fixed Assets: Monthly Depreciation Automation",
+            "task_name": "app.tasks.finance.process_monthly_depreciation_runs",
+            "schedule_type": ScheduleType.crontab,
+            "cron_minute": "15",
+            "cron_hour": "1",  # 1:15 AM daily
+            "cron_day_of_week": "*",
+            "cron_day_of_month": "*",
+            "cron_month_of_year": "*",
+            "enabled": True,
+            "args_json": [],
             "kwargs_json": {},
         },
     ]

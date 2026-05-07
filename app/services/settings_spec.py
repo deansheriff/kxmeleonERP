@@ -375,6 +375,30 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.boolean,
         default=False,
     ),
+    SettingSpec(
+        domain=SettingDomain.automation,
+        key="fa_depreciation_auto_run_enabled",
+        env_var=None,
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Auto Run FA Depreciation",
+        description=(
+            "Automatically create the next monthly fixed-asset depreciation run "
+            "after the fiscal period ends."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.automation,
+        key="fa_depreciation_auto_post_enabled",
+        env_var=None,
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Auto Post FA Depreciation",
+        description=(
+            "Automatically post system-generated fixed-asset depreciation runs "
+            "after calculation."
+        ),
+    ),
     # Feature flags are now managed dynamically via feature_flag_registry table.
     # See app/services/feature_flag_service.py and app/models/feature_flag.py.
     # Reporting Domain Settings

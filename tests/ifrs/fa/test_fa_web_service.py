@@ -179,9 +179,7 @@ class MockDepreciationSchedule:
         self.schedule_id = kwargs.get("schedule_id", uuid.uuid4())
         self.run_id = kwargs.get("run_id", uuid.uuid4())
         self.asset_id = kwargs.get("asset_id", uuid.uuid4())
-        self.depreciation_amount = kwargs.get(
-            "depreciation_amount", Decimal("250.00")
-        )
+        self.depreciation_amount = kwargs.get("depreciation_amount", Decimal("250.00"))
         self.net_book_value_opening = kwargs.get(
             "net_book_value_opening", Decimal("5000.00")
         )
@@ -788,6 +786,91 @@ class TestFAWebServiceDepreciation:
         assert result["schedules"][0]["category_name"] == "ICT Equipment"
         assert result["posting_preview"]["line_count"] == 2
         assert result["posting_preview"]["can_post"] is True
+
+
+class TestFAWebServiceGLReconciliation:
+    """Tests for fixed asset to GL reconciliation context."""
+
+    def test_gl_reconciliation_totals_count_shared_gl_accounts_once(self):
+        """Summary totals should not duplicate GL balances for shared accounts."""
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        org_id = uuid.uuid4()
+        asset_account_id = uuid.uuid4()
+        accum_account_id = uuid.uuid4()
+        category_rows = [
+            SimpleNamespace(
+                category_id=uuid.uuid4(),
+                category_code="ICT",
+                category_name="ICT Equipment",
+                asset_account_id=asset_account_id,
+                accumulated_depreciation_account_id=accum_account_id,
+                category_count=1,
+                category_codes="ICT",
+                category_names="ICT Equipment",
+                asset_count=1,
+                register_cost=Decimal("600.00"),
+                register_accumulated_depreciation=Decimal("100.00"),
+                register_nbv=Decimal("500.00"),
+            ),
+            SimpleNamespace(
+                category_id=uuid.uuid4(),
+                category_code="OPS",
+                category_name="Operations Equipment",
+                asset_account_id=asset_account_id,
+                accumulated_depreciation_account_id=accum_account_id,
+                category_count=1,
+                category_codes="OPS",
+                category_names="Operations Equipment",
+                asset_count=1,
+                register_cost=Decimal("400.00"),
+                register_accumulated_depreciation=Decimal("50.00"),
+                register_nbv=Decimal("350.00"),
+            ),
+        ]
+        accounts = [
+            SimpleNamespace(
+                account_id=asset_account_id,
+                account_code="1500",
+                account_name="Fixed Assets",
+            ),
+            SimpleNamespace(
+                account_id=accum_account_id,
+                account_code="1590",
+                account_name="Accumulated Depreciation",
+            ),
+        ]
+        gl_rows = [
+            SimpleNamespace(account_id=asset_account_id, balance=Decimal("1000.00")),
+            SimpleNamespace(account_id=accum_account_id, balance=Decimal("-200.00")),
+        ]
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = [
+            SimpleNamespace(all=lambda: category_rows),
+            SimpleNamespace(all=lambda: gl_rows),
+        ]
+        mock_db.scalars.return_value = SimpleNamespace(all=lambda: accounts)
+
+        with patch(
+            "app.services.fixed_assets.web.get_currency_context",
+            return_value={
+                "presentation_currency_code": "NGN",
+                "currencies": [{"code": "NGN", "symbol": "NGN "}],
+            },
+        ):
+            result = FixedAssetWebService.gl_reconciliation_context(
+                mock_db,
+                str(org_id),
+                as_of=date(2026, 4, 30),
+            )
+
+        assert result["totals"]["category_count"] == 2
+        assert result["totals"]["asset_count"] == 2
+        assert result["totals"]["register_nbv"] == Decimal("850.00")
+        assert result["totals"]["gl_cost"] == Decimal("1000.00")
+        assert result["totals"]["gl_accumulated_depreciation"] == Decimal("200.00")
+        assert result["totals"]["gl_nbv"] == Decimal("800.00")
+        assert result["totals"]["nbv_variance"] == Decimal("50.00")
 
 
 class TestFAWebServiceAssetUpdate:

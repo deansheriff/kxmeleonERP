@@ -65,6 +65,10 @@ MODULE_SETTINGS_HANDLERS = {
         get_context=module_settings_web_service.get_expense_context,
         update_settings=module_settings_web_service.update_expense_settings,
     ),
+    "fixed-assets": ModuleSettingsHandler(
+        get_context=module_settings_web_service.get_fixed_assets_context,
+        update_settings=module_settings_web_service.update_fixed_assets_settings,
+    ),
 }
 
 

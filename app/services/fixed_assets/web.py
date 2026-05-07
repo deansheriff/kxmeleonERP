@@ -10,6 +10,7 @@ import logging
 from datetime import date, datetime
 from decimal import Decimal
 from urllib.parse import quote
+from typing import TypedDict
 from uuid import UUID
 
 from fastapi import HTTPException, Request
@@ -26,6 +27,8 @@ from app.models.finance.core_config.numbering_sequence import (
 from app.models.finance.core_org.location import Location
 from app.models.finance.gl.account import Account
 from app.models.finance.gl.fiscal_period import FiscalPeriod, PeriodStatus
+from app.models.finance.gl.journal_entry import JournalEntry, JournalStatus
+from app.models.finance.gl.journal_entry_line import JournalEntryLine
 from app.models.fixed_assets.asset import Asset, AssetStatus
 from app.models.fixed_assets.asset_category import AssetCategory, DepreciationMethod
 from app.models.fixed_assets.maintenance_request import (
@@ -53,6 +56,23 @@ from app.templates import templates
 from app.web.deps import WebAuthContext, base_context
 
 logger = logging.getLogger(__name__)
+
+
+class GLReconciliationTotals(TypedDict):
+    """Numeric totals for the fixed asset GL reconciliation page."""
+
+    category_count: int
+    asset_count: int
+    register_cost: Decimal
+    gl_cost: Decimal
+    cost_variance: Decimal
+    register_accumulated_depreciation: Decimal
+    gl_accumulated_depreciation: Decimal
+    accumulated_depreciation_variance: Decimal
+    register_nbv: Decimal
+    gl_nbv: Decimal
+    nbv_variance: Decimal
+
 
 EDITABLE_ASSET_STATUSES = (
     AssetStatus.NOT_IN_USE,
@@ -254,6 +274,273 @@ class FixedAssetWebService:
         return resolved_department_id, resolved_employee_id
 
     @staticmethod
+    def gl_reconciliation_context(
+        db: Session,
+        organization_id: str,
+        as_of: date | None = None,
+    ) -> dict:
+        """Build fixed asset register to GL reconciliation context."""
+        org_id = coerce_uuid(organization_id)
+        report_date = as_of or date.today()
+        tolerance = Decimal("0.01")
+
+        category_rows = db.execute(
+            select(
+                AssetCategory.asset_account_id,
+                AssetCategory.accumulated_depreciation_account_id,
+                func.count(func.distinct(AssetCategory.category_id)).label(
+                    "category_count"
+                ),
+                func.string_agg(
+                    func.distinct(AssetCategory.category_code),
+                    ", ",
+                ).label("category_codes"),
+                func.string_agg(
+                    func.distinct(AssetCategory.category_name),
+                    ", ",
+                ).label("category_names"),
+                func.count(Asset.asset_id).label("asset_count"),
+                func.coalesce(func.sum(Asset.functional_currency_cost), 0).label(
+                    "register_cost"
+                ),
+                func.coalesce(func.sum(Asset.accumulated_depreciation), 0).label(
+                    "register_accumulated_depreciation"
+                ),
+                func.coalesce(func.sum(Asset.net_book_value), 0).label("register_nbv"),
+            )
+            .outerjoin(
+                Asset,
+                and_(
+                    Asset.category_id == AssetCategory.category_id,
+                    Asset.organization_id == org_id,
+                    Asset.acquisition_date <= report_date,
+                    (
+                        Asset.disposal_date.is_(None)
+                        | (Asset.disposal_date > report_date)
+                    ),
+                ),
+            )
+            .where(AssetCategory.organization_id == org_id)
+            .where(AssetCategory.is_active.is_(True))
+            .group_by(
+                AssetCategory.asset_account_id,
+                AssetCategory.accumulated_depreciation_account_id,
+            )
+            .order_by(
+                AssetCategory.asset_account_id.asc(),
+                AssetCategory.accumulated_depreciation_account_id.asc(),
+            )
+        ).all()
+
+        account_ids: set[UUID] = set()
+        for row in category_rows:
+            if row.asset_account_id:
+                account_ids.add(row.asset_account_id)
+            if row.accumulated_depreciation_account_id:
+                account_ids.add(row.accumulated_depreciation_account_id)
+
+        accounts_by_id: dict[UUID, Account] = {}
+        gl_balances: dict[UUID, Decimal] = {}
+        if account_ids:
+            accounts_by_id = {
+                account.account_id: account
+                for account in db.scalars(
+                    select(Account).where(
+                        Account.organization_id == org_id,
+                        Account.account_id.in_(account_ids),
+                    )
+                ).all()
+            }
+
+            gl_rows = db.execute(
+                select(
+                    JournalEntryLine.account_id,
+                    func.coalesce(
+                        func.sum(
+                            JournalEntryLine.debit_amount_functional
+                            - JournalEntryLine.credit_amount_functional
+                        ),
+                        0,
+                    ).label("balance"),
+                )
+                .join(
+                    JournalEntry,
+                    JournalEntry.journal_entry_id == JournalEntryLine.journal_entry_id,
+                )
+                .where(
+                    JournalEntry.organization_id == org_id,
+                    JournalEntry.status == JournalStatus.POSTED,
+                    JournalEntry.posting_date <= report_date,
+                    JournalEntryLine.account_id.in_(account_ids),
+                )
+                .group_by(JournalEntryLine.account_id)
+            ).all()
+            gl_balances = {
+                row.account_id: Decimal(str(row.balance or 0)) for row in gl_rows
+            }
+
+        rows: list[dict[str, object]] = []
+        totals: GLReconciliationTotals = {
+            "category_count": 0,
+            "asset_count": 0,
+            "register_cost": Decimal("0"),
+            "gl_cost": Decimal("0"),
+            "cost_variance": Decimal("0"),
+            "register_accumulated_depreciation": Decimal("0"),
+            "gl_accumulated_depreciation": Decimal("0"),
+            "accumulated_depreciation_variance": Decimal("0"),
+            "register_nbv": Decimal("0"),
+            "gl_nbv": Decimal("0"),
+            "nbv_variance": Decimal("0"),
+        }
+
+        for row in category_rows:
+            register_cost = Decimal(str(row.register_cost or 0))
+            register_accumulated_depreciation = Decimal(
+                str(row.register_accumulated_depreciation or 0)
+            )
+            register_nbv = Decimal(str(row.register_nbv or 0))
+
+            asset_account = accounts_by_id.get(row.asset_account_id)
+            accumulated_account = accounts_by_id.get(
+                row.accumulated_depreciation_account_id
+            )
+            gl_cost = gl_balances.get(row.asset_account_id, Decimal("0"))
+            gl_accumulated_depreciation = -gl_balances.get(
+                row.accumulated_depreciation_account_id, Decimal("0")
+            )
+            gl_nbv = gl_cost - gl_accumulated_depreciation
+
+            cost_variance = register_cost - gl_cost
+            accumulated_depreciation_variance = (
+                register_accumulated_depreciation - gl_accumulated_depreciation
+            )
+            nbv_variance = register_nbv - gl_nbv
+
+            if int(row.asset_count or 0) > 0:
+                totals["category_count"] += 1
+            totals["asset_count"] += int(row.asset_count or 0)
+            totals["register_cost"] += register_cost
+            totals["register_accumulated_depreciation"] += (
+                register_accumulated_depreciation
+            )
+            totals["register_nbv"] += register_nbv
+
+            rows.append(
+                {
+                    "category_id": (
+                        f"{row.asset_account_id}:{row.accumulated_depreciation_account_id}"
+                    ),
+                    "category_code": (
+                        row.category_codes
+                        if int(row.category_count or 0) == 1
+                        else "Multiple categories"
+                    ),
+                    "category_name": (
+                        f"{int(row.category_count or 0)} categories"
+                        if int(row.category_count or 0) != 1
+                        else row.category_names
+                    ),
+                    "category_codes": row.category_codes,
+                    "category_names": row.category_names,
+                    "category_count": int(row.category_count or 0),
+                    "asset_count": int(row.asset_count or 0),
+                    "asset_account": (
+                        {
+                            "account_id": str(asset_account.account_id),
+                            "account_code": asset_account.account_code,
+                            "account_name": asset_account.account_name,
+                        }
+                        if asset_account
+                        else None
+                    ),
+                    "accumulated_depreciation_account": (
+                        {
+                            "account_id": str(accumulated_account.account_id),
+                            "account_code": accumulated_account.account_code,
+                            "account_name": accumulated_account.account_name,
+                        }
+                        if accumulated_account
+                        else None
+                    ),
+                    "register_cost": register_cost,
+                    "gl_cost": gl_cost,
+                    "cost_variance": cost_variance,
+                    "register_accumulated_depreciation": register_accumulated_depreciation,
+                    "gl_accumulated_depreciation": gl_accumulated_depreciation,
+                    "accumulated_depreciation_variance": accumulated_depreciation_variance,
+                    "register_nbv": register_nbv,
+                    "gl_nbv": gl_nbv,
+                    "nbv_variance": nbv_variance,
+                    "is_balanced": (
+                        cost_variance.copy_abs() <= tolerance
+                        and accumulated_depreciation_variance.copy_abs() <= tolerance
+                        and nbv_variance.copy_abs() <= tolerance
+                    ),
+                }
+            )
+
+        mapped_asset_account_ids = {
+            row.asset_account_id for row in category_rows if row.asset_account_id
+        }
+        mapped_accumulated_depreciation_account_ids = {
+            row.accumulated_depreciation_account_id
+            for row in category_rows
+            if row.accumulated_depreciation_account_id
+        }
+
+        totals["gl_cost"] = sum(
+            (
+                gl_balances.get(account_id, Decimal("0"))
+                for account_id in mapped_asset_account_ids
+            ),
+            Decimal("0"),
+        )
+        totals["gl_accumulated_depreciation"] = sum(
+            (
+                -gl_balances.get(account_id, Decimal("0"))
+                for account_id in mapped_accumulated_depreciation_account_ids
+            ),
+            Decimal("0"),
+        )
+        totals["gl_nbv"] = totals["gl_cost"] - totals["gl_accumulated_depreciation"]
+        totals["cost_variance"] = totals["register_cost"] - totals["gl_cost"]
+        totals["accumulated_depreciation_variance"] = (
+            totals["register_accumulated_depreciation"]
+            - totals["gl_accumulated_depreciation"]
+        )
+        totals["nbv_variance"] = totals["register_nbv"] - totals["gl_nbv"]
+
+        total_variance_abs = (
+            totals["cost_variance"].copy_abs()
+            + totals["accumulated_depreciation_variance"].copy_abs()
+            + totals["nbv_variance"].copy_abs()
+        )
+
+        currency_context = get_currency_context(db, str(org_id))
+        currency_code = currency_context.get("presentation_currency_code") or (
+            currency_context.get("default_currency_code") or ""
+        )
+        currency_prefix = next(
+            (
+                currency.get("symbol") or ""
+                for currency in currency_context.get("currencies", [])
+                if currency.get("code") == currency_code
+            ),
+            "",
+        )
+
+        return {
+            "as_of": report_date.isoformat(),
+            "as_of_label": _format_date(report_date),
+            "rows": rows,
+            "totals": totals,
+            "out_of_balance_count": sum(1 for row in rows if not row["is_balanced"]),
+            "is_balanced": total_variance_abs <= tolerance,
+            "currency_prefix": currency_prefix,
+        }
+
+    @staticmethod
     def _build_depreciation_posting_preview(
         db: Session,
         organization_id: UUID,
@@ -266,7 +553,9 @@ class FixedAssetWebService:
 
         schedule_rows = list(
             db.scalars(
-                select(DepreciationSchedule).where(DepreciationSchedule.run_id == run.run_id)
+                select(DepreciationSchedule).where(
+                    DepreciationSchedule.run_id == run.run_id
+                )
             ).all()
         )
         if not schedule_rows:
@@ -327,7 +616,9 @@ class FixedAssetWebService:
                 {
                     "entry_type": "Debit",
                     "account_code": account.account_code if account else "Unknown",
-                    "account_name": account.account_name if account else str(account_id),
+                    "account_name": account.account_name
+                    if account
+                    else str(account_id),
                     "description": f"Depreciation expense - Run #{run.run_number}",
                     "amount": _format_currency(amount, currency_code),
                 }
@@ -340,7 +631,9 @@ class FixedAssetWebService:
                 {
                     "entry_type": "Credit",
                     "account_code": account.account_code if account else "Unknown",
-                    "account_name": account.account_name if account else str(account_id),
+                    "account_name": account.account_name
+                    if account
+                    else str(account_id),
                     "description": f"Accumulated depreciation - Run #{run.run_number}",
                     "amount": _format_currency(amount, currency_code),
                 }
@@ -1818,13 +2111,10 @@ class FixedAssetWebService:
                 }
             )
 
-        selected_period = (
-            period
-            or (
-                str(recommended_period.fiscal_period_id)
-                if recommended_period is not None
-                else fallback_period_id
-            )
+        selected_period = period or (
+            str(recommended_period.fiscal_period_id)
+            if recommended_period is not None
+            else fallback_period_id
         )
 
         return {

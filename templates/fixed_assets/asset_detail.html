@@ -66,8 +66,16 @@
                 <span class="text-slate-900 dark:text-white">{{ asset.acquisition_cost or "-" }}</span>
             </div>
             <div class="flex items-center justify-between text-sm">
+                <span class="text-slate-500 dark:text-slate-400">Revalued Amount</span>
+                <span class="text-slate-900 dark:text-white">{{ asset.revalued_amount or "-" }}</span>
+            </div>
+            <div class="flex items-center justify-between text-sm">
                 <span class="text-slate-500 dark:text-slate-400">Accumulated Depreciation</span>
                 <span class="text-slate-900 dark:text-white">{{ asset.accumulated_depreciation or "-" }}</span>
+            </div>
+            <div class="flex items-center justify-between text-sm">
+                <span class="text-slate-500 dark:text-slate-400">Impairment Loss</span>
+                <span class="text-slate-900 dark:text-white">{{ asset.impairment_loss or "-" }}</span>
             </div>
             <div class="flex items-center justify-between text-sm">
                 <span class="text-slate-500 dark:text-slate-400">Net Book Value</span>

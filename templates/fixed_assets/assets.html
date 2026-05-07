@@ -89,7 +89,6 @@
                             <th class="hidden sm:table-cell" scope="col">Category</th>
                             <th class="hidden sm:table-cell" scope="col">Acquired</th>
                             <th scope="col" class="text-right">Cost</th>
-                            <th scope="col" class="text-right">Net Book Value</th>
                             <th scope="col" class="text-center">Status</th>
                             <th scope="col" class="text-right">Actions</th>
                         </tr>
@@ -116,7 +115,6 @@
                             </td>
                             <td class="hidden sm:table-cell text-slate-600 dark:text-slate-300">{{ asset.acquisition_date }}</td>
                             <td class="text-right font-mono text-slate-600 dark:text-slate-300">{{ asset.acquisition_cost }}</td>
-                            <td class="text-right font-mono font-medium text-slate-900 dark:text-white">{{ asset.net_book_value }}</td>
                             <td class="text-center">
                             {{ status_badge(asset.status | default('in_use'), 'sm') }}
                             </td>
@@ -137,7 +135,7 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="11" class="py-12">
+                            <td colspan="10" class="py-12">
                                 {{ empty_state(
                                     'No assets found',
                                     'Get started by registering your first fixed asset' if not (search or category or status or location) else 'Try adjusting your search or filter criteria',

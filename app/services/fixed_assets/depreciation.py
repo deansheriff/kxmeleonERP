@@ -22,6 +22,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.orm import Session
 
+from app.models.domain_settings import SettingDomain
 from app.models.fixed_assets.asset import Asset, AssetStatus
 from app.models.fixed_assets.asset_category import AssetCategory, DepreciationMethod
 from app.models.fixed_assets.depreciation_run import (
@@ -29,13 +30,19 @@ from app.models.fixed_assets.depreciation_run import (
     DepreciationRunStatus,
 )
 from app.models.fixed_assets.depreciation_schedule import DepreciationSchedule
+from app.models.finance.core_org.organization import Organization
+from app.models.finance.gl.fiscal_period import FiscalPeriod, PeriodStatus
 from app.services.common import coerce_uuid
 from app.services.people.assets.lifecycle_event_service import (
     record_asset_lifecycle_event,
 )
 from app.services.response import ListResponseMixin
+from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
+
+AUTOMATION_RUN_CREATOR_USER_ID = UUID("00000000-0000-0000-0000-000000000098")
+AUTOMATION_RUN_POSTER_USER_ID = UUID("00000000-0000-0000-0000-000000000099")
 
 
 @dataclass
@@ -73,6 +80,44 @@ class DepreciationService(ListResponseMixin):
 
     Handles depreciation calculation, run management, and GL posting.
     """
+
+    _AUTOMATION_BLOCKING_STATUSES = (
+        DepreciationRunStatus.DRAFT,
+        DepreciationRunStatus.CALCULATING,
+        DepreciationRunStatus.CALCULATED,
+        DepreciationRunStatus.POSTING,
+        DepreciationRunStatus.POSTED,
+    )
+
+    @staticmethod
+    def _elapsed_months(start_date: date | None, as_of_date: date) -> int:
+        """Return elapsed depreciation months between start and the as-of date."""
+        if start_date is None or start_date > as_of_date:
+            return 0
+
+        months = (as_of_date.year - start_date.year) * 12 + (
+            as_of_date.month - start_date.month
+        )
+        if as_of_date.day >= start_date.day:
+            months += 1
+        return max(months, 0)
+
+    @staticmethod
+    def periods_due_for_run(asset: Asset, as_of_date: date) -> int:
+        """Calculate catch-up depreciation periods due for an asset."""
+        useful_life_months = int(asset.useful_life_months or 0)
+        remaining_life_months = int(asset.remaining_life_months or 0)
+        if useful_life_months <= 0 or remaining_life_months <= 0:
+            return 0
+
+        total_periods_due = min(
+            useful_life_months,
+            DepreciationService._elapsed_months(
+                asset.depreciation_start_date, as_of_date
+            ),
+        )
+        already_recognized_periods = max(0, useful_life_months - remaining_life_months)
+        return max(0, total_periods_due - already_recognized_periods)
 
     @staticmethod
     def calculate_straight_line(
@@ -314,6 +359,132 @@ class DepreciationService(ListResponseMixin):
         return run
 
     @staticmethod
+    def list_active_organization_ids(db: Session) -> list[UUID]:
+        """Return active organization IDs for scheduled automation scans."""
+        return list(
+            db.scalars(
+                select(Organization.organization_id).where(
+                    Organization.is_active.is_(True)
+                )
+            ).all()
+        )
+
+    @staticmethod
+    def get_next_automation_period(
+        db: Session,
+        organization_id: UUID,
+        as_of_date: date | None = None,
+    ) -> FiscalPeriod | None:
+        """
+        Return the next monthly fiscal period due for depreciation automation.
+
+        The task only processes periods that have already ended and do not
+        already have a non-failed depreciation run.
+        """
+        org_id = coerce_uuid(organization_id)
+        cutoff_date = as_of_date or date.today()
+
+        blocked_period_ids = select(DepreciationRun.fiscal_period_id).where(
+            and_(
+                DepreciationRun.organization_id == org_id,
+                DepreciationRun.status.in_(
+                    DepreciationService._AUTOMATION_BLOCKING_STATUSES
+                ),
+            )
+        )
+
+        return db.scalar(
+            select(FiscalPeriod)
+            .where(
+                and_(
+                    FiscalPeriod.organization_id == org_id,
+                    FiscalPeriod.status.in_(tuple(PeriodStatus.accepts_postings())),
+                    FiscalPeriod.is_adjustment_period.is_(False),
+                    FiscalPeriod.end_date <= cutoff_date,
+                    ~FiscalPeriod.fiscal_period_id.in_(blocked_period_ids),
+                )
+            )
+            .order_by(FiscalPeriod.end_date.asc(), FiscalPeriod.period_number.asc())
+        )
+
+    @staticmethod
+    def create_automated_monthly_run(
+        db: Session,
+        organization_id: UUID,
+        *,
+        as_of_date: date | None = None,
+        auto_post: bool = False,
+    ) -> dict[str, object]:
+        """Create the next monthly depreciation run for one organization."""
+        org_id = coerce_uuid(organization_id)
+        fiscal_period = DepreciationService.get_next_automation_period(
+            db, org_id, as_of_date=as_of_date
+        )
+        if not fiscal_period:
+            return {
+                "status": "skipped",
+                "reason": "no_due_period",
+                "organization_id": str(org_id),
+            }
+
+        run = DepreciationService.create_depreciation_run(
+            db=db,
+            organization_id=org_id,
+            fiscal_period_id=fiscal_period.fiscal_period_id,
+            created_by_user_id=AUTOMATION_RUN_CREATOR_USER_ID,
+            description=(
+                f"System-generated monthly depreciation for {fiscal_period.period_name}"
+            ),
+        )
+        run = DepreciationService.calculate_run(db, org_id, run.run_id)
+
+        result: dict[str, object] = {
+            "status": "calculated",
+            "organization_id": str(org_id),
+            "period_id": str(fiscal_period.fiscal_period_id),
+            "period_name": fiscal_period.period_name,
+            "run_id": str(run.run_id),
+            "run_number": run.run_number,
+            "assets_processed": run.assets_processed,
+            "total_depreciation": str(run.total_depreciation),
+        }
+
+        if auto_post and run.assets_processed > 0:
+            run = DepreciationService.post_run(
+                db=db,
+                organization_id=org_id,
+                run_id=run.run_id,
+                posted_by_user_id=AUTOMATION_RUN_POSTER_USER_ID,
+                posting_date=fiscal_period.end_date,
+            )
+            result["status"] = "posted"
+            result["journal_entry_id"] = (
+                str(run.journal_entry_id) if run.journal_entry_id else None
+            )
+        elif auto_post:
+            result["reason"] = "no_assets_to_post"
+
+        return result
+
+    @staticmethod
+    def automation_enabled(db: Session) -> bool:
+        """Return whether monthly FA depreciation automation is enabled."""
+        return bool(
+            resolve_value(
+                db, SettingDomain.automation, "fa_depreciation_auto_run_enabled"
+            )
+        )
+
+    @staticmethod
+    def automation_auto_post_enabled(db: Session) -> bool:
+        """Return whether automated runs should post immediately."""
+        return bool(
+            resolve_value(
+                db, SettingDomain.automation, "fa_depreciation_auto_post_enabled"
+            )
+        )
+
+    @staticmethod
     def calculate_run(
         db: Session,
         organization_id: UUID,
@@ -352,6 +523,11 @@ class DepreciationService(ListResponseMixin):
         db.flush()
 
         try:
+            fiscal_period = db.get(FiscalPeriod, run.fiscal_period_id)
+            if not fiscal_period or fiscal_period.organization_id != org_id:
+                raise HTTPException(status_code=404, detail="Fiscal period not found")
+            as_of_date = min(fiscal_period.end_date, date.today())
+
             # Get all depreciable assets
             assets = list(
                 db.scalars(
@@ -377,8 +553,13 @@ class DepreciationService(ListResponseMixin):
             for asset in assets:
                 if asset.depreciation_start_date is None:
                     continue
+                periods = DepreciationService.periods_due_for_run(asset, as_of_date)
+                if periods <= 0:
+                    continue
 
-                calc = DepreciationService.calculate_asset_depreciation(db, asset)
+                calc = DepreciationService.calculate_asset_depreciation(
+                    db, asset, periods=periods
+                )
 
                 if calc.depreciation_amount > 0:
                     schedule = DepreciationSchedule(

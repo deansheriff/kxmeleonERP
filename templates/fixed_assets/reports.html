@@ -49,11 +49,15 @@
                class="rounded-full border px-3 py-1.5 text-sm {% if section == 'discrepancies' %}border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-800 dark:bg-teal-900/30 dark:text-teal-300{% else %}border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800{% endif %}">
                 Discrepancies
             </a>
+            <a href="/fixed-assets/reports/gl-reconciliation"
+               class="rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
+                GL Reconciliation
+            </a>
         </div>
     </div>
 
     {% if section == "overview" %}
-    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <a href="/fixed-assets/reports?section=state" class="card p-5 border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/20 transition hover:bg-emerald-50/40">
             <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">State Records</p>
             <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ by_state | length }}</p>
@@ -82,6 +86,12 @@
             <p class="text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">Discrepancies</p>
             <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ discrepancy_count }}</p>
             <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">All discrepancy lines in selected state.</p>
+        </a>
+
+        <a href="/fixed-assets/reports/gl-reconciliation" class="card p-5 border-teal-200 dark:border-teal-900/50 bg-teal-50/20 transition hover:bg-teal-50/40">
+            <p class="text-xs font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-300">GL Reconciliation</p>
+            <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ icon_svg("scale", "h-7 w-7") }}</p>
+            <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Compare the asset register to GL control balances.</p>
         </a>
     </div>
 

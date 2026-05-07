@@ -4,6 +4,8 @@ FA (Fixed Assets) Web Routes.
 HTML template routes for Assets and Depreciation.
 """
 
+from datetime import date
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -74,6 +76,27 @@ def fa_reports(
         )
     )
     return templates.TemplateResponse(request, "fixed_assets/reports.html", context)
+
+
+@router.get("/reports/gl-reconciliation", response_class=HTMLResponse)
+def fa_gl_reconciliation_report(
+    request: Request,
+    auth: WebAuthContext = Depends(require_fixed_assets_access),
+    db: Session = Depends(get_db),
+    as_of: date | None = Query(default=None),
+):
+    """Asset register to GL control reconciliation report."""
+    context = base_context(request, auth, "Asset GL Reconciliation", "reports", db=db)
+    context.update(
+        fa_web_service.gl_reconciliation_context(
+            db,
+            str(auth.organization_id),
+            as_of=as_of,
+        )
+    )
+    return templates.TemplateResponse(
+        request, "fixed_assets/gl_reconciliation.html", context
+    )
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
