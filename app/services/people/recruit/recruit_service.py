@@ -703,7 +703,7 @@ class RecruitmentService:
             "status": JobApplicant.status,
         }
 
-        sort_expr = system_sort_map.get(sort_by)
+        sort_expr: Any = system_sort_map.get(sort_by)
         if sort_expr is None and sort_by.startswith("field:"):
             field_key = sort_by.removeprefix("field:").strip()
             if field_key:
