@@ -5,6 +5,8 @@ Tests for DepreciationService.
 import uuid
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -12,6 +14,7 @@ from tests.ifrs.fa.conftest import (
     MockDepreciationMethod,
     MockDepreciationRun,
     MockDepreciationSchedule,
+    MockAssetStatus,
 )
 
 
@@ -131,6 +134,30 @@ class TestDepreciationCalculations:
 
         assert result == Decimal("0")
 
+    def test_periods_due_for_run_catches_up_from_start_date(self, mock_asset):
+        """Depreciation should catch up from start date through the run period."""
+        from app.services.fixed_assets.depreciation import DepreciationService
+
+        mock_asset.depreciation_start_date = date(2021, 4, 28)
+        mock_asset.useful_life_months = 60
+        mock_asset.remaining_life_months = 60
+
+        result = DepreciationService.periods_due_for_run(mock_asset, date(2026, 4, 28))
+
+        assert result == 60
+
+    def test_periods_due_for_run_subtracts_already_recognized_periods(self, mock_asset):
+        """Previously recognized months should not be recalculated."""
+        from app.services.fixed_assets.depreciation import DepreciationService
+
+        mock_asset.depreciation_start_date = date(2021, 4, 28)
+        mock_asset.useful_life_months = 60
+        mock_asset.remaining_life_months = 58
+
+        result = DepreciationService.periods_due_for_run(mock_asset, date(2026, 4, 28))
+
+        assert result == 58
+
 
 class TestDepreciationRunService:
     """Tests for depreciation run operations."""
@@ -217,6 +244,201 @@ class TestDepreciationRunService:
         )
 
         assert len(result) == 5
+
+    def test_calculate_run_uses_catch_up_periods(
+        self, mock_db, org_id, mock_asset, mock_category
+    ):
+        """Run calculation should use all due periods through the fiscal period."""
+        from app.models.fixed_assets.depreciation_run import DepreciationRunStatus
+        from app.services.fixed_assets.depreciation import (
+            DepreciationCalculation,
+            DepreciationService,
+        )
+
+        run_id = uuid.uuid4()
+        fiscal_period_id = uuid.uuid4()
+        mock_run = SimpleNamespace(
+            run_id=run_id,
+            organization_id=org_id,
+            fiscal_period_id=fiscal_period_id,
+            status=DepreciationRunStatus.DRAFT,
+            calculation_started_at=None,
+            calculation_completed_at=None,
+            assets_processed=0,
+            total_depreciation=Decimal("0"),
+        )
+        mock_period = SimpleNamespace(
+            fiscal_period_id=fiscal_period_id,
+            organization_id=org_id,
+            end_date=date(2025, 12, 31),
+        )
+        mock_asset.organization_id = org_id
+        mock_asset.status = MockAssetStatus.IN_USE
+        mock_asset.depreciation_start_date = date(2021, 4, 28)
+        mock_asset.useful_life_months = 60
+        mock_asset.remaining_life_months = 60
+        mock_asset.net_book_value = Decimal("12000")
+        mock_asset.residual_value = Decimal("0")
+        mock_asset.accumulated_depreciation = Decimal("0")
+
+        mock_db.get.side_effect = [mock_run, mock_period]
+        mock_db.scalars.return_value = [mock_asset]
+
+        calc_result = DepreciationCalculation(
+            asset_id=mock_asset.asset_id,
+            asset_number=mock_asset.asset_number,
+            depreciation_amount=Decimal("11400.00"),
+            opening_nbv=Decimal("12000"),
+            closing_nbv=Decimal("600.00"),
+            opening_accum_dep=Decimal("0"),
+            closing_accum_dep=Decimal("11400.00"),
+            remaining_life_opening=60,
+            remaining_life_closing=3,
+            expense_account_id=mock_category.depreciation_expense_account_id,
+            accum_dep_account_id=mock_category.accumulated_depreciation_account_id,
+            cost_center_id=None,
+        )
+
+        with patch.object(
+            DepreciationService,
+            "calculate_asset_depreciation",
+            return_value=calc_result,
+        ) as calc_mock:
+            result = DepreciationService.calculate_run(mock_db, org_id, run_id)
+
+        calc_mock.assert_called_once_with(mock_db, mock_asset, periods=57)
+        assert result.status == DepreciationRunStatus.CALCULATED
+        assert result.assets_processed == 1
+        assert result.total_depreciation == Decimal("11400.00")
+
+    def test_create_automated_monthly_run_skips_when_no_due_period(
+        self, mock_db, org_id
+    ):
+        """Automation should skip when no ended open period is due."""
+        from app.services.fixed_assets.depreciation import DepreciationService
+
+        with patch.object(
+            DepreciationService,
+            "get_next_automation_period",
+            return_value=None,
+        ):
+            result = DepreciationService.create_automated_monthly_run(
+                mock_db,
+                org_id,
+                auto_post=True,
+            )
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "no_due_period"
+
+    def test_create_automated_monthly_run_posts_when_enabled(self, mock_db, org_id):
+        """Automation should post the run when auto-post is enabled."""
+        from app.services.fixed_assets.depreciation import DepreciationService
+
+        period_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        journal_entry_id = uuid.uuid4()
+        fiscal_period = SimpleNamespace(
+            fiscal_period_id=period_id,
+            period_name="April 2026",
+            end_date=date(2026, 4, 30),
+        )
+        created_run = SimpleNamespace(run_id=run_id, run_number=1)
+        calculated_run = SimpleNamespace(
+            run_id=run_id,
+            run_number=1,
+            assets_processed=3,
+            total_depreciation=Decimal("39650.01"),
+        )
+        posted_run = SimpleNamespace(
+            run_id=run_id,
+            run_number=1,
+            assets_processed=3,
+            total_depreciation=Decimal("39650.01"),
+            journal_entry_id=journal_entry_id,
+        )
+
+        with (
+            patch.object(
+                DepreciationService,
+                "get_next_automation_period",
+                return_value=fiscal_period,
+            ),
+            patch.object(
+                DepreciationService,
+                "create_depreciation_run",
+                return_value=created_run,
+            ),
+            patch.object(
+                DepreciationService,
+                "calculate_run",
+                return_value=calculated_run,
+            ),
+            patch.object(
+                DepreciationService,
+                "post_run",
+                return_value=posted_run,
+            ) as post_mock,
+        ):
+            result = DepreciationService.create_automated_monthly_run(
+                mock_db,
+                org_id,
+                auto_post=True,
+            )
+
+        post_mock.assert_called_once()
+        assert result["status"] == "posted"
+        assert result["period_name"] == "April 2026"
+        assert result["journal_entry_id"] == str(journal_entry_id)
+
+    def test_create_automated_monthly_run_keeps_empty_run_calculated(
+        self, mock_db, org_id
+    ):
+        """Auto-post should not fail when the calculated run has no schedules."""
+        from app.services.fixed_assets.depreciation import DepreciationService
+
+        period_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        fiscal_period = SimpleNamespace(
+            fiscal_period_id=period_id,
+            period_name="April 2026",
+            end_date=date(2026, 4, 30),
+        )
+        created_run = SimpleNamespace(run_id=run_id, run_number=1)
+        calculated_run = SimpleNamespace(
+            run_id=run_id,
+            run_number=1,
+            assets_processed=0,
+            total_depreciation=Decimal("0.00"),
+        )
+
+        with (
+            patch.object(
+                DepreciationService,
+                "get_next_automation_period",
+                return_value=fiscal_period,
+            ),
+            patch.object(
+                DepreciationService,
+                "create_depreciation_run",
+                return_value=created_run,
+            ),
+            patch.object(
+                DepreciationService,
+                "calculate_run",
+                return_value=calculated_run,
+            ),
+            patch.object(DepreciationService, "post_run") as post_mock,
+        ):
+            result = DepreciationService.create_automated_monthly_run(
+                mock_db,
+                org_id,
+                auto_post=True,
+            )
+
+        post_mock.assert_not_called()
+        assert result["status"] == "calculated"
+        assert result["reason"] == "no_assets_to_post"
 
 
 class TestAssetDepreciationCalculation:

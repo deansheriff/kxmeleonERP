@@ -3,21 +3,6 @@
 
 {% block page_title %}Stock Counts{% endblock %}
 
-{% block head %}
-{{ super() }}
-<style>
-    .inventory-compact-table th {
-        padding: 0.875rem 1rem;
-        font-size: 11px;
-    }
-
-    .inventory-compact-table td {
-        padding: 0.875rem 1rem;
-        font-size: 13px;
-    }
-</style>
-{% endblock %}
-
 {% block breadcrumbs %}
 <nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
     <ol class="flex items-center gap-2">
@@ -42,9 +27,9 @@
         {% if current_sort == key %}
             {% set icon_name = 'chevron-up' if current_sort_dir == 'asc' else 'chevron-down' %}
         {% endif %}
-        <th scope="col" class="{{ extra_class }}">
+        <th scope="col" class="px-4 py-3 {{ extra_class }}">
             <a href="?page=1&limit={{ limit }}{% if search %}&search={{ search | urlencode }}{% endif %}{% if status %}&status={{ status | urlencode }}{% endif %}{% if warehouse %}&warehouse={{ warehouse | urlencode }}{% endif %}&sort={{ key }}&sort_dir={{ next_dir }}"
-               class="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors">
+               class="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
                 <span>{{ label }}</span>
                 {{ icon_svg(icon_name, "h-4 w-4") }}
             </a>
@@ -128,9 +113,9 @@
         {% endcall %}
     {% endcall %}
 
-    <div id="results-container">
+    <div id="results-container" class="w-full">
     <!-- Counts Table -->
-    <div class="card overflow-hidden">
+    <div class="card w-full overflow-hidden">
         {% if counts | default([]) | length > 0 %}
         {{ pagination(
             page=page,
@@ -144,29 +129,44 @@
             show_summary=true,
             bordered=false
         ) }}
-        <div class="table-container">
-            <table class="table table-ledger inventory-compact-table">
-                <thead>
+        <div class="overflow-x-auto">
+            <table class="w-full min-w-[1040px] table-fixed divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                <colgroup>
+                    <col class="w-[170px]">
+                    <col class="w-[125px]">
+                    <col class="w-[240px]">
+                    <col class="w-[115px]">
+                    <col class="w-[95px]">
+                    <col class="w-[105px]">
+                    <col class="w-[140px]">
+                    <col class="w-[145px]">
+                    <col class="w-[56px]">
+                </colgroup>
+                <thead class="bg-slate-50 dark:bg-slate-800/70">
                     <tr>
                         {{ sortable_header("Count #", "count_number", sort, sort_dir) }}
                         {{ sortable_header("Date", "count_date", sort, sort_dir) }}
                         {{ sortable_header("Warehouse", "warehouse", sort, sort_dir) }}
                         {{ sortable_header("Type", "type", sort, sort_dir) }}
                         {{ sortable_header("Items", "total_items", sort, sort_dir, "text-right") }}
-                        <th scope="col" class="text-right text-xs font-semibold uppercase tracking-wider">Counted</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Counted</th>
                         {{ sortable_header("Variance", "variance", sort, sort_dir, "text-right") }}
                         {{ sortable_header("Status", "status", sort, sort_dir) }}
-                        <th scope="col" class="w-12 text-xs font-semibold uppercase tracking-wider"></th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400"></th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
                     {% for count in counts %}
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer"
                         onclick="window.location='/inventory/counts/{{ count.count_id }}'">
-                        <td class="font-medium text-slate-900 dark:text-white">{{ count.count_number }}</td>
-                        <td>{{ count.count_date | format_date if count.count_date else '-' }}</td>
-                        <td>{{ count.warehouse.warehouse_name if count.warehouse else 'All Warehouses' }}</td>
-                        <td>
+                        <td class="px-4 py-3 align-middle">
+                            <span class="block truncate font-mono font-medium text-slate-900 dark:text-white" title="{{ count.count_number }}">{{ count.count_number }}</span>
+                        </td>
+                        <td class="px-4 py-3 align-middle text-slate-700 dark:text-slate-300">{{ count.count_date | format_date if count.count_date else '-' }}</td>
+                        <td class="px-4 py-3 align-middle text-slate-700 dark:text-slate-300">
+                            <span class="block truncate" title="{{ count.warehouse.warehouse_name if count.warehouse else 'All Warehouses' }}">{{ count.warehouse.warehouse_name if count.warehouse else 'All Warehouses' }}</span>
+                        </td>
+                        <td class="px-4 py-3 align-middle">
                             {% if count.is_cycle_count %}
                             <span class="inline-flex items-center gap-1 text-xs font-medium text-violet-600 dark:text-violet-400">
                                 {{ icon_svg("refresh", "h-3 w-3") }}
@@ -181,9 +181,9 @@
                             <span class="text-xs text-slate-500">Partial</span>
                             {% endif %}
                         </td>
-                        <td class="text-right font-mono">{{ count.total_items | default(0) }}</td>
-                        <td class="text-right font-mono">{{ count.items_counted | default(0) }}</td>
-                        <td class="text-right font-mono">
+                        <td class="px-4 py-3 text-right align-middle font-mono text-slate-900 dark:text-white">{{ count.total_items | default(0) }}</td>
+                        <td class="px-4 py-3 text-right align-middle font-mono text-slate-900 dark:text-white">{{ count.items_counted | default(0) }}</td>
+                        <td class="px-4 py-3 text-right align-middle font-mono">
                             {% if count.total_variance_value and count.total_variance_value != 0 %}
                             <span class="{{ 'text-rose-600' if count.total_variance_value < 0 else 'text-emerald-600' }}">
                                 {{ '{:,.2f}'.format(count.total_variance_value) }}
@@ -192,7 +192,7 @@
                             <span class="text-slate-400">-</span>
                             {% endif %}
                         </td>
-                        <td>
+                        <td class="px-4 py-3 align-middle">
                             {% set status_colors = {
                                 'DRAFT': 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300',
                                 'IN_PROGRESS': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -204,9 +204,12 @@
                                 {{ count.status.value | replace('_', ' ') | title }}
                             </span>
                         </td>
-                        <td>
-                            <a href="/inventory/counts/{{ count.count_id }}" class="text-slate-400 hover:text-amber-600 dark:hover:text-amber-400">
-                                {{ icon_svg("chevron-right") }}
+                        <td class="px-4 py-3 text-right align-middle">
+                            <a href="/inventory/counts/{{ count.count_id }}"
+                               class="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-900/20 dark:hover:text-amber-400"
+                               aria-label="Open count {{ count.count_number }}"
+                               onclick="event.stopPropagation()">
+                                {{ icon_svg("chevron-right", "h-4 w-4") }}
                             </a>
                         </td>
                     </tr>

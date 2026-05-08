@@ -1,0 +1,199 @@
+{% extends "fixed_assets/base_fixed_assets.html" %}
+{% from "components/macros.html" import icon_svg, empty_state %}
+
+{% block page_title %}Asset GL Reconciliation{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/fixed-assets" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Asset Management</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/fixed-assets/reports" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Reports</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">GL Reconciliation</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+{% macro money(value, muted=false) -%}
+    {% set amount = value or 0 %}
+    <span class="font-mono tabular-nums {% if muted %}text-slate-400{% endif %}">{{ currency_prefix }}{{ "{:,.2f}".format(amount) }}</span>
+{%- endmacro %}
+
+{% macro variance(value) -%}
+    {% set amount = value or 0 %}
+    {% if amount < 0 %}
+        <span class="font-mono tabular-nums text-rose-600 dark:text-rose-400">{{ currency_prefix }}{{ "{:,.2f}".format(amount) }}</span>
+    {% elif amount > 0 %}
+        <span class="font-mono tabular-nums text-amber-600 dark:text-amber-400">{{ currency_prefix }}{{ "{:,.2f}".format(amount) }}</span>
+    {% else %}
+        <span class="font-mono tabular-nums text-slate-400">{{ currency_prefix }}0.00</span>
+    {% endif %}
+{%- endmacro %}
+
+<div class="space-y-6 stagger-in">
+    <div class="card p-5 sm:p-6">
+        <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+            <div>
+                <div class="flex flex-wrap items-center gap-3">
+                    <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Asset GL Reconciliation</h2>
+                    {% if is_balanced %}
+                    <span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                        {{ icon_svg("check-circle", "mr-1.5 h-4 w-4") }}
+                        Balanced
+                    </span>
+                    {% else %}
+                    <span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                        {{ icon_svg("warning", "mr-1.5 h-4 w-4") }}
+                        Variance Found
+                    </span>
+                    {% endif %}
+                </div>
+                <p class="mt-2 max-w-3xl text-sm text-slate-600 dark:text-slate-300">
+                    Compares the Asset Management register to posted GL balances for fixed asset control accounts and accumulated depreciation accounts.
+                </p>
+            </div>
+
+            <form method="get" action="/fixed-assets/reports/gl-reconciliation" class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                <label for="as_of" class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">As Of</label>
+                <div class="mt-2 flex items-center gap-2">
+                    <input id="as_of" name="as_of" type="date" value="{{ as_of }}" class="form-input h-10 flex-1">
+                    <button type="submit" class="btn btn-secondary h-10 px-3">
+                        {{ icon_svg("filter", "h-4 w-4") }}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">GL Mappings</p>
+            <p class="mt-1 text-2xl font-semibold text-slate-900 dark:text-white">{{ totals.category_count }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ totals.asset_count }} assets included</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Register NBV</p>
+            <p class="mt-1 text-2xl font-semibold text-slate-900 dark:text-white">{{ money(totals.register_nbv) }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Asset Management value</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">GL NBV</p>
+            <p class="mt-1 text-2xl font-semibold text-slate-900 dark:text-white">{{ money(totals.gl_nbv) }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Control less accumulated depreciation</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">NBV Variance</p>
+            <p class="mt-1 text-2xl font-semibold">{{ variance(totals.nbv_variance) }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ out_of_balance_count }} mappings out of balance</p>
+        </div>
+    </div>
+
+    <div class="card w-full overflow-hidden">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h3 class="font-semibold text-slate-900 dark:text-white">Reconciliation By GL Mapping</h3>
+                    <p class="text-sm text-slate-500 dark:text-slate-400">As of {{ as_of_label }}</p>
+                </div>
+            </div>
+        </div>
+
+        {% if rows %}
+        <div class="overflow-x-auto">
+            <table class="w-full min-w-[1320px] table-fixed divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                <colgroup>
+                    <col class="w-[260px]">
+                    <col class="w-[90px]">
+                    <col class="w-[190px]">
+                    <col class="w-[150px]">
+                    <col class="w-[150px]">
+                    <col class="w-[145px]">
+                    <col class="w-[160px]">
+                    <col class="w-[160px]">
+                    <col class="w-[145px]">
+                    <col class="w-[145px]">
+                </colgroup>
+                <thead class="bg-slate-50 dark:bg-slate-800/70">
+                    <tr>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Category Mapping</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assets</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Control Account</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Register Cost</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">GL Cost</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cost Var.</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Register Accum.</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">GL Accum.</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">NBV Var.</th>
+                        <th scope="col" class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                    {% for row in rows %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td class="px-4 py-3 align-top">
+                            <p class="font-medium text-slate-900 dark:text-white">
+                                {{ row.category_code }}
+                            </p>
+                            {% if row.category_count and row.category_count > 1 %}
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400" title="{{ row.category_codes }}">
+                                {{ row.category_count }} categories mapped here
+                            </p>
+                            {% else %}
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                {{ row.category_name }}
+                            </p>
+                            {% endif %}
+                            {% if row.accumulated_depreciation_account %}
+                            <p class="mt-1 truncate text-xs text-slate-500 dark:text-slate-400" title="{{ row.accumulated_depreciation_account.account_code }} - {{ row.accumulated_depreciation_account.account_name }}">
+                                Accum: {{ row.accumulated_depreciation_account.account_code }} - {{ row.accumulated_depreciation_account.account_name }}
+                            </p>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right align-top font-mono">{{ row.asset_count }}</td>
+                        <td class="px-4 py-3 align-top">
+                            {% if row.asset_account %}
+                            <a href="/finance/gl/accounts/{{ row.asset_account.account_id }}" class="block truncate font-mono text-teal-700 hover:text-teal-900 dark:text-teal-300 dark:hover:text-teal-100" title="{{ row.asset_account.account_code }} - {{ row.asset_account.account_name }}">
+                                {{ row.asset_account.account_code }} - {{ row.asset_account.account_name }}
+                            </a>
+                            {% else %}
+                            <span class="text-slate-400">Not mapped</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right align-top">{{ money(row.register_cost) }}</td>
+                        <td class="px-4 py-3 text-right align-top">{{ money(row.gl_cost) }}</td>
+                        <td class="px-4 py-3 text-right align-top">{{ variance(row.cost_variance) }}</td>
+                        <td class="px-4 py-3 text-right align-top">{{ money(row.register_accumulated_depreciation) }}</td>
+                        <td class="px-4 py-3 text-right align-top">{{ money(row.gl_accumulated_depreciation) }}</td>
+                        <td class="px-4 py-3 text-right align-top">{{ variance(row.nbv_variance) }}</td>
+                        <td class="px-4 py-3 text-center align-top">
+                            {% if row.is_balanced %}
+                            <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Balanced</span>
+                            {% else %}
+                            <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Review</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="border-t border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/70">
+                    <tr>
+                        <td class="px-4 py-3 font-semibold text-slate-900 dark:text-white">Total</td>
+                        <td class="px-4 py-3 text-right font-mono font-semibold text-slate-900 dark:text-white">{{ totals.asset_count }}</td>
+                        <td class="px-4 py-3"></td>
+                        <td class="px-4 py-3 text-right font-semibold">{{ money(totals.register_cost) }}</td>
+                        <td class="px-4 py-3 text-right font-semibold">{{ money(totals.gl_cost) }}</td>
+                        <td class="px-4 py-3 text-right font-semibold">{{ variance(totals.cost_variance) }}</td>
+                        <td class="px-4 py-3 text-right font-semibold">{{ money(totals.register_accumulated_depreciation) }}</td>
+                        <td class="px-4 py-3 text-right font-semibold">{{ money(totals.gl_accumulated_depreciation) }}</td>
+                        <td class="px-4 py-3 text-right font-semibold">{{ variance(totals.nbv_variance) }}</td>
+                        <td class="px-4 py-3"></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        {{ empty_state("No asset categories found", "Create asset categories and map their GL accounts to use this reconciliation.", "document") }}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,168 @@
+{% extends "inventory/base_inventory.html" %}
+{% from "components/macros.html" import pagination, compact_filters, filter_custom_select_field, icon_svg, empty_state %}
+
+{% block page_title %}FIFO Layers{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/inventory/items" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Inventory</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/inventory/reports" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Reports</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">FIFO Layers</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block header_actions %}
+<button onclick="window.print()" class="btn btn-secondary">
+    {{ icon_svg("printer", "h-4 w-4 mr-2") }}
+    Print
+</button>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6 stagger-in">
+    <div class="card p-6">
+        <h2 class="text-xl font-semibold text-slate-900 dark:text-white">FIFO Cost Layers</h2>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            Shows open FIFO receipt layers with remaining quantity, warehouse balance, and carrying value.
+        </p>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Open Layers</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white font-display">{{ summary.total_layers | default(0) }}</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">FIFO Items</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white font-display">{{ summary.item_count | default(0) }}</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Remaining Quantity</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white font-mono">{{ '{:,.2f}'.format(summary.total_quantity or 0) }}</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Layer Value</p>
+            <p class="mt-1 text-2xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">{{ '{:,.2f}'.format(summary.total_value or 0) }}</p>
+        </div>
+    </div>
+
+    {% if selected_item or selected_warehouse %}
+    <div class="rounded-xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-900/60 dark:bg-indigo-900/20">
+        <p class="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">Filtered report</p>
+        <p class="mt-1 text-sm text-indigo-900 dark:text-indigo-100">
+            {% if selected_item %}
+            Item: <span class="font-mono">{{ selected_item.item_code }}</span> - {{ selected_item.item_name }}.
+            {% endif %}
+            {% if selected_warehouse %}
+            Warehouse: {{ selected_warehouse.warehouse_name }}.
+            {% endif %}
+        </p>
+    </div>
+    {% endif %}
+
+    {% call(filter_attrs) compact_filters(
+        base_url="/inventory/reports/fifo-layers",
+        active_filters=active_filters | default([]),
+        show_search=true,
+        search=search,
+        search_placeholder="Search lot, item, warehouse, or reference..."
+    ) %}
+        {% call filter_custom_select_field("warehouse", "Warehouse", filter_attrs) %}
+            {% for wh in warehouses | default([]) %}
+            <option value="{{ wh.warehouse_id }}" {{ 'selected' if warehouse == wh.warehouse_id|string else '' }}>
+                {{ wh.warehouse_name }}
+            </option>
+            {% endfor %}
+        {% endcall %}
+        {% call filter_custom_select_field("item", "Item", filter_attrs) %}
+            {% for filter_item in items | default([]) %}
+            <option value="{{ filter_item.item_id }}" {{ 'selected' if item == filter_item.item_id|string else '' }}>
+                {{ filter_item.item_code }} - {{ filter_item.item_name }}
+            </option>
+            {% endfor %}
+        {% endcall %}
+    {% endcall %}
+
+    <div id="results-container">
+        <div class="card overflow-hidden">
+            {% if layers | default([]) | length > 0 %}
+            <div class="table-container">
+                <table class="table-ledger">
+                    <thead>
+                        <tr>
+                            <th scope="col">Receipt Date</th>
+                            <th scope="col">Item</th>
+                            <th scope="col">Lot</th>
+                            <th scope="col">Warehouse</th>
+                            <th scope="col" class="text-right">On Hand</th>
+                            <th scope="col" class="text-right">Available</th>
+                            <th scope="col" class="text-right">Allocated</th>
+                            <th scope="col" class="text-right">Unit Cost</th>
+                            <th scope="col" class="text-right">Layer Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in layers %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <td class="font-mono text-sm">{{ row.lot.received_date }}</td>
+                            <td>
+                                <div class="flex flex-col">
+                                    <a href="/inventory/items/{{ row.item.item_id }}" class="font-medium text-amber-700 hover:text-amber-800 dark:text-amber-300">
+                                        {{ row.item.item_name }}
+                                    </a>
+                                    <span class="text-xs font-mono text-slate-500">{{ row.item.item_code }}</span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="flex flex-col">
+                                    <span class="font-mono font-medium text-slate-900 dark:text-white">{{ row.lot.lot_number }}</span>
+                                    <span class="text-xs text-slate-500">{{ row.lot.allocation_reference or 'FIFO receipt layer' }}</span>
+                                </div>
+                            </td>
+                            <td>
+                                {% if row.warehouse %}
+                                <div class="flex flex-col">
+                                    <span class="font-medium text-slate-900 dark:text-white">{{ row.warehouse.warehouse_name }}</span>
+                                    <span class="text-xs font-mono text-slate-500">{{ row.warehouse.warehouse_code }}</span>
+                                </div>
+                                {% else %}
+                                <span class="text-slate-500">Unassigned</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-right font-mono">{{ '{:,.2f}'.format(row.quantity_on_hand or 0) }}</td>
+                            <td class="text-right font-mono">{{ '{:,.2f}'.format(row.quantity_available or 0) }}</td>
+                            <td class="text-right font-mono text-slate-500">{{ '{:,.2f}'.format(row.quantity_allocated or 0) }}</td>
+                            <td class="text-right font-mono">{{ '{:,.2f}'.format(row.unit_cost or 0) }}</td>
+                            <td class="text-right font-mono font-medium">{{ '{:,.2f}'.format(row.total_value or 0) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="px-6 py-12">
+                {{ empty_state(
+                    title="No open FIFO layers",
+                    description="No FIFO cost layers with remaining quantity were found for the selected filters.",
+                    action_url="/inventory/reports",
+                    action_label="Back to Reports"
+                ) }}
+            </div>
+            {% endif %}
+        </div>
+
+        {% if layers | default([]) | length > 0 %}
+        {{ pagination(
+            page=page,
+            total_pages=total_pages,
+            total_count=total_count,
+            limit=limit,
+            search=search,
+            filters={"warehouse": warehouse, "item": item}
+        ) }}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

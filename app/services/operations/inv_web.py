@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
-from datetime import timezone
+from datetime import date, datetime, timedelta, timezone
 from datetime import date as date_type
 from io import StringIO
 from typing import Any, cast
@@ -2333,6 +2333,1455 @@ class OperationsInventoryWebService:
         )
         return templates.TemplateResponse(
             request, "inventory/report_serial_stock.html", context
+        )
+
+    def inventory_valuation_report_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> HTMLResponse:
+        """Inventory valuation report page."""
+        from app.services.finance.rpt.inventory_valuation import (
+            inventory_valuation_reconciliation_context,
+        )
+
+        context = base_context(request, auth, "Inventory Valuation", "reports")
+        valuation_context = inventory_valuation_reconciliation_context(
+            db,
+            str(auth.organization_id),
+        )
+        context.update(valuation_context)
+        self._notify_inventory_valuation_mismatch(db, auth, valuation_context)
+        return templates.TemplateResponse(
+            request,
+            "inventory/report_inventory_valuation.html",
+            context,
+        )
+
+    def _notify_inventory_valuation_mismatch(
+        self,
+        db: Session,
+        auth: WebAuthContext,
+        valuation_context: dict[str, Any],
+    ) -> int:
+        """Notify admin and inventory-manager users when valuation is mismatched."""
+        if not valuation_context.get("has_data") or valuation_context.get(
+            "is_balanced"
+        ):
+            return 0
+        org_id = auth.organization_id
+        fiscal_period_id = valuation_context.get("fiscal_period_id")
+        if org_id is None or not fiscal_period_id:
+            return 0
+
+        try:
+            from sqlalchemy import func
+
+            from app.models.notification import (
+                EntityType,
+                NotificationChannel,
+                NotificationType,
+            )
+            from app.models.person import Person
+            from app.models.rbac import PersonRole, Role
+            from app.services.common import coerce_uuid
+            from app.services.notification import NotificationService
+
+            role_names = {"admin", "inventory_manager", "inventory manager"}
+            recipients_stmt = (
+                select(Person.id)
+                .join(PersonRole, PersonRole.person_id == Person.id)
+                .join(Role, Role.id == PersonRole.role_id)
+                .where(
+                    Person.organization_id == org_id,
+                    Person.is_active.is_(True),
+                    Role.is_active.is_(True),
+                    func.lower(Role.name).in_(role_names),
+                )
+                .distinct()
+            )
+            recipient_ids = list(db.scalars(recipients_stmt).all())
+            if not recipient_ids:
+                return 0
+
+            service = NotificationService()
+            since = datetime.now(timezone.utc) - timedelta(hours=24)
+            sent = 0
+            title = "Inventory valuation mismatch detected"
+            message = (
+                "Inventory valuation does not match the GL control balance. "
+                f"Difference: {valuation_context.get('difference', '0')}. "
+                f"Mismatched rows: {valuation_context.get('valuation_mismatch_count', 0)}."
+            )
+            for recipient_id in recipient_ids:
+                created = service.create_if_not_sent_since(
+                    db,
+                    organization_id=org_id,
+                    recipient_id=recipient_id,
+                    entity_type=EntityType.SYSTEM,
+                    entity_id=coerce_uuid(fiscal_period_id),
+                    notification_type=NotificationType.ALERT,
+                    title=title,
+                    message=message,
+                    since=since,
+                    channel=NotificationChannel.IN_APP,
+                    action_url="/inventory/reports/valuation",
+                )
+                if created is not None:
+                    sent += 1
+
+            if sent:
+                db.commit()
+            return sent
+        except Exception:
+            logger.exception("Failed to send inventory valuation mismatch notification")
+            db.rollback()
+            return 0
+
+    def export_inventory_valuation_csv_response(
+        self,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> Response:
+        """Export inventory valuation summary rows as CSV."""
+        valuation_context, filename_stem = self._inventory_valuation_export_context(
+            auth, db
+        )
+
+        buffer = StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["Inventory Valuation Summary"])
+        writer.writerow(["Fiscal Period", valuation_context["fiscal_period_id"]])
+        writer.writerow(["Inventory Value", valuation_context["inventory_total"]])
+        writer.writerow(["GL Control Balance", valuation_context["gl_total"]])
+        writer.writerow(["Difference", valuation_context["difference"]])
+        writer.writerow(
+            [
+                "Status",
+                "Matched" if valuation_context["is_balanced"] else "Review",
+            ]
+        )
+        writer.writerow([])
+        writer.writerow(
+            [
+                "Item Code",
+                "Item Name",
+                "Warehouse",
+                "Quantity On Hand",
+                "Current WAC",
+                "Inventory Value",
+                "GL Value",
+                "Difference",
+                "Status",
+            ]
+        )
+        for row in valuation_context["valuation_rows"]:
+            writer.writerow(
+                [
+                    row["item_code"],
+                    row["item_name"],
+                    row["warehouse_name"],
+                    row["quantity_on_hand"],
+                    row["current_wac"],
+                    row["inventory_value"],
+                    row["gl_value"],
+                    row["difference"],
+                    "Matched" if row["is_balanced"] else "Review",
+                ]
+            )
+
+        return Response(
+            content=buffer.getvalue(),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename_stem}.csv"'
+            },
+        )
+
+    def export_inventory_valuation_pdf_response(
+        self,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> Response:
+        """Export inventory valuation summary rows as PDF."""
+        from app.services.finance.rpt.pdf import ReportPDFService
+
+        valuation_context, filename_stem = self._inventory_valuation_export_context(
+            auth, db
+        )
+        pdf_bytes = ReportPDFService(db).render(
+            "inventory_valuation_reconciliation",
+            str(auth.organization_id),
+            valuation_context,
+        )
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename_stem}.pdf"'
+            },
+        )
+
+    def _inventory_valuation_export_context(
+        self,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> tuple[dict[str, Any], str]:
+        """Build inventory valuation summary export context."""
+        from app.services.finance.rpt.inventory_valuation import (
+            inventory_valuation_reconciliation_context,
+        )
+
+        org_id = auth.organization_id
+        if org_id is None:
+            raise HTTPException(status_code=400, detail="Organization is required")
+        context = inventory_valuation_reconciliation_context(db, str(org_id))
+        filename = "inventory_valuation_summary"
+        if context.get("fiscal_period_id"):
+            filename = f"{filename}_{context['fiscal_period_id']}"
+        return context, filename
+
+    def wac_breakdown_report_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+        item_id: str,
+        warehouse_id: str,
+    ) -> HTMLResponse:
+        """WAC breakdown report page."""
+        from app.services.finance.rpt.inventory_valuation import wac_breakdown_context
+
+        context = base_context(request, auth, "WAC Breakdown", "reports")
+        try:
+            context.update(
+                wac_breakdown_context(
+                    db,
+                    str(auth.organization_id),
+                    item_id=item_id,
+                    warehouse_id=warehouse_id,
+                )
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return templates.TemplateResponse(
+            request,
+            "inventory/report_wac_breakdown.html",
+            context,
+        )
+
+    def export_wac_breakdown_csv_response(
+        self,
+        auth: WebAuthContext,
+        db: Session,
+        item_id: str | None = None,
+        warehouse_id: str | None = None,
+    ) -> Response:
+        """Export WAC breakdown rows as CSV for one item/warehouse or all rows."""
+        export_rows, filename_stem = self._wac_breakdown_export_rows(
+            auth,
+            db,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+        )
+
+        buffer = StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(
+            [
+                "Item Code",
+                "Item Name",
+                "Warehouse",
+                "Transaction Date",
+                "Transaction Type",
+                "Reference",
+                "Qty In",
+                "Qty Out",
+                "Unit Cost",
+                "Value In",
+                "Value Out",
+                "Qty After",
+                "WAC After",
+                "Value After",
+            ]
+        )
+        for row in export_rows:
+            writer.writerow(
+                [
+                    row["item_code"],
+                    row["item_name"],
+                    row["warehouse_name"],
+                    row["transaction_date"],
+                    row["transaction_type"],
+                    row["reference"],
+                    row["quantity_in"],
+                    row["quantity_out"],
+                    row["unit_cost"],
+                    row["value_in"],
+                    row["value_out"],
+                    row["quantity_after"],
+                    row["wac_after"],
+                    row["total_value_after"],
+                ]
+            )
+
+        return Response(
+            content=buffer.getvalue(),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename_stem}.csv"'
+            },
+        )
+
+    def export_wac_breakdown_pdf_response(
+        self,
+        auth: WebAuthContext,
+        db: Session,
+        item_id: str | None = None,
+        warehouse_id: str | None = None,
+    ) -> Response:
+        """Export WAC breakdown rows as PDF for one item/warehouse or all rows."""
+        from app.services.finance.rpt.pdf import ReportPDFService
+
+        if not (item_id and warehouse_id):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "WAC breakdown PDF export requires a selected item and warehouse. "
+                    "Use CSV for all-items transaction exports."
+                ),
+            )
+
+        export_rows, filename_stem = self._wac_breakdown_export_rows(
+            auth,
+            db,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+        )
+        pdf_bytes = ReportPDFService(db).render(
+            "wac_breakdown",
+            str(auth.organization_id),
+            {
+                "scope_label": "Selected Item"
+                if item_id and warehouse_id
+                else "All Items",
+                "row_count": len(export_rows),
+                "rows": export_rows,
+            },
+        )
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename_stem}.pdf"'
+            },
+        )
+
+    def _wac_breakdown_export_rows(
+        self,
+        auth: WebAuthContext,
+        db: Session,
+        item_id: str | None = None,
+        warehouse_id: str | None = None,
+    ) -> tuple[list[dict[str, str]], str]:
+        """Build WAC breakdown export rows for CSV/PDF output."""
+        from app.services.common import coerce_uuid
+        from app.services.inventory.valuation_reconciliation import (
+            ValuationReconciliationService,
+        )
+        from app.services.inventory.wac_valuation import WACValuationService
+
+        org_id = auth.organization_id
+        if org_id is None:
+            raise HTTPException(status_code=400, detail="Organization is required")
+        if bool(item_id) != bool(warehouse_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Both item_id and warehouse_id are required for one-item export.",
+            )
+
+        selected_item_id = coerce_uuid(item_id) if item_id else None
+        selected_warehouse_id = coerce_uuid(warehouse_id) if warehouse_id else None
+        reconciliation = ValuationReconciliationService(db)
+        result = reconciliation.reconcile(org_id)
+        detail_rows = reconciliation.detail_rows(
+            org_id, result.fiscal_period_id, limit=500
+        )
+        if selected_item_id and selected_warehouse_id:
+            detail_rows = [
+                row
+                for row in detail_rows
+                if row.item_id == selected_item_id
+                and row.warehouse_id == selected_warehouse_id
+            ]
+            if not detail_rows:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No valuation row found for selected item and warehouse.",
+                )
+
+        export_rows: list[dict[str, str]] = []
+        wac_service = WACValuationService(db)
+        for detail_row in detail_rows:
+            for row in wac_service.breakdown_rows(
+                org_id,
+                detail_row.item_id,
+                detail_row.warehouse_id,
+                limit=1000,
+            ):
+                transaction_date = row.transaction_date
+                transaction_date_text = (
+                    transaction_date.isoformat()
+                    if isinstance(transaction_date, date)
+                    else ""
+                )
+                export_rows.append(
+                    {
+                        "item_code": detail_row.item_code,
+                        "item_name": detail_row.item_name,
+                        "warehouse_name": detail_row.warehouse_name,
+                        "transaction_date": transaction_date_text,
+                        "transaction_type": row.transaction_type.replace(
+                            "_", " "
+                        ).title(),
+                        "reference": row.reference or "",
+                        "quantity_in": f"{row.quantity_in}",
+                        "quantity_out": f"{row.quantity_out}",
+                        "unit_cost": f"{row.unit_cost}",
+                        "value_in": f"{row.value_in}",
+                        "value_out": f"{row.value_out}",
+                        "quantity_after": f"{row.quantity_after}",
+                        "wac_after": f"{row.wac_after}",
+                        "total_value_after": f"{row.total_value_after}",
+                    }
+                )
+
+        filename = (
+            f"wac_breakdown_{detail_rows[0].item_code}_{detail_rows[0].warehouse_id}"
+            if selected_item_id and selected_warehouse_id
+            else "wac_breakdown_all_items"
+        )
+        return export_rows, filename
+
+    def fifo_layers_report_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+        warehouse: str | None = None,
+        item: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+    ) -> HTMLResponse:
+        """FIFO layers report page."""
+        from decimal import Decimal
+        from uuid import UUID as UUID_Type
+
+        from app.models.inventory.inventory_lot import InventoryLot
+        from app.models.inventory.inventory_lot_balance import InventoryLotBalance
+        from app.models.inventory.item import CostingMethod, Item
+        from app.models.inventory.warehouse import Warehouse
+
+        context = base_context(request, auth, "FIFO Layers", "reports")
+        org_id = auth.organization_id
+        if org_id is None:
+            raise HTTPException(status_code=400, detail="Organization is required")
+
+        per_page = 50
+
+        warehouses = list(
+            db.scalars(
+                select(Warehouse)
+                .where(
+                    Warehouse.organization_id == org_id,
+                    Warehouse.is_active.is_(True),
+                )
+                .order_by(Warehouse.warehouse_name)
+            ).all()
+        )
+        fifo_items = list(
+            db.scalars(
+                select(Item)
+                .where(
+                    Item.organization_id == org_id,
+                    Item.is_active.is_(True),
+                    Item.costing_method == CostingMethod.FIFO,
+                )
+                .order_by(Item.item_code)
+            ).all()
+        )
+
+        layers_stmt = (
+            select(InventoryLotBalance, InventoryLot, Item, Warehouse)
+            .join(InventoryLot, InventoryLotBalance.lot_id == InventoryLot.lot_id)
+            .join(Item, InventoryLot.item_id == Item.item_id)
+            .outerjoin(
+                Warehouse, InventoryLotBalance.warehouse_id == Warehouse.warehouse_id
+            )
+            .where(
+                InventoryLotBalance.organization_id == org_id,
+                InventoryLot.organization_id == org_id,
+                Item.organization_id == org_id,
+                Item.costing_method == CostingMethod.FIFO,
+                InventoryLotBalance.is_active.is_(True),
+                InventoryLotBalance.quantity_on_hand > 0,
+            )
+        )
+
+        selected_warehouse = None
+        if warehouse:
+            try:
+                warehouse_id = UUID_Type(warehouse)
+                layers_stmt = layers_stmt.where(
+                    InventoryLotBalance.warehouse_id == warehouse_id
+                )
+                selected_warehouse = db.get(Warehouse, warehouse_id)
+                if selected_warehouse and selected_warehouse.organization_id != org_id:
+                    selected_warehouse = None
+            except ValueError:
+                pass
+
+        selected_item = None
+        if item:
+            try:
+                item_id = UUID_Type(item)
+                layers_stmt = layers_stmt.where(InventoryLot.item_id == item_id)
+                selected_item = db.get(Item, item_id)
+                if selected_item and selected_item.organization_id != org_id:
+                    selected_item = None
+            except ValueError:
+                pass
+
+        if search:
+            term = f"%{search}%"
+            layers_stmt = layers_stmt.where(
+                or_(
+                    InventoryLot.lot_number.ilike(term),
+                    Item.item_code.ilike(term),
+                    Item.item_name.ilike(term),
+                    Warehouse.warehouse_name.ilike(term),
+                    Warehouse.warehouse_code.ilike(term),
+                    InventoryLot.allocation_reference.ilike(term),
+                )
+            )
+
+        filtered_subquery = layers_stmt.subquery()
+        total_count = (
+            db.scalar(select(func.count()).select_from(filtered_subquery)) or 0
+        )
+        item_count = (
+            db.scalar(select(func.count(func.distinct(filtered_subquery.c.item_id))))
+            or 0
+        )
+        total_quantity = Decimal(
+            str(
+                db.scalar(
+                    select(
+                        func.coalesce(func.sum(filtered_subquery.c.quantity_on_hand), 0)
+                    )
+                )
+                or 0
+            )
+        )
+        total_value = Decimal(
+            str(
+                db.scalar(
+                    select(
+                        func.coalesce(
+                            func.sum(
+                                filtered_subquery.c.quantity_on_hand
+                                * filtered_subquery.c.unit_cost
+                            ),
+                            0,
+                        )
+                    )
+                )
+                or 0
+            )
+        )
+
+        total_pages = max(1, ceil(total_count / per_page))
+        layer_rows = list(
+            db.execute(
+                layers_stmt.order_by(
+                    InventoryLot.received_date.asc(),
+                    Item.item_code.asc(),
+                    InventoryLot.lot_number.asc(),
+                )
+                .offset((page - 1) * per_page)
+                .limit(per_page)
+            ).all()
+        )
+
+        layers = []
+        for balance, lot, row_item, row_warehouse in layer_rows:
+            quantity_on_hand = balance.quantity_on_hand or Decimal("0")
+            unit_cost = lot.unit_cost or Decimal("0")
+            layers.append(
+                {
+                    "lot": lot,
+                    "balance": balance,
+                    "item": row_item,
+                    "warehouse": row_warehouse,
+                    "quantity_on_hand": quantity_on_hand,
+                    "quantity_available": balance.quantity_available or Decimal("0"),
+                    "quantity_allocated": balance.quantity_allocated or Decimal("0"),
+                    "unit_cost": unit_cost,
+                    "total_value": quantity_on_hand * unit_cost,
+                }
+            )
+
+        active_filters = build_active_filters(
+            params={
+                "search": search or "",
+                "warehouse": warehouse or "",
+                "item": item or "",
+            },
+            labels={
+                "search": "Search",
+                "warehouse": "Warehouse",
+                "item": "Item",
+            },
+            options={
+                "warehouse": {
+                    str(list_warehouse.warehouse_id): list_warehouse.warehouse_name
+                    for list_warehouse in warehouses
+                },
+                "item": {
+                    str(
+                        list_item.item_id
+                    ): f"{list_item.item_code} - {list_item.item_name}"
+                    for list_item in fifo_items
+                },
+            },
+        )
+
+        context.update(
+            {
+                "layers": layers,
+                "warehouses": warehouses,
+                "items": fifo_items,
+                "selected_warehouse": selected_warehouse,
+                "selected_item": selected_item,
+                "search": search or "",
+                "warehouse": warehouse or "",
+                "item": item or "",
+                "summary": {
+                    "total_layers": total_count,
+                    "item_count": item_count,
+                    "total_quantity": total_quantity,
+                    "total_value": total_value,
+                },
+                "page": page,
+                "total_pages": total_pages,
+                "total_count": total_count,
+                "limit": per_page,
+                "active_filters": active_filters,
+            }
+        )
+        return templates.TemplateResponse(
+            request,
+            "inventory/report_fifo_layers.html",
+            context,
+        )
+
+    def stock_aging_report_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+        warehouse: str | None = None,
+        item: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+    ) -> HTMLResponse:
+        """Stock aging report page."""
+        from decimal import Decimal
+        from uuid import UUID as UUID_Type
+
+        from app.models.inventory.inventory_lot import InventoryLot
+        from app.models.inventory.inventory_lot_balance import InventoryLotBalance
+        from app.models.inventory.item import Item
+        from app.models.inventory.warehouse import Warehouse
+
+        context = base_context(request, auth, "Stock Aging", "reports")
+        org_id = auth.organization_id
+        if org_id is None:
+            raise HTTPException(status_code=400, detail="Organization is required")
+
+        per_page = 50
+        today = date_type.today()
+
+        warehouses = list(
+            db.scalars(
+                select(Warehouse)
+                .where(
+                    Warehouse.organization_id == org_id,
+                    Warehouse.is_active.is_(True),
+                )
+                .order_by(Warehouse.warehouse_name)
+            ).all()
+        )
+        items = list(
+            db.scalars(
+                select(Item)
+                .where(
+                    Item.organization_id == org_id,
+                    Item.is_active.is_(True),
+                    Item.track_inventory.is_(True),
+                )
+                .order_by(Item.item_code)
+            ).all()
+        )
+
+        aging_stmt = (
+            select(InventoryLotBalance, InventoryLot, Item, Warehouse)
+            .join(InventoryLot, InventoryLotBalance.lot_id == InventoryLot.lot_id)
+            .join(Item, InventoryLot.item_id == Item.item_id)
+            .outerjoin(
+                Warehouse, InventoryLotBalance.warehouse_id == Warehouse.warehouse_id
+            )
+            .where(
+                InventoryLotBalance.organization_id == org_id,
+                InventoryLot.organization_id == org_id,
+                Item.organization_id == org_id,
+                InventoryLotBalance.is_active.is_(True),
+                InventoryLotBalance.quantity_on_hand > 0,
+            )
+        )
+
+        selected_warehouse = None
+        if warehouse:
+            try:
+                warehouse_id = UUID_Type(warehouse)
+                aging_stmt = aging_stmt.where(
+                    InventoryLotBalance.warehouse_id == warehouse_id
+                )
+                selected_warehouse = db.get(Warehouse, warehouse_id)
+                if selected_warehouse and selected_warehouse.organization_id != org_id:
+                    selected_warehouse = None
+            except ValueError:
+                pass
+
+        selected_item = None
+        if item:
+            try:
+                item_id = UUID_Type(item)
+                aging_stmt = aging_stmt.where(InventoryLot.item_id == item_id)
+                selected_item = db.get(Item, item_id)
+                if selected_item and selected_item.organization_id != org_id:
+                    selected_item = None
+            except ValueError:
+                pass
+
+        if search:
+            term = f"%{search}%"
+            aging_stmt = aging_stmt.where(
+                or_(
+                    InventoryLot.lot_number.ilike(term),
+                    Item.item_code.ilike(term),
+                    Item.item_name.ilike(term),
+                    Warehouse.warehouse_name.ilike(term),
+                    Warehouse.warehouse_code.ilike(term),
+                    InventoryLot.allocation_reference.ilike(term),
+                )
+            )
+
+        total_pages = 1
+        row_data = list(
+            db.execute(
+                aging_stmt.order_by(
+                    InventoryLot.received_date.asc(),
+                    Item.item_code.asc(),
+                    InventoryLot.lot_number.asc(),
+                )
+            ).all()
+        )
+
+        rows = []
+        total_quantity = Decimal("0")
+        total_value = Decimal("0")
+        bucket_counts = {
+            "0_30": 0,
+            "31_60": 0,
+            "61_90": 0,
+            "90_plus": 0,
+        }
+        bucket_values = {
+            "0_30": Decimal("0"),
+            "31_60": Decimal("0"),
+            "61_90": Decimal("0"),
+            "90_plus": Decimal("0"),
+        }
+
+        for balance, lot, row_item, row_warehouse in row_data:
+            quantity_on_hand = balance.quantity_on_hand or Decimal("0")
+            unit_cost = lot.unit_cost or Decimal("0")
+            age_days = max((today - lot.received_date).days, 0)
+            total_row_value = quantity_on_hand * unit_cost
+
+            if age_days <= 30:
+                bucket = "0_30"
+            elif age_days <= 60:
+                bucket = "31_60"
+            elif age_days <= 90:
+                bucket = "61_90"
+            else:
+                bucket = "90_plus"
+
+            bucket_counts[bucket] += 1
+            bucket_values[bucket] += total_row_value
+            total_quantity += quantity_on_hand
+            total_value += total_row_value
+
+            rows.append(
+                {
+                    "lot": lot,
+                    "balance": balance,
+                    "item": row_item,
+                    "warehouse": row_warehouse,
+                    "quantity_on_hand": quantity_on_hand,
+                    "unit_cost": unit_cost,
+                    "total_value": total_row_value,
+                    "age_days": age_days,
+                    "age_bucket": bucket,
+                }
+            )
+
+        total_count = len(rows)
+        total_pages = max(1, ceil(total_count / per_page))
+        start_idx = max((page - 1) * per_page, 0)
+        end_idx = start_idx + per_page
+        paged_rows = rows[start_idx:end_idx]
+
+        active_filters = build_active_filters(
+            params={
+                "search": search or "",
+                "warehouse": warehouse or "",
+                "item": item or "",
+            },
+            labels={
+                "search": "Search",
+                "warehouse": "Warehouse",
+                "item": "Item",
+            },
+            options={
+                "warehouse": {
+                    str(list_warehouse.warehouse_id): list_warehouse.warehouse_name
+                    for list_warehouse in warehouses
+                },
+                "item": {
+                    str(
+                        list_item.item_id
+                    ): f"{list_item.item_code} - {list_item.item_name}"
+                    for list_item in items
+                },
+            },
+        )
+
+        context.update(
+            {
+                "aging_rows": paged_rows,
+                "warehouses": warehouses,
+                "items": items,
+                "selected_warehouse": selected_warehouse,
+                "selected_item": selected_item,
+                "search": search or "",
+                "warehouse": warehouse or "",
+                "item": item or "",
+                "summary": {
+                    "total_lots": total_count,
+                    "total_quantity": total_quantity,
+                    "total_value": total_value,
+                    "bucket_counts": bucket_counts,
+                    "bucket_values": bucket_values,
+                },
+                "page": page,
+                "total_pages": total_pages,
+                "total_count": total_count,
+                "limit": per_page,
+                "active_filters": active_filters,
+            }
+        )
+        return templates.TemplateResponse(
+            request,
+            "inventory/report_stock_aging.html",
+            context,
+        )
+
+    def stock_movement_report_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+        warehouse: str | None = None,
+        item: str | None = None,
+        transaction_type: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+    ) -> HTMLResponse:
+        """Stock movement report page."""
+        from decimal import Decimal
+        from uuid import UUID as UUID_Type
+
+        from sqlalchemy.orm import aliased
+
+        from app.models.inventory.inventory_transaction import (
+            InventoryTransaction,
+            TransactionType,
+        )
+        from app.models.inventory.item import Item
+        from app.models.inventory.warehouse import Warehouse
+
+        context = base_context(request, auth, "Stock Movement", "reports")
+        org_id = auth.organization_id
+        if org_id is None:
+            raise HTTPException(status_code=400, detail="Organization is required")
+
+        per_page = 50
+
+        warehouses = list(
+            db.scalars(
+                select(Warehouse)
+                .where(
+                    Warehouse.organization_id == org_id,
+                    Warehouse.is_active.is_(True),
+                )
+                .order_by(Warehouse.warehouse_name)
+            ).all()
+        )
+        items = list(
+            db.scalars(
+                select(Item)
+                .where(
+                    Item.organization_id == org_id,
+                    Item.is_active.is_(True),
+                    Item.track_inventory.is_(True),
+                )
+                .order_by(Item.item_code)
+            ).all()
+        )
+
+        to_warehouse = aliased(Warehouse)
+        movement_stmt = (
+            select(InventoryTransaction, Item, Warehouse, to_warehouse)
+            .join(Item, InventoryTransaction.item_id == Item.item_id)
+            .join(
+                Warehouse, InventoryTransaction.warehouse_id == Warehouse.warehouse_id
+            )
+            .outerjoin(
+                to_warehouse,
+                InventoryTransaction.to_warehouse_id == to_warehouse.warehouse_id,
+            )
+            .where(InventoryTransaction.organization_id == org_id)
+        )
+
+        selected_warehouse = None
+        if warehouse:
+            try:
+                warehouse_id = UUID_Type(warehouse)
+                movement_stmt = movement_stmt.where(
+                    InventoryTransaction.warehouse_id == warehouse_id
+                )
+                selected_warehouse = db.get(Warehouse, warehouse_id)
+                if selected_warehouse and selected_warehouse.organization_id != org_id:
+                    selected_warehouse = None
+            except ValueError:
+                pass
+
+        selected_item = None
+        if item:
+            try:
+                item_id = UUID_Type(item)
+                movement_stmt = movement_stmt.where(
+                    InventoryTransaction.item_id == item_id
+                )
+                selected_item = db.get(Item, item_id)
+                if selected_item and selected_item.organization_id != org_id:
+                    selected_item = None
+            except ValueError:
+                pass
+
+        selected_type = None
+        if transaction_type:
+            parsed_type = next(
+                (
+                    txn_type
+                    for txn_type in TransactionType
+                    if txn_type.value == transaction_type
+                ),
+                None,
+            )
+            if parsed_type is not None:
+                movement_stmt = movement_stmt.where(
+                    InventoryTransaction.transaction_type == parsed_type
+                )
+                selected_type = parsed_type.value
+
+        if search:
+            term = f"%{search}%"
+            movement_stmt = movement_stmt.where(
+                or_(
+                    InventoryTransaction.reference.ilike(term),
+                    Item.item_code.ilike(term),
+                    Item.item_name.ilike(term),
+                    Warehouse.warehouse_name.ilike(term),
+                    Warehouse.warehouse_code.ilike(term),
+                )
+            )
+
+        row_data = list(
+            db.execute(
+                movement_stmt.order_by(InventoryTransaction.transaction_date.desc())
+            ).all()
+        )
+
+        movement_rows = []
+        summary_counts = {
+            "RECEIPT": 0,
+            "ISSUE": 0,
+            "TRANSFER": 0,
+            "ADJUSTMENT": 0,
+        }
+        total_quantity = Decimal("0")
+        total_value = Decimal("0")
+
+        for txn, row_item, row_warehouse, to_warehouse_row in row_data:
+            movement_type = txn.transaction_type.value
+            quantity = txn.quantity or Decimal("0")
+            total_cost = txn.total_cost or Decimal("0")
+
+            if movement_type in summary_counts:
+                summary_counts[movement_type] += 1
+            total_quantity += quantity
+            total_value += total_cost
+
+            movement_rows.append(
+                {
+                    "transaction": txn,
+                    "item": row_item,
+                    "warehouse": row_warehouse,
+                    "to_warehouse_name": to_warehouse_row.warehouse_name
+                    if to_warehouse_row is not None
+                    else None,
+                    "quantity": quantity,
+                    "unit_cost": txn.unit_cost or Decimal("0"),
+                    "total_cost": total_cost,
+                }
+            )
+
+        total_count = len(movement_rows)
+        total_pages = max(1, ceil(total_count / per_page))
+        start_idx = max((page - 1) * per_page, 0)
+        end_idx = start_idx + per_page
+        paged_rows = movement_rows[start_idx:end_idx]
+
+        active_filters = build_active_filters(
+            params={
+                "search": search or "",
+                "warehouse": warehouse or "",
+                "item": item or "",
+                "transaction_type": selected_type or "",
+            },
+            labels={
+                "search": "Search",
+                "warehouse": "Warehouse",
+                "item": "Item",
+                "transaction_type": "Type",
+            },
+            options={
+                "warehouse": {
+                    str(list_warehouse.warehouse_id): list_warehouse.warehouse_name
+                    for list_warehouse in warehouses
+                },
+                "item": {
+                    str(
+                        list_item.item_id
+                    ): f"{list_item.item_code} - {list_item.item_name}"
+                    for list_item in items
+                },
+                "transaction_type": {
+                    txn_type.value: txn_type.value.replace("_", " ").title()
+                    for txn_type in TransactionType
+                },
+            },
+        )
+
+        context.update(
+            {
+                "movement_rows": paged_rows,
+                "warehouses": warehouses,
+                "items": items,
+                "transaction_types": [txn_type.value for txn_type in TransactionType],
+                "selected_warehouse": selected_warehouse,
+                "selected_item": selected_item,
+                "transaction_type": selected_type or "",
+                "search": search or "",
+                "warehouse": warehouse or "",
+                "item": item or "",
+                "summary": {
+                    "total_rows": total_count,
+                    "total_quantity": total_quantity,
+                    "total_value": total_value,
+                    "counts": summary_counts,
+                },
+                "page": page,
+                "total_pages": total_pages,
+                "total_count": total_count,
+                "limit": per_page,
+                "active_filters": active_filters,
+            }
+        )
+        return templates.TemplateResponse(
+            request,
+            "inventory/report_stock_movement.html",
+            context,
+        )
+
+    def yearly_stock_movement_report_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+        year: str | None = None,
+        month: str | None = None,
+        warehouse: str | None = None,
+        item: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+    ) -> HTMLResponse:
+        """Yearly stock movement summary report page."""
+        from decimal import Decimal
+        from uuid import UUID as UUID_Type
+
+        from app.models.inventory.inventory_transaction import (
+            InventoryTransaction,
+            TransactionType,
+        )
+        from app.models.inventory.item import Item
+        from app.models.inventory.warehouse import Warehouse
+
+        context = base_context(request, auth, "Yearly Stock Movement", "reports")
+        org_id = auth.organization_id
+        if org_id is None:
+            raise HTTPException(status_code=400, detail="Organization is required")
+
+        per_page = 50
+        selected_year: int | None = None
+        if year:
+            try:
+                parsed_year = int(year)
+                if 1900 <= parsed_year <= 2100:
+                    selected_year = parsed_year
+            except ValueError:
+                selected_year = None
+
+        selected_month: int | None = None
+        if month:
+            try:
+                parsed_month = int(month)
+                if 1 <= parsed_month <= 12:
+                    selected_month = parsed_month
+            except ValueError:
+                selected_month = None
+
+        warehouses = list(
+            db.scalars(
+                select(Warehouse)
+                .where(
+                    Warehouse.organization_id == org_id,
+                    Warehouse.is_active.is_(True),
+                )
+                .order_by(Warehouse.warehouse_name)
+            ).all()
+        )
+        items = list(
+            db.scalars(
+                select(Item)
+                .where(
+                    Item.organization_id == org_id,
+                    Item.is_active.is_(True),
+                    Item.track_inventory.is_(True),
+                )
+                .order_by(Item.item_code)
+            ).all()
+        )
+
+        movement_stmt = (
+            select(InventoryTransaction, Item, Warehouse)
+            .join(Item, InventoryTransaction.item_id == Item.item_id)
+            .join(
+                Warehouse, InventoryTransaction.warehouse_id == Warehouse.warehouse_id
+            )
+            .where(InventoryTransaction.organization_id == org_id)
+        )
+
+        selected_warehouse = None
+        if warehouse:
+            try:
+                warehouse_id = UUID_Type(warehouse)
+                movement_stmt = movement_stmt.where(
+                    InventoryTransaction.warehouse_id == warehouse_id
+                )
+                selected_warehouse = db.get(Warehouse, warehouse_id)
+                if selected_warehouse and selected_warehouse.organization_id != org_id:
+                    selected_warehouse = None
+            except ValueError:
+                pass
+
+        selected_item = None
+        if item:
+            try:
+                item_id = UUID_Type(item)
+                movement_stmt = movement_stmt.where(
+                    InventoryTransaction.item_id == item_id
+                )
+                selected_item = db.get(Item, item_id)
+                if selected_item and selected_item.organization_id != org_id:
+                    selected_item = None
+            except ValueError:
+                pass
+
+        if search:
+            term = f"%{search}%"
+            movement_stmt = movement_stmt.where(
+                or_(
+                    InventoryTransaction.reference.ilike(term),
+                    Item.item_code.ilike(term),
+                    Item.item_name.ilike(term),
+                    Warehouse.warehouse_name.ilike(term),
+                    Warehouse.warehouse_code.ilike(term),
+                )
+            )
+
+        row_data = list(
+            db.execute(
+                movement_stmt.order_by(
+                    Item.item_code,
+                    Warehouse.warehouse_name,
+                    InventoryTransaction.transaction_date,
+                    InventoryTransaction.created_at,
+                )
+            ).all()
+        )
+
+        purchase_source_tokens = ("PURCHASE", "GOODS_RECEIPT", "SUPPLIER_INVOICE")
+        issued_types = {
+            TransactionType.ISSUE.value,
+            TransactionType.SALE.value,
+            TransactionType.SCRAP.value,
+        }
+
+        def _decimal(value: object) -> Decimal:
+            if value is None:
+                return Decimal("0")
+            return Decimal(str(value))
+
+        def _transaction_value(transaction: object, attr: str) -> object:
+            value = getattr(transaction, attr, None)
+            return getattr(value, "value", value)
+
+        def _net_delta(transaction: object) -> Decimal:
+            before = getattr(transaction, "quantity_before", None)
+            after = getattr(transaction, "quantity_after", None)
+            if before is not None and after is not None:
+                return _decimal(after) - _decimal(before)
+
+            quantity = _decimal(getattr(transaction, "quantity", None))
+            movement_type = _transaction_value(transaction, "transaction_type")
+            if movement_type in issued_types:
+                return -abs(quantity)
+            return quantity
+
+        def _is_purchase_receipt(transaction: object) -> bool:
+            movement_type = _transaction_value(transaction, "transaction_type")
+            if movement_type != TransactionType.RECEIPT.value:
+                return False
+            source_text = " ".join(
+                str(part or "")
+                for part in (
+                    getattr(transaction, "source_document_type", None),
+                    getattr(transaction, "reference", None),
+                )
+            ).upper()
+            return any(token in source_text for token in purchase_source_tokens)
+
+        balances: dict[tuple[object, object], Decimal] = {}
+        yearly_rows_by_key: dict[tuple[object, object, int], dict[str, object]] = {}
+        available_years: set[int] = set()
+        month_options = [
+            {"value": "1", "label": "January"},
+            {"value": "2", "label": "February"},
+            {"value": "3", "label": "March"},
+            {"value": "4", "label": "April"},
+            {"value": "5", "label": "May"},
+            {"value": "6", "label": "June"},
+            {"value": "7", "label": "July"},
+            {"value": "8", "label": "August"},
+            {"value": "9", "label": "September"},
+            {"value": "10", "label": "October"},
+            {"value": "11", "label": "November"},
+            {"value": "12", "label": "December"},
+        ]
+
+        for txn, row_item, row_warehouse in row_data:
+            transaction_date = getattr(txn, "transaction_date", None)
+            if transaction_date is None:
+                continue
+
+            txn_year = int(transaction_date.year)
+            txn_month = int(transaction_date.month)
+            available_years.add(txn_year)
+            balance_key = (row_item.item_id, row_warehouse.warehouse_id)
+            current_balance = balances.get(balance_key, Decimal("0"))
+            delta = _net_delta(txn)
+            should_show_period = (
+                selected_year is None or txn_year == selected_year
+            ) and (selected_month is None or txn_month == selected_month)
+
+            if should_show_period:
+                row_key = (row_item.item_id, row_warehouse.warehouse_id, txn_year)
+                yearly_row = yearly_rows_by_key.get(row_key)
+                if yearly_row is None:
+                    yearly_row = {
+                        "year": txn_year,
+                        "item": row_item,
+                        "warehouse": row_warehouse,
+                        "opening_qty": current_balance,
+                        "quantity_in": Decimal("0"),
+                        "purchase_qty": Decimal("0"),
+                        "issued_qty": Decimal("0"),
+                        "quantity_out": Decimal("0"),
+                        "closing_qty": current_balance,
+                    }
+                    yearly_rows_by_key[row_key] = yearly_row
+
+                if delta > 0:
+                    yearly_row["quantity_in"] = (
+                        cast(Decimal, yearly_row["quantity_in"]) + delta
+                    )
+                    if _is_purchase_receipt(txn):
+                        yearly_row["purchase_qty"] = (
+                            cast(Decimal, yearly_row["purchase_qty"]) + delta
+                        )
+                elif delta < 0:
+                    yearly_row["quantity_out"] = cast(
+                        Decimal, yearly_row["quantity_out"]
+                    ) + abs(delta)
+
+                if _transaction_value(txn, "transaction_type") in issued_types:
+                    yearly_row["issued_qty"] = cast(
+                        Decimal, yearly_row["issued_qty"]
+                    ) + abs(delta)
+
+            current_balance += delta
+            balances[balance_key] = current_balance
+
+            if should_show_period and yearly_row is not None:
+                yearly_row["closing_qty"] = current_balance
+
+        yearly_rows = sorted(
+            yearly_rows_by_key.values(),
+            key=lambda row: (
+                -cast(int, row["year"]),
+                getattr(row["item"], "item_code", ""),
+                getattr(row["warehouse"], "warehouse_name", ""),
+            ),
+        )
+
+        total_count = len(yearly_rows)
+        total_pages = max(1, ceil(total_count / per_page))
+        start_idx = max((page - 1) * per_page, 0)
+        end_idx = start_idx + per_page
+        paged_rows = yearly_rows[start_idx:end_idx]
+
+        summary = {
+            "total_rows": total_count,
+            "opening_qty": sum(
+                (cast(Decimal, row["opening_qty"]) for row in yearly_rows), Decimal("0")
+            ),
+            "quantity_in": sum(
+                (cast(Decimal, row["quantity_in"]) for row in yearly_rows), Decimal("0")
+            ),
+            "purchase_qty": sum(
+                (cast(Decimal, row["purchase_qty"]) for row in yearly_rows),
+                Decimal("0"),
+            ),
+            "issued_qty": sum(
+                (cast(Decimal, row["issued_qty"]) for row in yearly_rows), Decimal("0")
+            ),
+            "quantity_out": sum(
+                (cast(Decimal, row["quantity_out"]) for row in yearly_rows),
+                Decimal("0"),
+            ),
+            "closing_qty": sum(
+                (cast(Decimal, row["closing_qty"]) for row in yearly_rows), Decimal("0")
+            ),
+        }
+
+        year_options = sorted(available_years, reverse=True)
+        active_filters = build_active_filters(
+            params={
+                "search": search or "",
+                "year": str(selected_year) if selected_year else "",
+                "month": str(selected_month) if selected_month else "",
+                "warehouse": warehouse or "",
+                "item": item or "",
+            },
+            labels={
+                "search": "Search",
+                "year": "Year",
+                "month": "Month",
+                "warehouse": "Warehouse",
+                "item": "Item",
+            },
+            options={
+                "year": {
+                    str(option_year): str(option_year) for option_year in year_options
+                },
+                "month": {option["value"]: option["label"] for option in month_options},
+                "warehouse": {
+                    str(list_warehouse.warehouse_id): list_warehouse.warehouse_name
+                    for list_warehouse in warehouses
+                },
+                "item": {
+                    str(
+                        list_item.item_id
+                    ): f"{list_item.item_code} - {list_item.item_name}"
+                    for list_item in items
+                },
+            },
+        )
+
+        context.update(
+            {
+                "yearly_rows": paged_rows,
+                "warehouses": warehouses,
+                "items": items,
+                "year_options": year_options,
+                "month_options": month_options,
+                "selected_year": selected_year,
+                "selected_month": selected_month,
+                "selected_warehouse": selected_warehouse,
+                "selected_item": selected_item,
+                "year": str(selected_year) if selected_year else "",
+                "month": str(selected_month) if selected_month else "",
+                "warehouse": warehouse or "",
+                "item": item or "",
+                "search": search or "",
+                "summary": summary,
+                "page": page,
+                "total_pages": total_pages,
+                "total_count": total_count,
+                "limit": per_page,
+                "active_filters": active_filters,
+            }
+        )
+        return templates.TemplateResponse(
+            request,
+            "inventory/report_yearly_stock_movement.html",
+            context,
         )
 
     # ------------------------------------------------------------------

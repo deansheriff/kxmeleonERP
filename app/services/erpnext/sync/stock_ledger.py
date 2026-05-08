@@ -25,7 +25,9 @@ from app.models.inventory.inventory_transaction import (
     InventoryTransaction,
     TransactionType,
 )
+from app.models.inventory.item import CostingMethod, Item
 from app.models.sync import SyncEntity
+from app.services.inventory.wac_valuation import WACValuationService
 from app.services.erpnext.mappings.stock_ledger import StockLedgerMapping
 
 from .base import BaseSyncService
@@ -306,3 +308,19 @@ class StockLedgerSyncService(BaseSyncService[InventoryTransaction]):
         if sync_entity and sync_entity.target_id:
             return self.db.get(InventoryTransaction, sync_entity.target_id)
         return None
+
+    def post_sync_hook(self, entity: InventoryTransaction) -> None:
+        """Refresh WAC ledger rows after stock-ledger imports."""
+        item = self.db.get(Item, entity.item_id)
+        if not item or item.organization_id != self.organization_id:
+            return
+        if item.costing_method != CostingMethod.WEIGHTED_AVERAGE:
+            return
+
+        WACValuationService(self.db).rebuild_ledger_from_transactions(
+            organization_id=self.organization_id,
+            item_id=entity.item_id,
+            warehouse_id=entity.warehouse_id,
+            persist=True,
+            replace_existing=True,
+        )

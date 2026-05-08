@@ -1,0 +1,68 @@
+{% extends "finance/reports/_pdf_base.html" %}
+
+{% block title %}WAC Breakdown — {{ org_name }}{% endblock %}
+{% block report_title %}WAC Breakdown{% endblock %}
+{% block page_size %}A4 landscape{% endblock %}
+{% block report_meta %}
+<p class="meta-line">Scope: {{ scope_label }}</p>
+<p class="meta-line">Rows: {{ row_count }}</p>
+{% endblock %}
+
+{% block extra_styles %}
+table.report-table th,
+table.report-table td {
+  font-size: 7px;
+  padding: 4px 5px;
+}
+.wide-text {
+  max-width: 130px;
+  overflow-wrap: anywhere;
+}
+{% endblock %}
+
+{% block report_body %}
+{% if rows %}
+<table class="report-table">
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>Warehouse</th>
+      <th>Date</th>
+      <th>Type</th>
+      <th>Reference</th>
+      <th class="num">Qty In</th>
+      <th class="num">Qty Out</th>
+      <th class="num">Unit Cost</th>
+      <th class="num">Value In</th>
+      <th class="num">Value Out</th>
+      <th class="num">Qty After</th>
+      <th class="num">WAC After</th>
+      <th class="num">Value After</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td class="wide-text">{{ row.item_code }}<br><span class="muted">{{ row.item_name }}</span></td>
+      <td class="wide-text">{{ row.warehouse_name }}</td>
+      <td class="nowrap">{{ row.transaction_date }}</td>
+      <td>{{ row.transaction_type }}</td>
+      <td class="wide-text">{{ row.reference }}</td>
+      <td class="num">{{ row.quantity_in }}</td>
+      <td class="num">{{ row.quantity_out }}</td>
+      <td class="num">{{ row.unit_cost }}</td>
+      <td class="num">{{ row.value_in }}</td>
+      <td class="num">{{ row.value_out }}</td>
+      <td class="num">{{ row.quantity_after }}</td>
+      <td class="num">{{ row.wac_after }}</td>
+      <td class="num bold">{{ row.total_value_after }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="notes">
+  <p>No WAC breakdown rows were found for this export.</p>
+</div>
+{% endif %}
+{% endblock %}

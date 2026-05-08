@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from datetime import date
 from io import BytesIO
-from decimal import Decimal
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
@@ -52,6 +52,826 @@ def test_validate_return_image_uploads_rejects_non_images() -> None:
 
     with pytest.raises(ValueError, match="Only image files are allowed"):
         OperationsInventoryWebService._validate_return_image_uploads([upload])
+
+
+def test_inventory_valuation_report_response_uses_inventory_template(
+    monkeypatch,
+) -> None:
+    service = OperationsInventoryWebService()
+    request = MagicMock()
+    db = MagicMock()
+    org_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+
+    captured: dict[str, object] = {}
+
+    def fake_template_response(request_arg, template_name, context):
+        captured["request"] = request_arg
+        captured["template_name"] = template_name
+        captured["context"] = context
+        return "response"
+
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.base_context",
+        lambda request_arg, auth_arg, title, section: {
+            "title": title,
+            "section": section,
+            "organization_id": str(auth_arg.organization_id),
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.finance.rpt.inventory_valuation."
+        "inventory_valuation_reconciliation_context",
+        lambda db_arg, organization_id, **kwargs: {
+            "has_data": True,
+            "fiscal_period_id": "period-1",
+            "inventory_total": "NGN 100.00",
+            "gl_total": "NGN 100.00",
+            "difference": "NGN 0.00",
+            "is_balanced": True,
+            "valuation_rows": [],
+            "valuation_row_count": 0,
+            "valuation_mismatch_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.templates.TemplateResponse",
+        fake_template_response,
+    )
+
+    response = service.inventory_valuation_report_response(request, auth, db)
+
+    assert response == "response"
+    assert captured["request"] is request
+    assert captured["template_name"] == "inventory/report_inventory_valuation.html"
+    assert captured["context"] == {
+        "title": "Inventory Valuation",
+        "section": "reports",
+        "organization_id": str(org_id),
+        "has_data": True,
+        "fiscal_period_id": "period-1",
+        "inventory_total": "NGN 100.00",
+        "gl_total": "NGN 100.00",
+        "difference": "NGN 0.00",
+        "is_balanced": True,
+        "valuation_rows": [],
+        "valuation_row_count": 0,
+        "valuation_mismatch_count": 0,
+    }
+
+
+def test_wac_breakdown_report_response_uses_breakdown_template(monkeypatch) -> None:
+    service = OperationsInventoryWebService()
+    request = MagicMock()
+    db = MagicMock()
+    org_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    warehouse_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+
+    captured: dict[str, object] = {}
+
+    def fake_template_response(request_arg, template_name, context):
+        captured["request"] = request_arg
+        captured["template_name"] = template_name
+        captured["context"] = context
+        return "response"
+
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.base_context",
+        lambda request_arg, auth_arg, title, section: {
+            "title": title,
+            "section": section,
+            "organization_id": str(auth_arg.organization_id),
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.finance.rpt.inventory_valuation.wac_breakdown_context",
+        lambda db_arg, organization_id, **kwargs: {
+            "item_id": kwargs["item_id"],
+            "warehouse_id": kwargs["warehouse_id"],
+            "item_code": "ITEM-001",
+            "item_name": "Tracked Item",
+            "warehouse_name": "Stores",
+            "quantity_on_hand": "10",
+            "current_wac": "NGN 12.00",
+            "inventory_value": "NGN 120.00",
+            "gl_value": "NGN 120.00",
+            "difference": "NGN 0.00",
+            "is_balanced": True,
+            "wac_breakdown_rows": [],
+            "wac_breakdown_row_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.templates.TemplateResponse",
+        fake_template_response,
+    )
+
+    response = service.wac_breakdown_report_response(
+        request,
+        auth,
+        db,
+        str(item_id),
+        str(warehouse_id),
+    )
+
+    assert response == "response"
+    assert captured["request"] is request
+    assert captured["template_name"] == "inventory/report_wac_breakdown.html"
+    assert captured["context"]["title"] == "WAC Breakdown"
+    assert captured["context"]["item_id"] == str(item_id)
+    assert captured["context"]["warehouse_id"] == str(warehouse_id)
+
+
+def test_inventory_valuation_mismatch_notifies_admin_and_inventory_manager(
+    monkeypatch,
+) -> None:
+    service = OperationsInventoryWebService()
+    org_id = uuid.uuid4()
+    period_id = uuid.uuid4()
+    recipient_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+    db = MagicMock()
+    db.scalars.return_value.all.return_value = [recipient_id]
+
+    captured: dict[str, object] = {}
+
+    def fake_create_if_not_sent_since(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return MagicMock()
+
+    monkeypatch.setattr(
+        "app.services.notification.NotificationService.create_if_not_sent_since",
+        fake_create_if_not_sent_since,
+    )
+
+    sent = service._notify_inventory_valuation_mismatch(
+        db,
+        auth,
+        {
+            "has_data": True,
+            "is_balanced": False,
+            "fiscal_period_id": str(period_id),
+            "difference": "NGN 10.00",
+            "valuation_mismatch_count": 2,
+        },
+    )
+
+    assert sent == 1
+    assert db.commit.called
+    kwargs = captured["kwargs"]
+    assert kwargs["organization_id"] == org_id
+    assert kwargs["recipient_id"] == recipient_id
+    assert kwargs["entity_id"] == period_id
+    assert kwargs["title"] == "Inventory valuation mismatch detected"
+    assert kwargs["channel"].value == "IN_APP"
+    assert kwargs["action_url"] == "/inventory/reports/valuation"
+
+
+def test_export_inventory_valuation_csv_response_exports_summary_rows(
+    monkeypatch,
+) -> None:
+    service = OperationsInventoryWebService()
+    org_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+    db = MagicMock()
+
+    monkeypatch.setattr(
+        "app.services.finance.rpt.inventory_valuation."
+        "inventory_valuation_reconciliation_context",
+        lambda db_arg, organization_id: {
+            "has_data": True,
+            "fiscal_period_id": "period-1",
+            "inventory_total": "NGN 120.00",
+            "gl_total": "NGN 120.00",
+            "difference": "NGN 0.00",
+            "is_balanced": True,
+            "valuation_rows": [
+                {
+                    "item_code": "ITEM-001",
+                    "item_name": "Tracked Item",
+                    "warehouse_name": "Stores",
+                    "quantity_on_hand": "10",
+                    "current_wac": "NGN 12.00",
+                    "inventory_value": "NGN 120.00",
+                    "gl_value": "NGN 120.00",
+                    "difference": "NGN 0.00",
+                    "is_balanced": True,
+                }
+            ],
+            "valuation_row_count": 1,
+            "valuation_mismatch_count": 0,
+        },
+    )
+
+    response = service.export_inventory_valuation_csv_response(auth, db)
+
+    body = response.body.decode()
+    assert response.media_type == "text/csv"
+    assert (
+        'filename="inventory_valuation_summary_period-1.csv"'
+        in response.headers["Content-Disposition"]
+    )
+    assert "Inventory Valuation Summary" in body
+    assert "Inventory Value,NGN 120.00" in body
+    assert "Item Code,Item Name,Warehouse,Quantity On Hand" in body
+    assert (
+        "ITEM-001,Tracked Item,Stores,10,NGN 12.00,NGN 120.00,NGN 120.00,NGN 0.00,Matched"
+        in body
+    )
+
+
+def test_export_wac_breakdown_csv_response_exports_selected_item(monkeypatch) -> None:
+    service = OperationsInventoryWebService()
+    org_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    warehouse_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+    db = MagicMock()
+
+    detail_row = MagicMock()
+    detail_row.item_id = item_id
+    detail_row.warehouse_id = warehouse_id
+    detail_row.item_code = "ITEM-001"
+    detail_row.item_name = "Tracked Item"
+    detail_row.warehouse_name = "Stores"
+
+    breakdown_row = MagicMock()
+    breakdown_row.transaction_date = date(2026, 5, 1)
+    breakdown_row.transaction_type = "RECEIPT"
+    breakdown_row.reference = "MAT-001"
+    breakdown_row.quantity_in = Decimal("2")
+    breakdown_row.quantity_out = Decimal("0")
+    breakdown_row.unit_cost = Decimal("10")
+    breakdown_row.value_in = Decimal("20")
+    breakdown_row.value_out = Decimal("0")
+    breakdown_row.quantity_after = Decimal("2")
+    breakdown_row.wac_after = Decimal("10")
+    breakdown_row.total_value_after = Decimal("20")
+
+    monkeypatch.setattr(
+        "app.services.inventory.valuation_reconciliation."
+        "ValuationReconciliationService.reconcile",
+        lambda self, organization_id: MagicMock(fiscal_period_id=uuid.uuid4()),
+    )
+    monkeypatch.setattr(
+        "app.services.inventory.valuation_reconciliation."
+        "ValuationReconciliationService.detail_rows",
+        lambda self, organization_id, fiscal_period_id, limit=100: [detail_row],
+    )
+    monkeypatch.setattr(
+        "app.services.inventory.wac_valuation.WACValuationService.breakdown_rows",
+        lambda self, organization_id, selected_item_id, selected_warehouse_id, limit=250: [
+            breakdown_row
+        ],
+    )
+
+    response = service.export_wac_breakdown_csv_response(
+        auth,
+        db,
+        item_id=str(item_id),
+        warehouse_id=str(warehouse_id),
+    )
+
+    body = response.body.decode()
+    assert response.media_type == "text/csv"
+    assert (
+        'filename="wac_breakdown_ITEM-001_' in response.headers["Content-Disposition"]
+    )
+    assert "Item Code,Item Name,Warehouse,Transaction Date" in body
+    assert (
+        "ITEM-001,Tracked Item,Stores,2026-05-01,Receipt,MAT-001,2,0,10,20,0,2,10,20"
+        in body
+    )
+
+
+def test_export_wac_breakdown_pdf_response_returns_pdf(monkeypatch) -> None:
+    service = OperationsInventoryWebService()
+    org_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    warehouse_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+    db = MagicMock()
+
+    captured: dict[str, object] = {}
+
+    def fake_export_rows(self, auth_arg, db_arg, item_id=None, warehouse_id=None):
+        return (
+            [
+                {
+                    "item_code": "ITEM-001",
+                    "item_name": "Tracked Item",
+                    "warehouse_name": "Stores",
+                    "transaction_date": "2026-05-01",
+                    "transaction_type": "Receipt",
+                    "reference": "MAT-001",
+                    "quantity_in": "2",
+                    "quantity_out": "0",
+                    "unit_cost": "10",
+                    "value_in": "20",
+                    "value_out": "0",
+                    "quantity_after": "2",
+                    "wac_after": "10",
+                    "total_value_after": "20",
+                }
+            ],
+            "wac_breakdown_ITEM-001_stores",
+        )
+
+    def fake_render(self, report_name, organization_id, context):
+        captured["report_name"] = report_name
+        captured["organization_id"] = organization_id
+        captured["context"] = context
+        return b"%PDF-1.4"
+
+    monkeypatch.setattr(
+        OperationsInventoryWebService,
+        "_wac_breakdown_export_rows",
+        fake_export_rows,
+    )
+    monkeypatch.setattr(
+        "app.services.finance.rpt.pdf.ReportPDFService.render",
+        fake_render,
+    )
+
+    response = service.export_wac_breakdown_pdf_response(
+        auth,
+        db,
+        item_id=str(item_id),
+        warehouse_id=str(warehouse_id),
+    )
+
+    assert response.media_type == "application/pdf"
+    assert response.body == b"%PDF-1.4"
+    assert (
+        response.headers["Content-Disposition"]
+        == 'attachment; filename="wac_breakdown_ITEM-001_stores.pdf"'
+    )
+    assert captured["report_name"] == "wac_breakdown"
+    assert captured["organization_id"] == str(org_id)
+    assert captured["context"]["scope_label"] == "Selected Item"
+    assert captured["context"]["row_count"] == 1
+
+
+def test_export_wac_breakdown_pdf_response_requires_selected_item() -> None:
+    from fastapi import HTTPException
+
+    service = OperationsInventoryWebService()
+    auth = MagicMock(organization_id=uuid.uuid4())
+    db = MagicMock()
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.export_wac_breakdown_pdf_response(auth, db)
+
+    assert exc_info.value.status_code == 400
+    assert "selected item and warehouse" in exc_info.value.detail
+
+
+def test_fifo_layers_report_response_uses_fifo_template(monkeypatch) -> None:
+    service = OperationsInventoryWebService()
+    request = MagicMock()
+    db = MagicMock()
+    org_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+
+    captured: dict[str, object] = {}
+
+    def fake_template_response(request_arg, template_name, context):
+        captured["request"] = request_arg
+        captured["template_name"] = template_name
+        captured["context"] = context
+        return "response"
+
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.base_context",
+        lambda request_arg, auth_arg, title, section: {
+            "title": title,
+            "section": section,
+            "organization_id": str(auth_arg.organization_id),
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.templates.TemplateResponse",
+        fake_template_response,
+    )
+
+    class _FakeScalarResult:
+        def __init__(self, values):
+            self._values = values
+
+        def all(self):
+            return self._values
+
+    warehouse_obj = MagicMock()
+    warehouse_obj.warehouse_id = uuid.uuid4()
+    warehouse_obj.warehouse_name = "Main Warehouse"
+    warehouse_obj.warehouse_code = "MAIN"
+
+    item_obj = MagicMock()
+    item_obj.item_id = uuid.uuid4()
+    item_obj.item_code = "ITEM-001"
+    item_obj.item_name = "FIFO Item"
+
+    lot_obj = MagicMock()
+    lot_obj.received_date = "2026-04-01"
+    lot_obj.lot_number = "FIFO-20260401-ABC123"
+    lot_obj.allocation_reference = "GRN-001"
+
+    balance_obj = MagicMock()
+    balance_obj.quantity_on_hand = 10
+    balance_obj.quantity_available = 8
+    balance_obj.quantity_allocated = 2
+
+    db.scalars.side_effect = [
+        _FakeScalarResult([warehouse_obj]),
+        _FakeScalarResult([item_obj]),
+    ]
+    db.scalar.side_effect = [1, 1, 10, 250]
+    db.execute.return_value.all.return_value = [
+        (balance_obj, lot_obj, item_obj, warehouse_obj)
+    ]
+
+    response = service.fifo_layers_report_response(request, auth, db)
+
+    assert response == "response"
+    assert captured["request"] is request
+    assert captured["template_name"] == "inventory/report_fifo_layers.html"
+    context = captured["context"]
+    assert isinstance(context, dict)
+    assert context["title"] == "FIFO Layers"
+    assert context["section"] == "reports"
+    assert context["summary"]["total_layers"] == 1
+    assert len(context["layers"]) == 1
+
+
+def test_stock_aging_report_response_uses_aging_template(monkeypatch) -> None:
+    service = OperationsInventoryWebService()
+    request = MagicMock()
+    db = MagicMock()
+    org_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+
+    captured: dict[str, object] = {}
+
+    def fake_template_response(request_arg, template_name, context):
+        captured["request"] = request_arg
+        captured["template_name"] = template_name
+        captured["context"] = context
+        return "response"
+
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.base_context",
+        lambda request_arg, auth_arg, title, section: {
+            "title": title,
+            "section": section,
+            "organization_id": str(auth_arg.organization_id),
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.templates.TemplateResponse",
+        fake_template_response,
+    )
+
+    class _FakeScalarResult:
+        def __init__(self, values):
+            self._values = values
+
+        def all(self):
+            return self._values
+
+    warehouse_obj = MagicMock()
+    warehouse_obj.warehouse_id = uuid.uuid4()
+    warehouse_obj.warehouse_name = "Main Warehouse"
+    warehouse_obj.warehouse_code = "MAIN"
+
+    item_obj = MagicMock()
+    item_obj.item_id = uuid.uuid4()
+    item_obj.item_code = "ITEM-001"
+    item_obj.item_name = "Tracked Item"
+
+    lot_obj = MagicMock()
+    lot_obj.received_date = date(2026, 3, 1)
+    lot_obj.lot_number = "LOT-001"
+    lot_obj.allocation_reference = "GRN-001"
+
+    balance_obj = MagicMock()
+    balance_obj.quantity_on_hand = 10
+
+    db.scalars.side_effect = [
+        _FakeScalarResult([warehouse_obj]),
+        _FakeScalarResult([item_obj]),
+    ]
+    db.execute.return_value.all.return_value = [
+        (balance_obj, lot_obj, item_obj, warehouse_obj)
+    ]
+
+    response = service.stock_aging_report_response(request, auth, db)
+
+    assert response == "response"
+    assert captured["request"] is request
+    assert captured["template_name"] == "inventory/report_stock_aging.html"
+    context = captured["context"]
+    assert isinstance(context, dict)
+    assert context["title"] == "Stock Aging"
+    assert context["section"] == "reports"
+    assert "summary" in context
+
+
+def test_stock_movement_report_response_uses_movement_template(monkeypatch) -> None:
+    service = OperationsInventoryWebService()
+    request = MagicMock()
+    db = MagicMock()
+    org_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+
+    captured: dict[str, object] = {}
+
+    def fake_template_response(request_arg, template_name, context):
+        captured["request"] = request_arg
+        captured["template_name"] = template_name
+        captured["context"] = context
+        return "response"
+
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.base_context",
+        lambda request_arg, auth_arg, title, section: {
+            "title": title,
+            "section": section,
+            "organization_id": str(auth_arg.organization_id),
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.templates.TemplateResponse",
+        fake_template_response,
+    )
+
+    class _FakeScalarResult:
+        def __init__(self, values):
+            self._values = values
+
+        def all(self):
+            return self._values
+
+    warehouse_obj = MagicMock()
+    warehouse_obj.warehouse_id = uuid.uuid4()
+    warehouse_obj.warehouse_name = "Main Warehouse"
+    warehouse_obj.warehouse_code = "MAIN"
+
+    item_obj = MagicMock()
+    item_obj.item_id = uuid.uuid4()
+    item_obj.item_code = "ITEM-001"
+    item_obj.item_name = "Tracked Item"
+
+    txn_obj = MagicMock()
+    txn_obj.transaction_type.value = "RECEIPT"
+    txn_obj.quantity = 10
+    txn_obj.unit_cost = 25
+    txn_obj.total_cost = 250
+    txn_obj.reference = "GRN-001"
+    txn_obj.transaction_date = None
+
+    db.scalars.side_effect = [
+        _FakeScalarResult([warehouse_obj]),
+        _FakeScalarResult([item_obj]),
+    ]
+    db.execute.return_value.all.return_value = [
+        (txn_obj, item_obj, warehouse_obj, None)
+    ]
+
+    response = service.stock_movement_report_response(request, auth, db)
+
+    assert response == "response"
+    assert captured["template_name"] == "inventory/report_stock_movement.html"
+    context = captured["context"]
+    assert isinstance(context, dict)
+    assert context["title"] == "Stock Movement"
+    assert context["summary"]["total_rows"] == 1
+    assert len(context["movement_rows"]) == 1
+
+
+def test_yearly_stock_movement_report_calculates_opening_and_closing(
+    monkeypatch,
+) -> None:
+    service = OperationsInventoryWebService()
+    request = MagicMock()
+    db = MagicMock()
+    org_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+
+    captured: dict[str, object] = {}
+
+    def fake_template_response(request_arg, template_name, context):
+        captured["request"] = request_arg
+        captured["template_name"] = template_name
+        captured["context"] = context
+        return "response"
+
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.base_context",
+        lambda request_arg, auth_arg, title, section: {
+            "title": title,
+            "section": section,
+            "organization_id": str(auth_arg.organization_id),
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.templates.TemplateResponse",
+        fake_template_response,
+    )
+
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.models.inventory.inventory_transaction import TransactionType
+
+    warehouse_obj = MagicMock()
+    warehouse_obj.warehouse_id = uuid.uuid4()
+    warehouse_obj.organization_id = org_id
+    warehouse_obj.warehouse_name = "Main Warehouse"
+    warehouse_obj.warehouse_code = "MAIN"
+
+    item_obj = MagicMock()
+    item_obj.item_id = uuid.uuid4()
+    item_obj.organization_id = org_id
+    item_obj.item_code = "ITEM-001"
+    item_obj.item_name = "Tracked Item"
+
+    opening_txn = SimpleNamespace(
+        transaction_type=TransactionType.RECEIPT,
+        transaction_date=datetime(2025, 12, 20, tzinfo=timezone.utc),
+        created_at=datetime(2025, 12, 20, tzinfo=timezone.utc),
+        quantity=Decimal("100"),
+        quantity_before=Decimal("0"),
+        quantity_after=Decimal("100"),
+        source_document_type="MANUAL",
+        reference="OPENING",
+    )
+    purchase_txn = SimpleNamespace(
+        transaction_type=TransactionType.RECEIPT,
+        transaction_date=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        created_at=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        quantity=Decimal("50"),
+        quantity_before=Decimal("100"),
+        quantity_after=Decimal("150"),
+        source_document_type="GOODS_RECEIPT",
+        reference="GRN-001",
+    )
+    issue_txn = SimpleNamespace(
+        transaction_type=TransactionType.ISSUE,
+        transaction_date=datetime(2026, 2, 5, tzinfo=timezone.utc),
+        created_at=datetime(2026, 2, 5, tzinfo=timezone.utc),
+        quantity=Decimal("30"),
+        quantity_before=Decimal("150"),
+        quantity_after=Decimal("120"),
+        source_document_type="MATERIAL_REQUEST",
+        reference="MR-001",
+    )
+
+    class _FakeScalarResult:
+        def __init__(self, values):
+            self._values = values
+
+        def all(self):
+            return self._values
+
+    db.scalars.side_effect = [
+        _FakeScalarResult([warehouse_obj]),
+        _FakeScalarResult([item_obj]),
+    ]
+    db.execute.return_value.all.return_value = [
+        (opening_txn, item_obj, warehouse_obj),
+        (purchase_txn, item_obj, warehouse_obj),
+        (issue_txn, item_obj, warehouse_obj),
+    ]
+
+    response = service.yearly_stock_movement_report_response(
+        request, auth, db, year="2026"
+    )
+
+    assert response == "response"
+    assert captured["template_name"] == "inventory/report_yearly_stock_movement.html"
+    context = captured["context"]
+    assert isinstance(context, dict)
+    assert context["title"] == "Yearly Stock Movement"
+    assert context["summary"]["total_rows"] == 1
+    row = context["yearly_rows"][0]
+    assert row["opening_qty"] == Decimal("100")
+    assert row["quantity_in"] == Decimal("50")
+    assert row["purchase_qty"] == Decimal("50")
+    assert row["issued_qty"] == Decimal("30")
+    assert row["quantity_out"] == Decimal("30")
+    assert row["closing_qty"] == Decimal("120")
+
+
+def test_yearly_stock_movement_report_filters_by_month(monkeypatch) -> None:
+    service = OperationsInventoryWebService()
+    request = MagicMock()
+    db = MagicMock()
+    org_id = uuid.uuid4()
+    auth = MagicMock(organization_id=org_id)
+
+    captured: dict[str, object] = {}
+
+    def fake_template_response(request_arg, template_name, context):
+        captured["template_name"] = template_name
+        captured["context"] = context
+        return "response"
+
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.base_context",
+        lambda request_arg, auth_arg, title, section: {
+            "title": title,
+            "section": section,
+            "organization_id": str(auth_arg.organization_id),
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.operations.inv_web.templates.TemplateResponse",
+        fake_template_response,
+    )
+
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.models.inventory.inventory_transaction import TransactionType
+
+    warehouse_obj = MagicMock()
+    warehouse_obj.warehouse_id = uuid.uuid4()
+    warehouse_obj.organization_id = org_id
+    warehouse_obj.warehouse_name = "Main Warehouse"
+    warehouse_obj.warehouse_code = "MAIN"
+
+    item_obj = MagicMock()
+    item_obj.item_id = uuid.uuid4()
+    item_obj.organization_id = org_id
+    item_obj.item_code = "ITEM-001"
+    item_obj.item_name = "Tracked Item"
+
+    opening_txn = SimpleNamespace(
+        transaction_type=TransactionType.RECEIPT,
+        transaction_date=datetime(2025, 12, 20, tzinfo=timezone.utc),
+        created_at=datetime(2025, 12, 20, tzinfo=timezone.utc),
+        quantity=Decimal("100"),
+        quantity_before=Decimal("0"),
+        quantity_after=Decimal("100"),
+        source_document_type="MANUAL",
+        reference="OPENING",
+    )
+    january_txn = SimpleNamespace(
+        transaction_type=TransactionType.RECEIPT,
+        transaction_date=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        created_at=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        quantity=Decimal("50"),
+        quantity_before=Decimal("100"),
+        quantity_after=Decimal("150"),
+        source_document_type="GOODS_RECEIPT",
+        reference="GRN-001",
+    )
+    february_txn = SimpleNamespace(
+        transaction_type=TransactionType.ISSUE,
+        transaction_date=datetime(2026, 2, 5, tzinfo=timezone.utc),
+        created_at=datetime(2026, 2, 5, tzinfo=timezone.utc),
+        quantity=Decimal("30"),
+        quantity_before=Decimal("150"),
+        quantity_after=Decimal("120"),
+        source_document_type="MATERIAL_REQUEST",
+        reference="MR-001",
+    )
+
+    class _FakeScalarResult:
+        def __init__(self, values):
+            self._values = values
+
+        def all(self):
+            return self._values
+
+    db.scalars.side_effect = [
+        _FakeScalarResult([warehouse_obj]),
+        _FakeScalarResult([item_obj]),
+    ]
+    db.execute.return_value.all.return_value = [
+        (opening_txn, item_obj, warehouse_obj),
+        (january_txn, item_obj, warehouse_obj),
+        (february_txn, item_obj, warehouse_obj),
+    ]
+
+    response = service.yearly_stock_movement_report_response(
+        request, auth, db, year="2026", month="2"
+    )
+
+    assert response == "response"
+    assert captured["template_name"] == "inventory/report_yearly_stock_movement.html"
+    context = captured["context"]
+    assert context["month"] == "2"
+    row = context["yearly_rows"][0]
+    assert row["opening_qty"] == Decimal("150")
+    assert row["quantity_in"] == Decimal("0")
+    assert row["issued_qty"] == Decimal("30")
+    assert row["closing_qty"] == Decimal("120")
 
 
 @pytest.mark.asyncio

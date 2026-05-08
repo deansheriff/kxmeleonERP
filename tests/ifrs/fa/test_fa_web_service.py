@@ -4,6 +4,7 @@ Tests for FixedAssetWebService.
 
 import uuid
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 
 try:
     from datetime import UTC  # type: ignore
@@ -154,6 +155,10 @@ class MockDepreciationRun:
         self.status = kwargs.get("status", DepreciationRunStatus.DRAFT)
         self.assets_processed = kwargs.get("assets_processed", 10)
         self.total_depreciation = kwargs.get("total_depreciation", Decimal("1000.00"))
+        self.journal_entry_id = kwargs.get("journal_entry_id")
+        self.calculation_started_at = kwargs.get("calculation_started_at")
+        self.calculation_completed_at = kwargs.get("calculation_completed_at")
+        self.posted_at = kwargs.get("posted_at")
         self.created_at = kwargs.get("created_at", datetime.now(UTC))
 
 
@@ -165,6 +170,48 @@ class MockFiscalPeriod:
         self.period_name = kwargs.get("period_name", "January 2024")
         self.start_date = kwargs.get("start_date", date(2024, 1, 1))
         self.end_date = kwargs.get("end_date", date(2024, 1, 31))
+
+
+class MockDepreciationSchedule:
+    """Mock DepreciationSchedule for testing."""
+
+    def __init__(self, **kwargs):
+        self.schedule_id = kwargs.get("schedule_id", uuid.uuid4())
+        self.run_id = kwargs.get("run_id", uuid.uuid4())
+        self.asset_id = kwargs.get("asset_id", uuid.uuid4())
+        self.depreciation_amount = kwargs.get("depreciation_amount", Decimal("250.00"))
+        self.net_book_value_opening = kwargs.get(
+            "net_book_value_opening", Decimal("5000.00")
+        )
+        self.net_book_value_closing = kwargs.get(
+            "net_book_value_closing", Decimal("4750.00")
+        )
+        self.accumulated_depreciation_opening = kwargs.get(
+            "accumulated_depreciation_opening", Decimal("1000.00")
+        )
+        self.accumulated_depreciation_closing = kwargs.get(
+            "accumulated_depreciation_closing", Decimal("1250.00")
+        )
+        self.expense_account_id = kwargs.get("expense_account_id", uuid.uuid4())
+        self.accumulated_depreciation_account_id = kwargs.get(
+            "accumulated_depreciation_account_id", uuid.uuid4()
+        )
+        self.remaining_life_months_opening = kwargs.get(
+            "remaining_life_months_opening", 24
+        )
+        self.remaining_life_months_closing = kwargs.get(
+            "remaining_life_months_closing", 23
+        )
+
+
+class MockAccount:
+    """Mock GL account for testing."""
+
+    def __init__(self, **kwargs):
+        self.account_id = kwargs.get("account_id", uuid.uuid4())
+        self.organization_id = kwargs.get("organization_id", uuid.uuid4())
+        self.account_code = kwargs.get("account_code", "6000")
+        self.account_name = kwargs.get("account_name", "Depreciation Expense")
 
 
 class TestFAWebServiceListAssets:
@@ -179,10 +226,19 @@ class TestFAWebServiceListAssets:
 
         mock_asset = MockAsset(organization_id=org_id)
         mock_category = MockAssetCategory(organization_id=org_id)
+        summary_result = MagicMock()
+        summary_result.one.return_value = SimpleNamespace(
+            total_assets=1,
+            total_cost=Decimal("5000.00"),
+            total_nbv=Decimal("4000.00"),
+            active_count=1,
+        )
+        rows_result = MagicMock()
+        rows_result.all.return_value = [(mock_asset, mock_category)]
 
         # Mock SA2 patterns: db.scalar() for count, db.execute().all() for rows
         mock_db.scalar.return_value = 1
-        mock_db.execute.return_value.all.return_value = [(mock_asset, mock_category)]
+        mock_db.execute.side_effect = [summary_result, rows_result]
 
         result = FixedAssetWebService.list_assets_context(
             mock_db,
@@ -198,6 +254,9 @@ class TestFAWebServiceListAssets:
         assert len(result["assets"]) == 1
         assert result["page"] == 1
         assert result["total_count"] == 1
+        assert result["active_count"] == 1
+        assert result["total_cost"] == "USD 5,000.00"
+        assert result["total_nbv"] == "USD 4,000.00"
 
     def test_list_assets_context_with_search(self):
         """Test assets list context with search filter."""
@@ -243,6 +302,249 @@ class TestFAWebServiceListAssets:
         )
 
         assert result["status"] == "IN_USE"
+
+
+class TestFAWebServiceAssetDetail:
+    """Tests for asset detail context formatting."""
+
+    def test_asset_detail_uses_stored_carrying_amount_fields(self):
+        """NBV should use the stored carrying amount, not a recomputed shortcut."""
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        mock_db = MagicMock()
+        org_id = uuid.uuid4()
+        asset_id = uuid.uuid4()
+        category_id = uuid.uuid4()
+        asset = MockAsset(
+            asset_id=asset_id,
+            organization_id=org_id,
+            category_id=category_id,
+            acquisition_cost=Decimal("5000.00"),
+            net_book_value=Decimal("3600.00"),
+        )
+        asset.accumulated_depreciation = Decimal("1000.00")
+        asset.revalued_amount = Decimal("4200.00")
+        asset.impairment_loss = Decimal("600.00")
+        asset.useful_life_months = 60
+        asset.residual_value = Decimal("0.00")
+        category = MockAssetCategory(
+            category_id=category_id,
+            organization_id=org_id,
+            category_name="ICT Equipment",
+        )
+        auth = WebAuthContext(
+            is_authenticated=True,
+            person_id=uuid.uuid4(),
+            organization_id=org_id,
+            user_name="Test User",
+            user_initials="TU",
+        )
+        request = MagicMock()
+
+        mock_db.get.side_effect = [asset, category]
+
+        captured: dict[str, object] = {}
+
+        def _capture_template_response(_request, _template_name, context):
+            captured["context"] = context
+            return context
+
+        with (
+            patch("app.services.fixed_assets.web.base_context", return_value={}),
+            patch(
+                "app.services.fixed_assets.web.templates.TemplateResponse",
+                side_effect=_capture_template_response,
+            ),
+        ):
+            FixedAssetWebService().asset_detail_response(
+                request,
+                auth,
+                mock_db,
+                str(asset_id),
+            )
+
+        asset_view = captured["context"]["asset"]
+        assert asset_view["acquisition_cost"] == "USD 5,000.00"
+        assert asset_view["revalued_amount"] == "USD 4,200.00"
+        assert asset_view["accumulated_depreciation"] == "USD 1,000.00"
+        assert asset_view["impairment_loss"] == "USD 600.00"
+        assert asset_view["net_book_value"] == "USD 3,600.00"
+
+
+class TestFAWebServiceDepreciationRunForm:
+    """Tests for depreciation run form defaults."""
+
+    def test_depreciation_run_form_preselects_recommended_period(self):
+        """The form should default to the next due recommended fiscal period."""
+        from app.models.finance.gl.fiscal_period import PeriodStatus
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        mock_db = MagicMock()
+        org_id = uuid.uuid4()
+        recommended_period_id = uuid.uuid4()
+        fallback_period_id = uuid.uuid4()
+        mock_db.execute.return_value.all.return_value = [
+            (
+                fallback_period_id,
+                "May 2026",
+                date(2026, 5, 1),
+                date(2026, 5, 31),
+                PeriodStatus.OPEN,
+            ),
+            (
+                recommended_period_id,
+                "April 2026",
+                date(2026, 4, 1),
+                date(2026, 4, 30),
+                PeriodStatus.REOPENED,
+            ),
+        ]
+
+        with patch(
+            "app.services.fixed_assets.web.DepreciationService.get_next_automation_period",
+            return_value=SimpleNamespace(fiscal_period_id=recommended_period_id),
+        ):
+            result = FixedAssetWebService().depreciation_run_form_context(
+                mock_db,
+                str(org_id),
+            )
+
+        assert result["period"] == str(recommended_period_id)
+        assert result["recommended_period_id"] == str(recommended_period_id)
+        assert result["fiscal_periods"][1]["is_recommended"] is True
+
+    def test_depreciation_run_form_falls_back_to_latest_open_period(self):
+        """Without a due recommendation, the latest posting-eligible period wins."""
+        from app.models.finance.gl.fiscal_period import PeriodStatus
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        mock_db = MagicMock()
+        org_id = uuid.uuid4()
+        open_period_id = uuid.uuid4()
+        closed_period_id = uuid.uuid4()
+        mock_db.execute.return_value.all.return_value = [
+            (
+                open_period_id,
+                "May 2026",
+                date(2026, 5, 1),
+                date(2026, 5, 31),
+                PeriodStatus.OPEN,
+            ),
+            (
+                closed_period_id,
+                "April 2026",
+                date(2026, 4, 1),
+                date(2026, 4, 30),
+                PeriodStatus.HARD_CLOSED,
+            ),
+        ]
+
+        with patch(
+            "app.services.fixed_assets.web.DepreciationService.get_next_automation_period",
+            return_value=None,
+        ):
+            result = FixedAssetWebService().depreciation_run_form_context(
+                mock_db,
+                str(org_id),
+            )
+
+        assert result["period"] == str(open_period_id)
+        assert result["recommended_period_id"] is None
+
+
+class TestFAWebServiceRunDepreciation:
+    """Tests for depreciation run submission behavior."""
+
+    @pytest.mark.asyncio
+    async def test_run_depreciation_calculates_without_posting(self):
+        """Web submit should calculate only, leaving posting for a separate step."""
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        mock_db = MagicMock()
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        period_id = uuid.uuid4()
+        auth = WebAuthContext(
+            is_authenticated=True,
+            person_id=user_id,
+            organization_id=org_id,
+            user_name="Test User",
+            user_initials="TU",
+        )
+        request = MagicMock()
+        request.form = AsyncMock(
+            return_value={
+                "fiscal_period_id": str(period_id),
+                "posting_date": "2026-04-30",
+            }
+        )
+        run = SimpleNamespace(run_id=uuid.uuid4())
+
+        with (
+            patch(
+                "app.services.fixed_assets.web.DepreciationService.create_depreciation_run",
+                return_value=run,
+            ) as create_mock,
+            patch(
+                "app.services.fixed_assets.web.DepreciationService.calculate_run",
+                return_value=run,
+            ) as calculate_mock,
+            patch(
+                "app.services.fixed_assets.web.DepreciationService.post_run"
+            ) as post_mock,
+        ):
+            response = await FixedAssetWebService().run_depreciation_response(
+                request,
+                auth,
+                mock_db,
+            )
+
+        create_mock.assert_called_once()
+        calculate_mock.assert_called_once_with(mock_db, org_id, run.run_id)
+        post_mock.assert_not_called()
+        assert response.status_code == 303
+        assert str(run.run_id) in response.headers["location"]
+        assert "Awaiting+posting" in response.headers["location"]
+
+    @pytest.mark.asyncio
+    async def test_post_depreciation_run_response_posts_calculated_run(self):
+        """Posting a calculated run should call the posting service and redirect back."""
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        mock_db = MagicMock()
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        auth = WebAuthContext(
+            is_authenticated=True,
+            person_id=user_id,
+            organization_id=org_id,
+            user_name="Test User",
+            user_initials="TU",
+        )
+        request = MagicMock()
+        request.form = AsyncMock(return_value={"posting_date": "2026-04-30"})
+
+        with patch(
+            "app.services.fixed_assets.web.DepreciationService.post_run"
+        ) as post_mock:
+            response = await FixedAssetWebService().post_depreciation_run_response(
+                request,
+                auth,
+                mock_db,
+                str(run_id),
+            )
+
+        post_mock.assert_called_once_with(
+            mock_db,
+            org_id,
+            run_id,
+            user_id,
+            posting_date=date(2026, 4, 30),
+        )
+        assert response.status_code == 303
+        assert str(run_id) in response.headers["location"]
+        assert "posted+successfully" in response.headers["location"]
 
     def test_list_assets_context_with_category_uuid(self):
         """Test assets list context with category UUID filter."""
@@ -355,6 +657,9 @@ class TestFAWebServiceDepreciation:
         assert "depreciation_runs" in result
         assert len(result["depreciation_runs"]) == 1
         assert result["total_count"] == 1
+        assert result["depreciation_runs"][0]["detail_url"].endswith(
+            str(mock_run.run_id)
+        )
 
     def test_depreciation_context_with_period_filter(self):
         """Test depreciation context with period filter."""
@@ -400,6 +705,172 @@ class TestFAWebServiceDepreciation:
         assert result["offset"] == 10
         assert result["total_count"] == 100
         assert result["total_pages"] == 10
+
+    def test_depreciation_run_detail_context_success(self):
+        """Test depreciation run detail context with schedule rows."""
+        from app.models.fixed_assets.depreciation_run import DepreciationRunStatus
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        mock_db = MagicMock()
+        org_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        asset_id = uuid.uuid4()
+        category_id = uuid.uuid4()
+        expense_account_id = uuid.uuid4()
+        accum_account_id = uuid.uuid4()
+
+        mock_run = MockDepreciationRun(
+            run_id=run_id,
+            organization_id=org_id,
+            fiscal_period_id=uuid.uuid4(),
+            status=DepreciationRunStatus.CALCULATED,
+        )
+        mock_period = MockFiscalPeriod(period_name="April 2026")
+        mock_asset = MockAsset(
+            asset_id=asset_id,
+            organization_id=org_id,
+            asset_number="FA000001",
+            asset_name="All in One Desktop",
+            currency_code="NGN",
+            category_id=category_id,
+        )
+        mock_category = MockAssetCategory(
+            category_id=category_id,
+            organization_id=org_id,
+            category_name="ICT Equipment",
+        )
+        mock_schedule = MockDepreciationSchedule(
+            run_id=run_id,
+            asset_id=asset_id,
+            expense_account_id=expense_account_id,
+            accumulated_depreciation_account_id=accum_account_id,
+        )
+        schedule_scalars = MagicMock()
+        schedule_scalars.all.return_value = [mock_schedule]
+        account_scalars = MagicMock()
+        account_scalars.all.return_value = [
+            MockAccount(
+                account_id=expense_account_id,
+                organization_id=org_id,
+                account_code="6100",
+                account_name="Depreciation Expense",
+            ),
+            MockAccount(
+                account_id=accum_account_id,
+                organization_id=org_id,
+                account_code="1700",
+                account_name="Accumulated Depreciation",
+            ),
+        ]
+        mock_db.scalars.side_effect = [schedule_scalars, account_scalars]
+
+        mock_db.get.side_effect = [mock_run, mock_period]
+        mock_db.execute.return_value.all.return_value = [
+            (mock_schedule, mock_asset, mock_category)
+        ]
+
+        with patch(
+            "app.services.fixed_assets.web.org_context_service.get_functional_currency",
+            return_value="NGN",
+        ):
+            result = FixedAssetWebService.depreciation_run_detail_context(
+                mock_db,
+                str(org_id),
+                str(run_id),
+            )
+
+        assert result["run"]["run_id"] == str(run_id)
+        assert result["period"]["period_name"] == "April 2026"
+        assert len(result["schedules"]) == 1
+        assert result["schedules"][0]["asset_number"] == "FA000001"
+        assert result["schedules"][0]["category_name"] == "ICT Equipment"
+        assert result["posting_preview"]["line_count"] == 2
+        assert result["posting_preview"]["can_post"] is True
+
+
+class TestFAWebServiceGLReconciliation:
+    """Tests for fixed asset to GL reconciliation context."""
+
+    def test_gl_reconciliation_totals_count_shared_gl_accounts_once(self):
+        """Summary totals should not duplicate GL balances for shared accounts."""
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        org_id = uuid.uuid4()
+        asset_account_id = uuid.uuid4()
+        accum_account_id = uuid.uuid4()
+        category_rows = [
+            SimpleNamespace(
+                category_id=uuid.uuid4(),
+                category_code="ICT",
+                category_name="ICT Equipment",
+                asset_account_id=asset_account_id,
+                accumulated_depreciation_account_id=accum_account_id,
+                category_count=1,
+                category_codes="ICT",
+                category_names="ICT Equipment",
+                asset_count=1,
+                register_cost=Decimal("600.00"),
+                register_accumulated_depreciation=Decimal("100.00"),
+                register_nbv=Decimal("500.00"),
+            ),
+            SimpleNamespace(
+                category_id=uuid.uuid4(),
+                category_code="OPS",
+                category_name="Operations Equipment",
+                asset_account_id=asset_account_id,
+                accumulated_depreciation_account_id=accum_account_id,
+                category_count=1,
+                category_codes="OPS",
+                category_names="Operations Equipment",
+                asset_count=1,
+                register_cost=Decimal("400.00"),
+                register_accumulated_depreciation=Decimal("50.00"),
+                register_nbv=Decimal("350.00"),
+            ),
+        ]
+        accounts = [
+            SimpleNamespace(
+                account_id=asset_account_id,
+                account_code="1500",
+                account_name="Fixed Assets",
+            ),
+            SimpleNamespace(
+                account_id=accum_account_id,
+                account_code="1590",
+                account_name="Accumulated Depreciation",
+            ),
+        ]
+        gl_rows = [
+            SimpleNamespace(account_id=asset_account_id, balance=Decimal("1000.00")),
+            SimpleNamespace(account_id=accum_account_id, balance=Decimal("-200.00")),
+        ]
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = [
+            SimpleNamespace(all=lambda: category_rows),
+            SimpleNamespace(all=lambda: gl_rows),
+        ]
+        mock_db.scalars.return_value = SimpleNamespace(all=lambda: accounts)
+
+        with patch(
+            "app.services.fixed_assets.web.get_currency_context",
+            return_value={
+                "presentation_currency_code": "NGN",
+                "currencies": [{"code": "NGN", "symbol": "NGN "}],
+            },
+        ):
+            result = FixedAssetWebService.gl_reconciliation_context(
+                mock_db,
+                str(org_id),
+                as_of=date(2026, 4, 30),
+            )
+
+        assert result["totals"]["category_count"] == 2
+        assert result["totals"]["asset_count"] == 2
+        assert result["totals"]["register_nbv"] == Decimal("850.00")
+        assert result["totals"]["gl_cost"] == Decimal("1000.00")
+        assert result["totals"]["gl_accumulated_depreciation"] == Decimal("200.00")
+        assert result["totals"]["gl_nbv"] == Decimal("800.00")
+        assert result["totals"]["nbv_variance"] == Decimal("50.00")
 
 
 class TestFAWebServiceAssetUpdate:

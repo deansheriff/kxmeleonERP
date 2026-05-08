@@ -1,0 +1,180 @@
+{% extends "inventory/base_inventory.html" %}
+{% from "components/macros.html" import pagination, compact_filters, filter_custom_select_field, icon_svg, empty_state %}
+
+{% block page_title %}Yearly Stock Movement{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/inventory/items" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Inventory</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/inventory/reports" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Reports</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">Yearly Movement</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block header_actions %}
+<button onclick="window.print()" class="btn btn-secondary">
+    {{ icon_svg("printer", "h-4 w-4 mr-2") }}
+    Print
+</button>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6 stagger-in">
+    <div class="card p-6">
+        <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Yearly Stock Movement Summary</h2>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            Summarizes opening quantity, stock received, purchases, issues, outbound movement, and closing quantity by item, warehouse, and year.
+        </p>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Opening Qty</p>
+            <p class="mt-1 font-mono text-2xl font-bold text-slate-900 dark:text-white">{{ '{:,.2f}'.format(summary.opening_qty or 0) }}</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Quantity In</p>
+            <p class="mt-1 font-mono text-2xl font-bold text-emerald-600 dark:text-emerald-400">{{ '{:,.2f}'.format(summary.quantity_in or 0) }}</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Purchases</p>
+            <p class="mt-1 font-mono text-2xl font-bold text-blue-600 dark:text-blue-400">{{ '{:,.2f}'.format(summary.purchase_qty or 0) }}</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Issued</p>
+            <p class="mt-1 font-mono text-2xl font-bold text-rose-600 dark:text-rose-400">{{ '{:,.2f}'.format(summary.issued_qty or 0) }}</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Closing Qty</p>
+            <p class="mt-1 font-mono text-2xl font-bold text-slate-900 dark:text-white">{{ '{:,.2f}'.format(summary.closing_qty or 0) }}</p>
+        </div>
+    </div>
+
+    {% call(filter_attrs) compact_filters(
+        base_url="/inventory/reports/yearly-movement",
+        active_filters=active_filters | default([]),
+        show_search=true,
+        search=search,
+        search_placeholder="Search item, warehouse, or reference..."
+    ) %}
+        {% call filter_custom_select_field("year", "Year", filter_attrs) %}
+            {% for option_year in year_options | default([]) %}
+            <option value="{{ option_year }}" {{ 'selected' if year == option_year|string else '' }}>{{ option_year }}</option>
+            {% endfor %}
+        {% endcall %}
+        {% call filter_custom_select_field("month", "Month", filter_attrs) %}
+            {% for option_month in month_options | default([]) %}
+            <option value="{{ option_month.value }}" {{ 'selected' if month == option_month.value else '' }}>
+                {{ option_month.label }}
+            </option>
+            {% endfor %}
+        {% endcall %}
+        {% call filter_custom_select_field("warehouse", "Warehouse", filter_attrs) %}
+            {% for wh in warehouses | default([]) %}
+            <option value="{{ wh.warehouse_id }}" {{ 'selected' if warehouse == wh.warehouse_id|string else '' }}>
+                {{ wh.warehouse_name }}
+            </option>
+            {% endfor %}
+        {% endcall %}
+        {% call filter_custom_select_field("item", "Item", filter_attrs) %}
+            {% for filter_item in items | default([]) %}
+            <option value="{{ filter_item.item_id }}" {{ 'selected' if item == filter_item.item_id|string else '' }}>
+                {{ filter_item.item_code }} - {{ filter_item.item_name }}
+            </option>
+            {% endfor %}
+        {% endcall %}
+    {% endcall %}
+
+    <div id="results-container">
+        <div class="card w-full overflow-hidden">
+            <div class="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Annual Movement Rows</h3>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Opening + quantity in - quantity out = closing quantity.</p>
+                </div>
+                <div class="text-sm text-slate-500 dark:text-slate-400">
+                    {{ total_count | default(0) }} rows
+                </div>
+            </div>
+
+            {% if yearly_rows | default([]) | length > 0 %}
+            <div class="overflow-x-auto">
+                <table class="w-full min-w-[1480px] table-fixed divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                    <colgroup>
+                        <col class="w-[95px]">
+                        <col class="w-[320px]">
+                        <col class="w-[260px]">
+                        <col class="w-[135px]">
+                        <col class="w-[135px]">
+                        <col class="w-[135px]">
+                        <col class="w-[135px]">
+                        <col class="w-[135px]">
+                        <col class="w-[135px]">
+                    </colgroup>
+                    <thead class="bg-slate-50 dark:bg-slate-900/60">
+                        <tr>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Year</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Item</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Warehouse</th>
+                            <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Opening Qty</th>
+                            <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Quantity In</th>
+                            <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Purchases</th>
+                            <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Issued</th>
+                            <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Quantity Out</th>
+                            <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Closing Qty</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                        {% for row in yearly_rows %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <td class="whitespace-nowrap px-4 py-3 align-top font-mono text-slate-700 dark:text-slate-300">{{ row.year }}</td>
+                            <td class="px-4 py-3 align-top">
+                                <div class="min-w-0">
+                                    <a href="/inventory/items/{{ row.item.item_id }}" class="block truncate font-medium text-amber-700 hover:text-amber-800 dark:text-amber-300" title="{{ row.item.item_name }}">
+                                        {{ row.item.item_name }}
+                                    </a>
+                                    <span class="mt-1 block truncate font-mono text-xs text-slate-500 dark:text-slate-400" title="{{ row.item.item_code }}">{{ row.item.item_code }}</span>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 align-top">
+                                <span class="block truncate font-medium text-slate-900 dark:text-white" title="{{ row.warehouse.warehouse_name }}">{{ row.warehouse.warehouse_name }}</span>
+                                <span class="mt-1 block truncate font-mono text-xs text-slate-500 dark:text-slate-400" title="{{ row.warehouse.warehouse_code }}">{{ row.warehouse.warehouse_code }}</span>
+                            </td>
+                            <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-slate-700 dark:text-slate-300">{{ '{:,.2f}'.format(row.opening_qty or 0) }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-emerald-600 dark:text-emerald-400">{{ '{:,.2f}'.format(row.quantity_in or 0) }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-blue-600 dark:text-blue-400">{{ '{:,.2f}'.format(row.purchase_qty or 0) }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-rose-600 dark:text-rose-400">{{ '{:,.2f}'.format(row.issued_qty or 0) }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-slate-700 dark:text-slate-300">{{ '{:,.2f}'.format(row.quantity_out or 0) }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono font-semibold text-slate-900 dark:text-white">{{ '{:,.2f}'.format(row.closing_qty or 0) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="px-6 py-12">
+                {{ empty_state(
+                    title="No yearly stock movement found",
+                    description="No inventory transactions matched the selected filters.",
+                    action_url="/inventory/reports",
+                    action_label="Back to Reports"
+                ) }}
+            </div>
+            {% endif %}
+        </div>
+
+        {% if yearly_rows | default([]) | length > 0 %}
+        {{ pagination(
+            page=page,
+            total_pages=total_pages,
+            total_count=total_count,
+            limit=limit,
+            search=search,
+            filters={"year": year, "month": month, "warehouse": warehouse, "item": item}
+        ) }}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

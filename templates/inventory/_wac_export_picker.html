@@ -1,0 +1,140 @@
+<div id="wac-export-picker" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="wac-export-picker-title">
+    <div class="w-full max-w-sm rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+        <div class="flex items-start justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <div>
+                <h2 id="wac-export-picker-title" class="text-base font-semibold text-slate-900 dark:text-white">Export Inventory Valuation</h2>
+                <p id="wac-export-picker-scope" class="mt-1 text-sm text-slate-500 dark:text-slate-400">Choose export format.</p>
+            </div>
+            <button type="button" class="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200" data-wac-export-close aria-label="Close export dialog">
+                {{ icon_svg("x-mark", "h-5 w-5") }}
+            </button>
+        </div>
+        <div class="space-y-4 px-5 py-4">
+            <div id="wac-export-report-type-wrap" class="hidden">
+                <label for="wac-export-report-type" class="block text-sm font-medium text-slate-700 dark:text-slate-200">Report</label>
+                <select id="wac-export-report-type" class="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+                    <option value="summary">Inventory valuation summary</option>
+                    <option value="breakdown">WAC transaction breakdown</option>
+                </select>
+            </div>
+            <label for="wac-export-format" class="block text-sm font-medium text-slate-700 dark:text-slate-200">Format</label>
+            <select id="wac-export-format" class="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+                <option value="csv">CSV</option>
+                <option value="pdf">PDF</option>
+            </select>
+        </div>
+        <div class="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4 dark:border-slate-700">
+            <button type="button" class="btn btn-secondary" data-wac-export-close>Cancel</button>
+            <button type="button" class="btn btn-primary" data-wac-export-download>
+                {{ icon_svg("download", "h-4 w-4 mr-2") }}
+                Download
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+function initWacExportPicker() {
+    const modal = document.getElementById('wac-export-picker');
+    if (!modal || modal.dataset.initialized === 'true') {
+        return;
+    }
+    modal.dataset.initialized = 'true';
+
+    const formatSelect = document.getElementById('wac-export-format');
+    const reportTypeWrap = document.getElementById('wac-export-report-type-wrap');
+    const reportTypeSelect = document.getElementById('wac-export-report-type');
+    const scopeText = document.getElementById('wac-export-picker-scope');
+    const downloadButton = modal.querySelector('[data-wac-export-download]');
+    let activeExportUrl = '';
+    let activeSummaryExportUrl = '';
+
+    function syncFormatOptions() {
+        const pdfOption = formatSelect.querySelector('option[value="pdf"]');
+        if (!pdfOption) {
+            return;
+        }
+        const isAllItemsBreakdown = activeSummaryExportUrl && reportTypeSelect.value === 'breakdown';
+        pdfOption.disabled = Boolean(isAllItemsBreakdown);
+        if (isAllItemsBreakdown && formatSelect.value === 'pdf') {
+            formatSelect.value = 'csv';
+        }
+    }
+
+    function openPicker(trigger) {
+        activeExportUrl = trigger.dataset.exportUrl || '';
+        activeSummaryExportUrl = trigger.dataset.summaryExportUrl || '';
+        const label = trigger.dataset.exportLabel || 'selected rows';
+        scopeText.textContent = `Export ${label}.`;
+        formatSelect.value = 'csv';
+        reportTypeSelect.value = activeSummaryExportUrl ? 'summary' : 'breakdown';
+        if (activeSummaryExportUrl) {
+            reportTypeWrap.classList.remove('hidden');
+        } else {
+            reportTypeWrap.classList.add('hidden');
+        }
+        syncFormatOptions();
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        (activeSummaryExportUrl ? reportTypeSelect : formatSelect).focus();
+    }
+
+    function closePicker() {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        activeExportUrl = '';
+        activeSummaryExportUrl = '';
+    }
+
+    document.querySelectorAll('[data-wac-export-trigger]').forEach((trigger) => {
+        trigger.addEventListener('click', () => openPicker(trigger));
+    });
+
+    modal.querySelectorAll('[data-wac-export-close]').forEach((button) => {
+        button.addEventListener('click', closePicker);
+    });
+
+    reportTypeSelect.addEventListener('change', syncFormatOptions);
+
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closePicker();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+            closePicker();
+        }
+    });
+
+    downloadButton.addEventListener('click', () => {
+        if (!activeExportUrl) {
+            return;
+        }
+        const selectedUrl = reportTypeSelect.value === 'summary' && activeSummaryExportUrl
+            ? activeSummaryExportUrl
+            : activeExportUrl;
+        const exportUrl = new URL(selectedUrl, window.location.origin);
+        exportUrl.searchParams.set('format', formatSelect.value);
+        const downloadLink = document.createElement('a');
+        downloadLink.href = `${exportUrl.pathname}${exportUrl.search}`;
+        downloadLink.rel = 'noopener';
+        downloadLink.style.display = 'none';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        closePicker();
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initWacExportPicker);
+} else {
+    initWacExportPicker();
+}
+
+document.body.addEventListener('htmx:afterSettle', initWacExportPicker);
+})();
+</script>

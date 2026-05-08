@@ -305,6 +305,7 @@ class TestGetCeleryConfig:
         # Clear env vars
         monkeypatch.delenv("CELERY_BROKER_URL", raising=False)
         monkeypatch.delenv("CELERY_RESULT_BACKEND", raising=False)
+        monkeypatch.delenv("CELERY_TIMEZONE", raising=False)
         monkeypatch.delenv("REDIS_URL", raising=False)
 
         mock_session = MagicMock()

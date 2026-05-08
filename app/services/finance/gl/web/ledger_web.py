@@ -345,7 +345,7 @@ class LedgerWebService:
             "finance/gl/ledger.html",
             {
                 **base_context(
-                    request, auth, page_title="General Ledger", active_module="gl"
+                    request, auth, page_title="Ledger Transactions", active_module="gl"
                 ),
                 **context,
             },

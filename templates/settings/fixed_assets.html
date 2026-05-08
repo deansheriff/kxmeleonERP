@@ -1,0 +1,60 @@
+{% extends "modules/base_modules.html" %}
+{% from "components/macros.html" import icon_svg %}
+{% import "components/settings_macros.html" as settings_ui %}
+
+{% block page_title %}Asset Management Settings{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Home</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/settings" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Settings</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">Asset Management</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+    {{ settings_ui.settings_header("Asset Management Settings", "Configure monthly depreciation automation without leaving the fixed-assets workflow.") }}
+    {{ settings_ui.settings_messages(settings_saved|default(false), error, "Asset management settings updated successfully.") }}
+
+    <form method="POST" action="/settings/fixed-assets" class="space-y-6">
+        {{ request.state.csrf_form | safe }}
+
+        <div class="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Depreciation Automation</h2>
+            <div class="space-y-4">
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" name="fa_depreciation_auto_run_enabled" value="true"
+                           {{ 'checked' if settings.fa_depreciation_auto_run_enabled.value else '' }}
+                           class="mt-0.5 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-900">
+                    <div>
+                        <span class="font-medium text-slate-900 dark:text-white">{{ settings.fa_depreciation_auto_run_enabled.label }}</span>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ settings.fa_depreciation_auto_run_enabled.description }}</p>
+                    </div>
+                </label>
+
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" name="fa_depreciation_auto_post_enabled" value="true"
+                           {{ 'checked' if settings.fa_depreciation_auto_post_enabled.value else '' }}
+                           class="mt-0.5 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-900">
+                    <div>
+                        <span class="font-medium text-slate-900 dark:text-white">{{ settings.fa_depreciation_auto_post_enabled.label }}</span>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ settings.fa_depreciation_auto_post_enabled.description }}</p>
+                    </div>
+                </label>
+
+                <div class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
+                    <p class="text-xs text-blue-700 dark:text-blue-300">
+                        The system still creates a separate depreciation run for each monthly fiscal period.
+                        Enabling automation only removes the manual step of creating the run each month.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        {{ settings_ui.settings_actions() }}
+    </form>
+</div>
+{% endblock %}

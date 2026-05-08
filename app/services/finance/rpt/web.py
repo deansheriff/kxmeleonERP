@@ -259,7 +259,7 @@ class ReportsWebService:
         from app.services.common_filters import build_active_filters
         from app.web.deps import base_context
 
-        context = base_context(request, auth, "General Ledger", "reports")
+        context = base_context(request, auth, "Account Ledger Report", "reports")
         context.update(
             general_ledger_context(
                 db,

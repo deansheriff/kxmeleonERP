@@ -12,6 +12,7 @@ Handles:
 import asyncio
 import html
 import logging
+from datetime import date
 from typing import Any
 from uuid import UUID
 
@@ -373,6 +374,88 @@ def _get_finance_recipients(
         )
     )
     return list(db.scalars(stmt).all())
+
+
+@shared_task
+def process_monthly_depreciation_runs(
+    auto_post: bool | None = None,
+    as_of_date: str | None = None,
+) -> dict[str, Any]:
+    """
+    Create due monthly fixed-asset depreciation runs for active organizations.
+
+    The task scans for the next open/reopened fiscal period that has already
+    ended and does not already have a non-failed depreciation run.
+    """
+    from app.services.fixed_assets.depreciation import DepreciationService
+
+    logger.info("Processing monthly fixed-asset depreciation runs")
+
+    results: dict[str, Any] = {
+        "automation_enabled": False,
+        "auto_post": False,
+        "organizations_checked": 0,
+        "runs_calculated": 0,
+        "runs_posted": 0,
+        "skipped": 0,
+        "errors": [],
+    }
+
+    run_cutoff_date = date.fromisoformat(as_of_date) if as_of_date else date.today()
+
+    with SessionLocal() as db:
+        if not DepreciationService.automation_enabled(db):
+            logger.info("Monthly FA depreciation automation is disabled")
+            return results
+
+        effective_auto_post = (
+            auto_post
+            if auto_post is not None
+            else DepreciationService.automation_auto_post_enabled(db)
+        )
+        results["automation_enabled"] = True
+        results["auto_post"] = effective_auto_post
+
+        organization_ids = DepreciationService.list_active_organization_ids(db)
+        results["organizations_checked"] = len(organization_ids)
+
+        for organization_id in organization_ids:
+            try:
+                outcome = DepreciationService.create_automated_monthly_run(
+                    db,
+                    organization_id,
+                    as_of_date=run_cutoff_date,
+                    auto_post=effective_auto_post,
+                )
+                if outcome["status"] == "posted":
+                    results["runs_posted"] += 1
+                elif outcome["status"] == "calculated":
+                    results["runs_calculated"] += 1
+                else:
+                    results["skipped"] += 1
+            except Exception as exc:
+                logger.exception(
+                    "Monthly FA depreciation automation failed for org %s",
+                    organization_id,
+                )
+                db.rollback()
+                results["errors"].append(
+                    {
+                        "organization_id": str(organization_id),
+                        "error": str(exc),
+                    }
+                )
+
+    logger.info(
+        "Monthly FA depreciation automation complete: orgs=%d, calculated=%d, "
+        "posted=%d, skipped=%d, errors=%d",
+        results["organizations_checked"],
+        results["runs_calculated"],
+        results["runs_posted"],
+        results["skipped"],
+        len(results["errors"]),
+    )
+    return results
 
 
 @shared_task
@@ -767,9 +850,9 @@ def process_subledger_reconciliation() -> dict[str, Any]:
                             organization_id=org.organization_id,
                             recipient_ids=recipients,
                             subledger_type="AR",
-                            gl_balance=Decimal(str(recon_data.get("ar_gl_balance", 0))),
+                            gl_balance=Decimal(str(recon_data.get("gl_ar_balance", 0))),
                             subledger_balance=Decimal(
-                                str(recon_data.get("ar_subledger_balance", 0))
+                                str(recon_data.get("subledger_ar_balance", 0))
                             ),
                         )
                         results["notifications_sent"] += sent
@@ -789,9 +872,9 @@ def process_subledger_reconciliation() -> dict[str, Any]:
                             organization_id=org.organization_id,
                             recipient_ids=recipients,
                             subledger_type="AP",
-                            gl_balance=Decimal(str(recon_data.get("ap_gl_balance", 0))),
+                            gl_balance=Decimal(str(recon_data.get("gl_ap_balance", 0))),
                             subledger_balance=Decimal(
-                                str(recon_data.get("ap_subledger_balance", 0))
+                                str(recon_data.get("subledger_ap_balance", 0))
                             ),
                         )
                         results["notifications_sent"] += sent

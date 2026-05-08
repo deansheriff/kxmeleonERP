@@ -499,12 +499,9 @@ class DashboardService:
                 db, org_id, year=year
             )
 
-        open_ar_statuses = [
-            InvoiceStatus.DRAFT.value,
-            InvoiceStatus.SUBMITTED.value,
-            InvoiceStatus.APPROVED.value,
-            InvoiceStatus.PARTIALLY_PAID.value,
-        ]
+        open_ar_statuses = sorted(
+            status.value for status in InvoiceStatus.outstanding()
+        )
         ar_subledger_stmt = select(
             func.coalesce(
                 func.sum(Invoice.total_amount - Invoice.amount_paid),
@@ -519,12 +516,9 @@ class DashboardService:
         )
         ar_subledger_balance = _safe_decimal(db.scalar(ar_subledger_stmt))
 
-        open_ap_statuses = [
-            SupplierInvoiceStatus.DRAFT.value,
-            SupplierInvoiceStatus.SUBMITTED.value,
-            SupplierInvoiceStatus.APPROVED.value,
-            SupplierInvoiceStatus.PARTIALLY_PAID.value,
-        ]
+        open_ap_statuses = sorted(
+            status.value for status in SupplierInvoiceStatus.outstanding()
+        )
         ap_subledger_stmt = select(
             func.coalesce(
                 func.sum(SupplierInvoice.total_amount - SupplierInvoice.amount_paid),

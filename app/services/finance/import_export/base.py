@@ -1452,13 +1452,21 @@ class BaseImporter(ABC, Generic[T]):
 
     def transform_row(self, row: dict[str, Any], row_num: int) -> dict[str, Any]:
         """Transform CSV row data to model field values."""
-        transformed = {}
+        transformed: dict[str, Any] = {}
         mappings = self.get_field_mappings()
 
         for mapping in mappings:
             source_value = row.get(mapping.source_field)
             try:
-                transformed[mapping.target_field] = mapping.transform(source_value)
+                transformed_value = mapping.transform(source_value)
+                existing_value = transformed.get(mapping.target_field)
+                if (
+                    mapping.target_field in transformed
+                    and existing_value not in (None, "")
+                    and transformed_value in (None, "")
+                ):
+                    continue
+                transformed[mapping.target_field] = transformed_value
             except Exception as e:
                 if mapping.required:
                     raise ValueError(
@@ -1469,6 +1477,13 @@ class BaseImporter(ABC, Generic[T]):
                     f"Failed to transform value '{source_value}': {str(e)}",
                     mapping.source_field,
                 )
+                existing_value = transformed.get(mapping.target_field)
+                if (
+                    mapping.target_field in transformed
+                    and existing_value not in (None, "")
+                    and mapping.default in (None, "")
+                ):
+                    continue
                 transformed[mapping.target_field] = mapping.default
 
         return transformed

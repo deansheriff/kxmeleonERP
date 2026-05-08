@@ -54,6 +54,18 @@
                 </div>
             </a>
 
+            <a href="/inventory/reports/yearly-movement" class="card p-5 hover:border-amber-300 dark:hover:border-amber-700 transition-colors group">
+                <div class="flex items-start gap-4">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 group-hover:bg-emerald-200 dark:group-hover:bg-emerald-900/50 transition-colors">
+                        {{ icon_svg("calendar", "h-6 w-6") }}
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-slate-900 dark:text-white">Yearly Stock Movement</h3>
+                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Opening, purchases, issues, and closing quantity by year</p>
+                    </div>
+                </div>
+            </a>
+
             <a href="/inventory/reports/low-stock" class="card p-5 hover:border-amber-300 dark:hover:border-amber-700 transition-colors group">
                 <div class="flex items-start gap-4">
                     <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 group-hover:bg-amber-200 dark:group-hover:bg-amber-900/50 transition-colors">
@@ -79,7 +91,7 @@
                     </div>
                     <div>
                         <h3 class="font-semibold text-slate-900 dark:text-white">Inventory Valuation</h3>
-                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Total value by costing method</p>
+                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Current carrying value and GL control balance</p>
                     </div>
                 </div>
             </a>

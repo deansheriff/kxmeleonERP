@@ -34,6 +34,41 @@
     </td>
   </tr>
 </table>
+
+{% if valuation_rows %}
+<table class="report-table">
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>Warehouse</th>
+      <th class="num">Qty</th>
+      <th class="num">WAC</th>
+      <th class="num">Inventory Value</th>
+      <th class="num">GL Value</th>
+      <th class="num">Difference</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in valuation_rows %}
+    <tr>
+      <td>{{ row.item_code }}<br><span class="muted">{{ row.item_name }}</span></td>
+      <td>{{ row.warehouse_name }}</td>
+      <td class="num">{{ row.quantity_on_hand }}</td>
+      <td class="num">{{ row.current_wac }}</td>
+      <td class="num">{{ row.inventory_value }}</td>
+      <td class="num">{{ row.gl_value }}</td>
+      <td class="num">{{ row.difference }}</td>
+      <td>{{ "Matched" if row.is_balanced else "Review" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="notes">
+  <p>No item-level valuation rows are available yet.</p>
+</div>
+{% endif %}
 {% else %}
 <div class="notes">
   <p>No data available. No open fiscal period was found for this organization.</p>

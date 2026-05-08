@@ -143,6 +143,19 @@ MODULE_SETTINGS_CONFIGS = [
             "expense_allowed_account_ids",
         ],
     ),
+    ModuleSettingsConfig(
+        key="fixed-assets",
+        title="Asset Management",
+        description="Depreciation automation and fixed-asset defaults",
+        url="/settings/fixed-assets",
+        icon="calculator",
+        page_title="Asset Management Settings",
+        template="settings/fixed_assets.html",
+        setting_keys=[
+            "fa_depreciation_auto_run_enabled",
+            "fa_depreciation_auto_post_enabled",
+        ],
+    ),
 ]
 
 
@@ -441,6 +454,32 @@ class ModuleSettingsWebService:
 
         return True, None
 
+    # ========== Fixed Assets Settings ==========
+
+    def get_fixed_assets_context(
+        self, db: Session, organization_id: uuid.UUID
+    ) -> dict[str, Any]:
+        """Get fixed-assets settings for the form."""
+        return self._build_settings_context(
+            db,
+            organization_id,
+            MODULE_SETTINGS_BY_KEY["fixed-assets"].setting_keys,
+        )
+
+    def update_fixed_assets_settings(
+        self,
+        db: Session,
+        organization_id: uuid.UUID,
+        data: dict[str, Any],
+    ) -> tuple[bool, str | None]:
+        """Update fixed-assets settings."""
+        return self._update_settings(
+            db,
+            organization_id,
+            data,
+            MODULE_SETTINGS_BY_KEY["fixed-assets"].setting_keys,
+        )
+
     def _build_settings_context(
         self,
         db: Session,
@@ -667,6 +706,8 @@ class ModuleSettingsWebService:
             return SettingDomain.procurement
         if key.startswith("expense_"):
             return SettingDomain.expense
+        if key.startswith("fa_"):
+            return SettingDomain.automation
         return SettingDomain.settings
 
 

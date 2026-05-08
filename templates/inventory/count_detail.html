@@ -3,32 +3,6 @@
 
 {% block page_title %}Count {{ count.count_number }}{% endblock %}
 
-{% block head %}
-{{ super() }}
-<style>
-    .inventory-count-page .card-header {
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 0;
-    }
-
-    .inventory-count-page .card-header + .p-6,
-    .inventory-count-page .card > .p-6:first-child {
-        padding: 1.25rem 1.5rem;
-    }
-
-    @media (max-width: 640px) {
-        .inventory-count-page .card-header {
-            padding: 1rem;
-        }
-
-        .inventory-count-page .card-header + .p-6,
-        .inventory-count-page .card > .p-6:first-child {
-            padding: 1rem;
-        }
-    }
-</style>
-{% endblock %}
-
 {% block breadcrumbs %}
 <nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
     <ol class="flex items-center gap-2">
@@ -76,12 +50,12 @@
 {% endblock %}
 
 {% block content %}
-<div class="inventory-count-page space-y-6 stagger-in">
+<div class="inventory-count-page w-full space-y-6 stagger-in">
     <!-- Count Header -->
-    <div class="card p-6">
-        <div class="flex flex-wrap items-start justify-between gap-4">
-            <div>
-                <div class="flex items-center gap-3">
+    <div class="card p-5 sm:p-6">
+        <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] xl:items-start">
+            <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-3">
                     <h2 class="text-xl font-semibold text-slate-900 dark:text-white">{{ count.count_number }}</h2>
                     {% set status_colors = {
                         'DRAFT': 'bg-slate-100 text-slate-700',
@@ -98,27 +72,33 @@
                 <p class="mt-2 text-slate-600 dark:text-slate-300">{{ count.count_description }}</p>
                 {% endif %}
             </div>
-            <div class="text-right text-sm text-slate-500 dark:text-slate-400">
-                <p>Count Date: <span class="font-medium text-slate-900 dark:text-white">{{ count.count_date | format_date if count.count_date else '-' }}</span></p>
-                <p>Warehouse: <span class="font-medium text-slate-900 dark:text-white">{{ count.warehouse.warehouse_name if count.warehouse else 'All Warehouses' }}</span></p>
+            <div class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-800/60 sm:grid-cols-2 xl:grid-cols-1">
+                <div>
+                    <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Count Date</p>
+                    <p class="mt-1 font-medium text-slate-900 dark:text-white">{{ count.count_date | format_date if count.count_date else '-' }}</p>
+                </div>
+                <div>
+                    <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Warehouse</p>
+                    <p class="mt-1 truncate font-medium text-slate-900 dark:text-white" title="{{ count.warehouse.warehouse_name if count.warehouse else 'All Warehouses' }}">{{ count.warehouse.warehouse_name if count.warehouse else 'All Warehouses' }}</p>
+                </div>
             </div>
         </div>
 
         <!-- Summary Stats -->
-        <div class="mt-6 grid gap-4 sm:grid-cols-4">
-            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 p-4">
+        <div class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
                 <p class="text-sm text-slate-500 dark:text-slate-400">Total Items</p>
                 <p class="text-2xl font-bold text-slate-900 dark:text-white font-mono">{{ summary.total_items | default(0) }}</p>
             </div>
-            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 p-4">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
                 <p class="text-sm text-slate-500 dark:text-slate-400">Counted</p>
                 <p class="text-2xl font-bold text-slate-900 dark:text-white font-mono">{{ summary.items_counted | default(0) }}</p>
             </div>
-            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 p-4">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
                 <p class="text-sm text-slate-500 dark:text-slate-400">With Variance</p>
                 <p class="text-2xl font-bold text-amber-600 dark:text-amber-400 font-mono">{{ summary.items_with_variance | default(0) }}</p>
             </div>
-            <div class="rounded-lg bg-slate-50 dark:bg-slate-800 p-4">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
                 <p class="text-sm text-slate-500 dark:text-slate-400">Variance Value</p>
                 <p class="text-2xl font-bold font-mono {{ 'text-rose-600' if (summary.total_variance_value or 0) < 0 else 'text-emerald-600' if (summary.total_variance_value or 0) > 0 else 'text-slate-900 dark:text-white' }}">
                     {{ '{:,.2f}'.format(summary.total_variance_value or 0) }}
@@ -128,7 +108,7 @@
     </div>
 
     <!-- Count Lines -->
-    <div class="card overflow-hidden">
+    <div id="results-container" class="card w-full overflow-hidden">
         <div class="border-b border-slate-200 dark:border-slate-700 px-6 py-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <h3 class="font-semibold text-slate-900 dark:text-white">Count Lines</h3>
@@ -156,30 +136,45 @@
         <form id="bulk-count-form" method="post" action="/inventory/counts/{{ count.count_id }}/bulk-record">
             {{ request.state.csrf_form | safe }}
         {% endif %}
-        <div class="table-container">
-            <table class="table-ledger">
+        <div class="overflow-x-auto">
+            <table class="w-full min-w-[1280px] table-fixed divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                <colgroup>
+                    {% if count.status.value == 'IN_PROGRESS' %}
+                    <col class="w-[76px]">
+                    {% endif %}
+                    <col class="w-[150px]">
+                    <col class="w-[280px]">
+                    <col class="w-[240px]">
+                    <col class="w-[135px]">
+                    <col class="w-[190px]">
+                    <col class="w-[135px]">
+                    <col class="w-[155px]">
+                    {% if count.status.value == 'IN_PROGRESS' %}
+                    <col class="w-[120px]">
+                    {% endif %}
+                </colgroup>
                 <thead>
                     <tr>
                         {% if count.status.value == 'IN_PROGRESS' %}
-                        <th scope="col" class="w-12 text-center text-xs font-semibold uppercase tracking-wider">Select</th>
+                        <th scope="col" class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Select</th>
                         {% endif %}
-                        <th scope="col">Item Code</th>
-                        <th scope="col">Item Name</th>
-                        <th scope="col">Warehouse</th>
-                        <th scope="col" class="text-right text-xs font-semibold uppercase tracking-wider">System Qty</th>
-                        <th scope="col" class="text-right text-xs font-semibold uppercase tracking-wider">Counted Qty</th>
-                        <th scope="col" class="text-right text-xs font-semibold uppercase tracking-wider">Variance</th>
-                        <th scope="col" class="text-right text-xs font-semibold uppercase tracking-wider">Variance Value</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Item Code</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Item Name</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Warehouse</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">System Qty</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Counted Qty</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Variance</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Variance Value</th>
                         {% if count.status.value == 'IN_PROGRESS' %}
-                        <th scope="col" class="w-24 text-xs font-semibold uppercase tracking-wider">Action</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Action</th>
                         {% endif %}
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
                     {% for line in lines %}
-                    <tr class="{{ 'bg-amber-50 dark:bg-amber-900/10' if line.variance_quantity and line.variance_quantity != 0 else '' }}">
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 {{ 'bg-amber-50 dark:bg-amber-900/10' if line.variance_quantity and line.variance_quantity != 0 else '' }}">
                         {% if count.status.value == 'IN_PROGRESS' %}
-                        <td class="text-center">
+                        <td class="px-4 py-3 text-center align-middle">
                             {% if line.counted_quantity is none %}
                             <input type="checkbox"
                                    name="selected_line_ids"
@@ -188,17 +183,21 @@
                             {% endif %}
                         </td>
                         {% endif %}
-                        <td class="font-medium text-slate-900 dark:text-white">{{ line.item.item_code if line.item else '-' }}</td>
-                        <td>{{ line.item.item_name if line.item else '-' }}</td>
-                        <td>{{ line.warehouse.warehouse_name if line.warehouse else '-' }}</td>
-                        <td class="text-right font-mono">{{ '{:,.2f}'.format(line.system_quantity or 0) }}</td>
-                        <td class="text-right font-mono">
+                        <td class="px-4 py-3 align-top font-mono font-medium text-slate-900 dark:text-white">{{ line.item.item_code if line.item else '-' }}</td>
+                        <td class="px-4 py-3 align-top text-slate-700 dark:text-slate-300">
+                            <span class="block truncate" title="{{ line.item.item_name if line.item else '-' }}">{{ line.item.item_name if line.item else '-' }}</span>
+                        </td>
+                        <td class="px-4 py-3 align-top text-slate-700 dark:text-slate-300">
+                            <span class="block truncate" title="{{ line.warehouse.warehouse_name if line.warehouse else '-' }}">{{ line.warehouse.warehouse_name if line.warehouse else '-' }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-right align-top font-mono">{{ '{:,.2f}'.format(line.system_quantity or 0) }}</td>
+                        <td class="px-4 py-3 text-right align-top font-mono">
                             {% if count.status.value == 'IN_PROGRESS' and line.counted_quantity is none %}
                             <div class="flex items-center gap-2 justify-end">
                                 <input type="number"
                                        name="counted_quantity_{{ line.line_id }}"
                                        step="0.01"
-                                       class="form-input w-24 text-right" placeholder="0.00">
+                                       class="form-input h-9 w-28 text-right" placeholder="0.00">
                                 <button type="submit"
                                         formaction="/inventory/counts/{{ count.count_id }}/lines/{{ line.line_id }}/record"
                                         class="btn btn-sm btn-secondary">
@@ -209,14 +208,14 @@
                             {{ '{:,.2f}'.format(line.counted_quantity or 0) if line.counted_quantity is not none else '-' }}
                             {% endif %}
                         </td>
-                        <td class="text-right font-mono {{ 'text-rose-600' if (line.variance_quantity or 0) < 0 else 'text-emerald-600' if (line.variance_quantity or 0) > 0 else '' }}">
+                        <td class="px-4 py-3 text-right align-top font-mono {{ 'text-rose-600' if (line.variance_quantity or 0) < 0 else 'text-emerald-600' if (line.variance_quantity or 0) > 0 else '' }}">
                             {{ '{:,.2f}'.format(line.variance_quantity or 0) if line.variance_quantity is not none else '-' }}
                         </td>
-                        <td class="text-right font-mono {{ 'text-rose-600' if (line.variance_value or 0) < 0 else 'text-emerald-600' if (line.variance_value or 0) > 0 else '' }}">
+                        <td class="px-4 py-3 text-right align-top font-mono {{ 'text-rose-600' if (line.variance_value or 0) < 0 else 'text-emerald-600' if (line.variance_value or 0) > 0 else '' }}">
                             {{ '{:,.2f}'.format(line.variance_value or 0) if line.variance_value is not none else '-' }}
                         </td>
                         {% if count.status.value == 'IN_PROGRESS' %}
-                        <td>
+                        <td class="px-4 py-3 align-top">
                             {% if line.counted_quantity is not none %}
                             <span class="text-xs text-emerald-600">
                                 {{ icon_svg("check", "h-4 w-4 inline") }}

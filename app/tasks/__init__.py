@@ -57,6 +57,7 @@ from app.tasks.finance import (
     process_ar_receipts_export,
     process_gl_journals_export,
     process_general_ledger_export,
+    process_monthly_depreciation_runs,
     refresh_analysis_cubes,
     refresh_stale_balances,
     release_expired_stock_reservations,
@@ -181,6 +182,7 @@ __all__ = [
     "refresh_analysis_cubes",
     "refresh_stale_balances",
     "release_expired_stock_reservations",
+    "process_monthly_depreciation_runs",
     # Banking tasks
     "auto_match_unreconciled_statements",
     # Analytics tasks

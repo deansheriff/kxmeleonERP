@@ -8,7 +8,7 @@ import logging
 import re
 from difflib import get_close_matches
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -28,6 +28,7 @@ from app.services.finance.platform.sequence import SequenceService
 from .base import BaseImporter, FieldMapping, ImportConfig
 
 logger = logging.getLogger(__name__)
+_CURRENCY_QUANTUM = Decimal("0.01")
 
 
 def _normalize_header(header: str) -> str:
@@ -172,16 +173,25 @@ class AssetCategoryImporter(BaseImporter[AssetCategory]):
         code = self._make_category_code(category_name)
         return self._category_cache.get(code)
 
+    @staticmethod
+    def _extract_category_name(row: dict[str, Any]) -> str:
+        return str(
+            row.get("Asset Category")
+            or row.get("Asset Class")
+            or row.get("Category")
+            or row.get("category_name")
+            or row.get("asset_class_alt")
+            or row.get("category_alt")
+            or "General Assets"
+        ).strip()
+
     def ensure_categories(self, rows: list[dict[str, Any]]) -> None:
         """Ensure all required categories exist."""
         unique_categories = set()
         for row in rows:
-            cat_name = (
-                _get_row_value(row, "Asset Category", "Asset Class", "Category")
-                or "General Assets"
-            )
+            cat_name = self._extract_category_name(row)
             if cat_name:
-                unique_categories.add(cat_name.strip())
+                unique_categories.add(cat_name)
 
         for cat_name in unique_categories:
             row = {"Asset Category": cat_name}
@@ -207,7 +217,7 @@ class AssetImporter(BaseImporter[Asset]):
     - Depreciation Method / Method: SL, DB, etc.
     - Serial Number / Serial: Serial number
     - Location / Department: Physical location
-    - Status: ACTIVE, DISPOSED, etc.
+    - Status: IN_USE, RETIRED, etc.
     """
 
     entity_name = "Fixed Asset"
@@ -247,19 +257,29 @@ class AssetImporter(BaseImporter[Asset]):
         return [
             # Name
             FieldMapping("Asset Name", "asset_name", required=False),
+            FieldMapping("asset_name", "asset_name", required=False),
             FieldMapping("Name", "name_alt", required=False),
             FieldMapping("Description", "description", required=False),
+            FieldMapping("description", "description", required=False),
             # Code/Number
             FieldMapping("Asset Number", "asset_number", required=False),
+            FieldMapping("asset_number", "asset_number", required=False),
             FieldMapping("Asset Code", "asset_code_alt", required=False),
             FieldMapping("Tag Number", "tag_number_alt", required=False),
             # Category
             FieldMapping("Asset Category", "category_name", required=False),
+            FieldMapping("category_name", "category_name", required=False),
             FieldMapping("Asset Class", "asset_class_alt", required=False),
             FieldMapping("Category", "category_alt", required=False),
             # Acquisition
             FieldMapping(
                 "Acquisition Date",
+                "acquisition_date",
+                required=False,
+                transformer=self.parse_date,
+            ),
+            FieldMapping(
+                "acquisition_date",
                 "acquisition_date",
                 required=False,
                 transformer=self.parse_date,
@@ -283,6 +303,12 @@ class AssetImporter(BaseImporter[Asset]):
                 transformer=self.parse_decimal,
             ),
             FieldMapping(
+                "acquisition_cost",
+                "acquisition_cost",
+                required=False,
+                transformer=self.parse_decimal,
+            ),
+            FieldMapping(
                 "Cost", "cost_alt", required=False, transformer=self.parse_decimal
             ),
             FieldMapping(
@@ -298,6 +324,7 @@ class AssetImporter(BaseImporter[Asset]):
                 required=False,
                 default=settings.default_functional_currency_code,
             ),
+            FieldMapping("currency_code", "currency_code", required=False),
             FieldMapping("Currency", "currency_alt", required=False),
             # Depreciation
             FieldMapping(
@@ -319,7 +346,19 @@ class AssetImporter(BaseImporter[Asset]):
                 transformer=lambda v: int(float(v)) if v else None,
             ),
             FieldMapping(
+                "useful_life_months",
+                "useful_life_months",
+                required=False,
+                transformer=lambda v: int(float(v)) if v else None,
+            ),
+            FieldMapping(
                 "Residual Value",
+                "residual_value",
+                required=False,
+                transformer=self.parse_decimal,
+            ),
+            FieldMapping(
+                "residual_value",
                 "residual_value",
                 required=False,
                 transformer=self.parse_decimal,
@@ -333,6 +372,9 @@ class AssetImporter(BaseImporter[Asset]):
             FieldMapping(
                 "Depreciation Method", "depreciation_method_str", required=False
             ),
+            FieldMapping(
+                "depreciation_method", "depreciation_method_str", required=False
+            ),
             FieldMapping("Method", "method_alt", required=False),
             FieldMapping(
                 "Accumulated Depreciation",
@@ -340,15 +382,26 @@ class AssetImporter(BaseImporter[Asset]):
                 required=False,
                 transformer=self.parse_decimal,
             ),
+            FieldMapping(
+                "accumulated_depreciation",
+                "accumulated_depreciation",
+                required=False,
+                transformer=self.parse_decimal,
+            ),
             # Physical
             FieldMapping("Serial Number", "serial_number", required=False),
+            FieldMapping("serial_number", "serial_number", required=False),
             FieldMapping("Serial", "serial_alt", required=False),
             FieldMapping("Barcode", "barcode", required=False),
             FieldMapping("Manufacturer", "manufacturer", required=False),
+            FieldMapping("manufacturer", "manufacturer", required=False),
             FieldMapping("Model", "model", required=False),
+            FieldMapping("model", "model", required=False),
             FieldMapping("Location", "location", required=False),
+            FieldMapping("location_name", "location", required=False),
             FieldMapping("Department", "department_name", required=False),
             FieldMapping("Department Name", "department_name_alt", required=False),
+            FieldMapping("department", "department_name_alt", required=False),
             FieldMapping("Department Code", "department_code", required=False),
             FieldMapping("Department ID", "department_id", required=False),
             FieldMapping("Assign To", "assign_to", required=False),
@@ -365,6 +418,7 @@ class AssetImporter(BaseImporter[Asset]):
             FieldMapping("Insurance Policy", "insurance_policy_number", required=False),
             # Status
             FieldMapping("Status", "status_str", required=False),
+            FieldMapping("status", "status_str", required=False),
             FieldMapping(
                 "Is Active", "is_active", required=False, transformer=self.parse_boolean
             ),
@@ -438,13 +492,16 @@ class AssetImporter(BaseImporter[Asset]):
         )
 
         # Get category
-        category_name = (
-            row.get("category_name")
-            or row.get("asset_class_alt")
-            or row.get("category_alt")
-            or "General Assets"
-        )
+        category_name = self._category_importer._extract_category_name(row)
         category_id = self._category_importer.get_category_id(category_name)
+        if category_id is None:
+            category_row = {"Asset Category": category_name}
+            category = self._category_importer.check_duplicate(category_row)
+            if not category:
+                category = self._category_importer.create_entity(category_row)
+                self.db.add(category)
+                self.db.flush()
+            category_id = category.category_id
         location_id = self._resolve_location_id(row.get("location"))
         department_name = row.get("department_name") or row.get("department_name_alt")
         department_id = self._resolve_department_id(
@@ -472,6 +529,7 @@ class AssetImporter(BaseImporter[Asset]):
             or row.get("purchase_price_alt")
             or Decimal("0")
         )
+        acquisition_cost = self._round_currency(acquisition_cost)
 
         currency_code = (
             row.get("currency_code")
@@ -510,7 +568,7 @@ class AssetImporter(BaseImporter[Asset]):
             net_book_value = acquisition_cost or Decimal("0")
 
         # Determine status
-        status_str = row.get("status_str") or "ACTIVE"
+        status_str = row.get("status_str") or "IN_USE"
         status = self._parse_status(status_str)
 
         asset = Asset(
@@ -750,6 +808,11 @@ class AssetImporter(BaseImporter[Asset]):
         )
         return matches[:3]
 
+    @staticmethod
+    def _round_currency(value: Decimal | Any) -> Decimal:
+        amount = value if isinstance(value, Decimal) else Decimal(str(value))
+        return amount.quantize(_CURRENCY_QUANTUM, rounding=ROUND_HALF_UP)
+
     def _resolve_location_id(self, raw_location: Any) -> UUID | None:
         """Resolve free-text location value to an organization location_id."""
         text = str(raw_location or "").strip()
@@ -819,6 +882,7 @@ class AssetImporter(BaseImporter[Asset]):
         normalized = str(status_str or "NOT_IN_USE").strip().upper().replace(" ", "_")
         status_map = {
             "ACTIVE": AssetStatus.IN_USE,
+            "IN_USE.": AssetStatus.IN_USE,
             "IN_USE": AssetStatus.IN_USE,
             "DRAFT": AssetStatus.NOT_IN_USE,
             "NOT_IN_USE": AssetStatus.NOT_IN_USE,

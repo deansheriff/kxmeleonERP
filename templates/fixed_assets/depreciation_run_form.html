@@ -19,7 +19,7 @@
 <div class="space-y-6">
     <div class="card p-6">
         <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Create Depreciation Run</h2>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Select a fiscal period and optional posting date before posting depreciation.</p>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Select a fiscal period to calculate depreciation. Posting is a separate approval step.</p>
 
         <form method="post" action="/fixed-assets/depreciation/run" class="mt-6 grid gap-4 md:grid-cols-2">
             {{ request.state.csrf_form | safe }}
@@ -30,10 +30,13 @@
                     <option value="">Select period</option>
                     {% for fp in fiscal_periods %}
                     <option value="{{ fp.fiscal_period_id }}" {{ 'selected' if fp.fiscal_period_id == period else '' }}>
-                        {{ fp.label }}
+                        {{ fp.label }}{{ ' (Recommended)' if fp.is_recommended else '' }}
                     </option>
                     {% endfor %}
                 </select>
+                {% if recommended_period_id %}
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">The recommended period is preselected based on the next due open month without a posted depreciation run.</p>
+                {% endif %}
             </div>
 
             <div>
@@ -45,7 +48,7 @@
                 <div class="flex items-center gap-2">
                     <button type="submit" class="btn btn-primary inline-flex items-center">
                         {{ icon_svg("calculator", "h-4 w-4 mr-1.5") }}
-                        Run Depreciation
+                        Calculate Depreciation
                     </button>
                     <a href="/fixed-assets/depreciation" class="btn btn-secondary">Cancel</a>
                 </div>

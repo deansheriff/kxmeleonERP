@@ -83,6 +83,7 @@ from app.services.inventory.valuation_reconciliation import (
     ValuationReconciliationService,
 )
 from app.services.inventory.wac_valuation import (
+    WACRebuildRow,
     WACResult,
     WACSnapshot,
     WACValuationService,
@@ -119,6 +120,7 @@ __all__ = [
     "WACValuationService",
     "WACSnapshot",
     "WACResult",
+    "WACRebuildRow",
     # Valuation reconciliation
     "ValuationReconciliationService",
     "ValuationReconciliationResult",

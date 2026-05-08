@@ -1,0 +1,149 @@
+{% extends "inventory/base_inventory.html" %}
+{% from "components/macros.html" import icon_svg %}
+
+{% block page_title %}WAC Breakdown{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/inventory/items" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Inventory</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/inventory/reports" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Reports</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/inventory/reports/valuation" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Inventory Valuation</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">WAC Breakdown</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block header_actions %}
+<div class="flex items-center gap-2">
+    <button type="button" class="btn btn-primary" data-wac-export-trigger data-export-url="/inventory/reports/valuation/wac-breakdown/export?item_id={{ item_id }}&warehouse_id={{ warehouse_id }}" data-export-label="{{ item_code }}">
+        {{ icon_svg("download", "h-4 w-4 mr-2") }}
+        Export Item
+    </button>
+    <button type="button" class="btn btn-secondary" data-wac-export-trigger data-export-url="/inventory/reports/valuation/wac-breakdown/export" data-summary-export-url="/inventory/reports/valuation/export" data-export-label="all items">
+        {{ icon_svg("download", "h-4 w-4 mr-2") }}
+        Export All
+    </button>
+    <a href="/inventory/reports/valuation" class="btn btn-secondary">
+        {{ icon_svg("arrow-left", "h-4 w-4 mr-2") }}
+        Back
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6 stagger-in">
+    <div class="card p-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">{{ item_code }} - {{ item_name }}</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ warehouse_name }}</p>
+                {% if fiscal_period_id %}
+                <p class="mt-2 text-xs text-slate-400 dark:text-slate-500">Fiscal period ID: {{ fiscal_period_id }}</p>
+                {% endif %}
+            </div>
+            <div>
+                {% if is_balanced %}
+                <span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Matched</span>
+                {% else %}
+                <span class="inline-flex items-center rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">Review</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Qty On Hand</p>
+            <p class="mt-2 font-mono text-xl font-semibold text-slate-900 dark:text-white">{{ quantity_on_hand }}</p>
+        </div>
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Current WAC</p>
+            <p class="mt-2 font-mono text-xl font-semibold text-slate-900 dark:text-white">{{ current_wac }}</p>
+        </div>
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Inventory Value</p>
+            <p class="mt-2 font-mono text-xl font-semibold text-slate-900 dark:text-white">{{ inventory_value }}</p>
+        </div>
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">GL Value</p>
+            <p class="mt-2 font-mono text-xl font-semibold text-slate-900 dark:text-white">{{ gl_value }}</p>
+        </div>
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Difference</p>
+            <p class="mt-2 font-mono text-xl font-semibold {% if is_balanced %}text-emerald-600 dark:text-emerald-400{% else %}text-rose-600 dark:text-rose-400{% endif %}">{{ difference }}</p>
+        </div>
+    </div>
+
+    <div class="card overflow-hidden">
+        <div class="flex flex-col gap-3 border-b border-slate-200 p-5 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <h3 class="text-base font-semibold text-slate-900 dark:text-white">Transaction-Level WAC Calculation</h3>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Running quantity, value, and WAC after each inventory movement.</p>
+            </div>
+            <div class="text-xs text-slate-500 dark:text-slate-400">
+                {{ wac_breakdown_row_count | default(0) }} transactions
+            </div>
+        </div>
+
+        {% if wac_breakdown_rows %}
+        <div class="overflow-x-auto">
+            <table class="w-full min-w-[1280px] table-fixed divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                <colgroup>
+                    <col class="w-[150px]">
+                    <col class="w-[125px]">
+                    <col class="w-[210px]">
+                    <col class="w-[120px]">
+                    <col class="w-[120px]">
+                    <col class="w-[135px]">
+                    <col class="w-[140px]">
+                    <col class="w-[140px]">
+                    <col class="w-[125px]">
+                    <col class="w-[135px]">
+                    <col class="w-[150px]">
+                </colgroup>
+                <thead class="bg-slate-50 dark:bg-slate-900/60">
+                    <tr>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Date</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Type</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Reference</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Qty In</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Qty Out</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Unit Cost</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Value In</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Value Out</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Qty After</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">WAC After</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Value After</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                    {% for row in wac_breakdown_rows %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                        <td class="whitespace-nowrap px-4 py-3 align-top font-mono text-xs text-slate-600 dark:text-slate-300">{{ row.transaction_date | format_datetime if row.transaction_date else '-' }}</td>
+                        <td class="px-4 py-3 align-top text-slate-700 dark:text-slate-300">{{ row.transaction_type }}</td>
+                        <td class="px-4 py-3 align-top">
+                            <span class="block truncate font-mono text-xs text-slate-600 dark:text-slate-300" title="{{ row.reference }}">{{ row.reference }}</span>
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-slate-700 dark:text-slate-300">{{ row.quantity_in }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-slate-700 dark:text-slate-300">{{ row.quantity_out }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-slate-700 dark:text-slate-300">{{ row.unit_cost }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-slate-700 dark:text-slate-300">{{ row.value_in }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-slate-700 dark:text-slate-300">{{ row.value_out }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-slate-900 dark:text-white">{{ row.quantity_after }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono text-slate-900 dark:text-white">{{ row.wac_after }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right align-top font-mono font-medium text-slate-900 dark:text-white">{{ row.total_value_after }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="p-6 text-sm text-slate-500 dark:text-slate-400">
+            No WAC transactions were found for this item and warehouse.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% include "inventory/_wac_export_picker.html" %}
+{% endblock %}

@@ -1,0 +1,167 @@
+{% extends "inventory/base_inventory.html" %}
+{% from "components/macros.html" import icon_svg %}
+
+{% block page_title %}Inventory Valuation{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/inventory/items" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Inventory</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/inventory/reports" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">Reports</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">Inventory Valuation</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block header_actions %}
+<div class="flex items-center gap-2">
+    <button type="button" class="btn btn-secondary" data-wac-export-trigger data-export-url="/inventory/reports/valuation/wac-breakdown/export" data-summary-export-url="/inventory/reports/valuation/export" data-export-label="all items">
+        {{ icon_svg("download", "h-4 w-4 mr-2") }}
+        Export All
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="w-full space-y-6 stagger-in">
+    <div class="card p-6">
+        <div class="flex items-start gap-3">
+            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                {{ icon_svg("currency", "h-6 w-6") }}
+            </div>
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Inventory Carrying Amount</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Compares inventory valuation from the WAC ledger against inventory control balances in the general ledger.
+                </p>
+                {% if fiscal_period_id %}
+                <p class="mt-2 text-xs text-slate-400 dark:text-slate-500">Fiscal period ID: {{ fiscal_period_id }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-3">
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Inventory Value</p>
+            <p class="mt-2 font-mono text-xl font-semibold text-slate-900 dark:text-white">{{ inventory_total }}</p>
+        </div>
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">GL Control Balance</p>
+            <p class="mt-2 font-mono text-xl font-semibold text-slate-900 dark:text-white">{{ gl_total }}</p>
+        </div>
+        <div class="card p-5">
+            <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Difference</p>
+            <p class="mt-2 font-mono text-xl font-semibold {% if is_balanced %}text-emerald-600 dark:text-emerald-400{% else %}text-rose-600 dark:text-rose-400{% endif %}">{{ difference }}</p>
+        </div>
+    </div>
+
+    {% if has_data %}
+    <div class="card p-6">
+        {% if is_balanced %}
+        <div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+            {{ icon_svg("check-circle", "h-5 w-5") }}
+            <span class="font-medium">Inventory valuation reconciles with the general ledger.</span>
+        </div>
+        {% else %}
+        <div class="flex items-start gap-2 text-rose-600 dark:text-rose-400">
+            {{ icon_svg("alert-circle", "h-5 w-5 mt-0.5") }}
+            <div>
+                <p class="font-medium">Reconciliation mismatch detected.</p>
+                <p class="mt-1 text-sm">Review posting gaps, inventory account mappings, and WAC ledger updates before close.</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="card w-full overflow-hidden">
+        <div class="flex flex-col gap-3 border-b border-slate-200 p-5 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <h3 class="text-base font-semibold text-slate-900 dark:text-white">Item / Warehouse Reconciliation</h3>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    {% if valuation_mismatch_count %}
+                    Showing the largest WAC vs GL differences first.
+                    {% else %}
+                    Showing the highest-value reconciled inventory rows.
+                    {% endif %}
+                </p>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <span class="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{{ valuation_row_count }} rows</span>
+                <span class="rounded-full {% if valuation_mismatch_count %}bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300{% else %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300{% endif %} px-2.5 py-1">{{ valuation_mismatch_count }} mismatches</span>
+            </div>
+        </div>
+
+        {% if valuation_rows %}
+        <div class="overflow-x-auto">
+            <table class="w-full min-w-[1320px] table-fixed divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                <colgroup>
+                    <col class="w-[260px]">
+                    <col class="w-[220px]">
+                    <col class="w-[110px]">
+                    <col class="w-[140px]">
+                    <col class="w-[170px]">
+                    <col class="w-[170px]">
+                    <col class="w-[150px]">
+                    <col class="w-[110px]">
+                    <col class="w-[130px]">
+                </colgroup>
+                <thead class="bg-slate-50 dark:bg-slate-900/60">
+                    <tr>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Item</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Warehouse</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Qty</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">WAC</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Inventory Value</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">GL Value</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Difference</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Status</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">WAC Check</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                    {% for row in valuation_rows %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                        <td class="px-4 py-3">
+                            <div class="font-medium text-slate-900 dark:text-white">{{ row.item_name }}</div>
+                            <div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{{ row.item_code }}</div>
+                        </td>
+                        <td class="px-4 py-3 text-slate-700 dark:text-slate-300">{{ row.warehouse_name }}</td>
+                        <td class="px-4 py-3 text-right font-mono text-slate-700 dark:text-slate-300">{{ row.quantity_on_hand }}</td>
+                        <td class="px-4 py-3 text-right font-mono text-slate-700 dark:text-slate-300">{{ row.current_wac }}</td>
+                        <td class="px-4 py-3 text-right font-mono text-slate-900 dark:text-white">{{ row.inventory_value }}</td>
+                        <td class="px-4 py-3 text-right font-mono text-slate-900 dark:text-white">{{ row.gl_value }}</td>
+                        <td class="px-4 py-3 text-right font-mono {% if row.is_balanced %}text-emerald-600 dark:text-emerald-400{% else %}text-rose-600 dark:text-rose-400{% endif %}">{{ row.difference }}</td>
+                        <td class="px-4 py-3">
+                            {% if row.is_balanced %}
+                            <span class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Matched</span>
+                            {% else %}
+                            <span class="inline-flex items-center rounded-full bg-rose-100 px-2 py-1 text-xs font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">Review</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right">
+                            <a href="/inventory/reports/valuation/wac-breakdown?item_id={{ row.item_id }}&warehouse_id={{ row.warehouse_id }}" class="inline-flex items-center rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:border-amber-300 hover:text-amber-700 dark:border-slate-700 dark:text-slate-300 dark:hover:border-amber-600 dark:hover:text-amber-300">
+                                Breakdown
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="p-6 text-sm text-slate-500 dark:text-slate-400">
+            No item-level valuation rows are available yet.
+        </div>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="card p-6">
+        <p class="text-sm text-slate-500 dark:text-slate-400">
+            No fiscal period data is available yet for valuation reporting.
+        </p>
+    </div>
+    {% endif %}
+</div>
+{% include "inventory/_wac_export_picker.html" %}
+{% endblock %}

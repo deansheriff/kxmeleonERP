@@ -18,6 +18,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.models.finance.ap.ap_payment_allocation import APPaymentAllocation
+from app.models.finance.ap.goods_receipt_line import GoodsReceiptLine
 from app.models.finance.ap.supplier import Supplier
 from app.models.finance.ap.supplier_invoice import SupplierInvoice
 from app.models.finance.ap.supplier_invoice_line import SupplierInvoiceLine
@@ -87,8 +88,8 @@ def determine_debit_account(
     Determine the appropriate debit account for an invoice line.
 
     Routing logic:
-    1. If line has item_id → use inventory account from Item or ItemCategory
-    2. If line has goods_receipt_line_id → use GRNI account (for matched items)
+    1. If line has goods_receipt_line_id → use GRNI/clearing account
+    2. If line has item_id → use inventory account from Item or ItemCategory
     3. If line has asset_account_id (capitalization) → use asset account
     4. Else → use expense_account_id or supplier default
 
@@ -101,7 +102,31 @@ def determine_debit_account(
     Returns:
         Account UUID or None if not determinable
     """
-    # Priority 1: Inventory item - route to inventory account
+    # Priority 1: GR-matched line - use GRNI/clearing account
+    # (In GRNI accounting, goods receipt debits Inventory/Cr GRNI
+    #  Invoice then debits GRNI/Cr AP to clear the accrual)
+    if line.goods_receipt_line_id:
+        receipt_line = db.get(GoodsReceiptLine, line.goods_receipt_line_id)
+
+        # Prefer a dedicated GRNI account if the organization model exposes one.
+        from app.models.core_org.organization import Organization
+
+        org = db.get(Organization, organization_id)
+        if org and hasattr(org, "grni_account_id"):
+            acc_id: UUID | None = getattr(org, "grni_account_id", None)
+            if acc_id:
+                return acc_id
+
+        # Fall back to the matched item's inventory clearing/adjustment account.
+        matched_item_id = receipt_line.item_id if receipt_line else line.item_id
+        if matched_item_id:
+            item = db.get(Item, matched_item_id)
+            if item and item.category_id:
+                category = db.get(ItemCategory, item.category_id)
+                if category and category.inventory_adjustment_account_id:
+                    return category.inventory_adjustment_account_id
+
+    # Priority 2: Inventory item - route to inventory account
     if line.item_id:
         item = db.get(Item, line.item_id)
         if item:
@@ -114,20 +139,6 @@ def determine_debit_account(
                 category = db.get(ItemCategory, item.category_id)
                 if category and category.inventory_account_id:
                     return category.inventory_account_id
-
-    # Priority 2: GR-matched line - use GRNI clearing account
-    # (In GRNI accounting, goods receipt debits Inventory/Cr GRNI
-    #  Invoice then debits GRNI/Cr AP to clear the accrual)
-    if line.goods_receipt_line_id:
-        # Get GRNI account from organization settings
-        from app.models.core_org.organization import Organization
-
-        org = db.get(Organization, organization_id)
-        if org and hasattr(org, "grni_account_id"):
-            acc_id: UUID | None = getattr(org, "grni_account_id", None)
-            if acc_id:
-                return acc_id
-        # If no GRNI account configured, fall through to expense routing
 
     # Priority 3: Capitalize flag - use asset account
     if getattr(line, "capitalize_flag", False) and line.asset_account_id:
