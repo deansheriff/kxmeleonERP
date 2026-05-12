@@ -131,6 +131,21 @@ def _set_actor_context(request: Request | None, actor_id: UUID | str) -> None:
         request.state.actor_id = actor
 
 
+def _set_default_org_context(db: Session) -> UUID | None:
+    """Set default org RLS context before loading org-scoped records."""
+    if not app_settings.default_organization_id:
+        return None
+    organization_id = coerce_uuid(app_settings.default_organization_id)
+    set_current_organization_sync(db, organization_id)
+    return organization_id
+
+
+def _get_person_for_session(db: Session, person_id: UUID) -> Person | None:
+    """Load a session person with the default org context in single-org mode."""
+    _set_default_org_context(db)
+    return db.get(Person, person_id)
+
+
 def _validate_session_cached(
     session_id: UUID,
     person_id: UUID,
@@ -967,7 +982,7 @@ def _resolve_web_session_from_access_token(
         if auth_db:
             auth_db.close()
 
-    person = db.get(Person, person_uuid)
+    person = _get_person_for_session(db, person_uuid)
     if not person:
         return None
 
@@ -1022,7 +1037,7 @@ def require_web_session(
                 session = None
             else:
                 # Get person from main database (not auth database)
-                person = db.get(Person, session.person_id)
+                person = _get_person_for_session(db, session.person_id)
         finally:
             if auth_db:
                 auth_db.close()
@@ -1135,7 +1150,7 @@ def optional_web_session(
                 session = None
             else:
                 # Get person from main database (not auth database)
-                person = db.get(Person, session.person_id)
+                person = _get_person_for_session(db, session.person_id)
         finally:
             if auth_db:
                 auth_db.close()

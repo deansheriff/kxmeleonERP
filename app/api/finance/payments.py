@@ -15,6 +15,7 @@ from app.api.deps import require_organization_id, require_tenant_auth
 from app.db import SessionLocal
 from app.models.domain_settings import SettingDomain
 from app.models.finance.payments.payment_intent import PaymentIntentStatus
+from app.rls import set_current_organization_sync
 from app.services.auth_dependencies import require_tenant_permission
 from app.services.common import coerce_uuid
 from app.services.finance.payments import (
@@ -261,6 +262,11 @@ def get_paystack_config(db: Session, organization_id: UUID) -> PaystackConfig:
     )
 
 
+def set_payment_tenant_context(db: Session, organization_id: UUID) -> None:
+    """Scope the payment API route session to the authenticated organization."""
+    set_current_organization_sync(db, organization_id)
+
+
 # =============================================================================
 # Endpoints
 # =============================================================================
@@ -280,6 +286,7 @@ def initialize_invoice_payment(
     Creates a payment intent and returns the Paystack authorization URL
     to redirect the customer for payment.
     """
+    set_payment_tenant_context(db, organization_id)
     config = get_paystack_config(db, organization_id)
 
     # Build callback URL
@@ -329,6 +336,7 @@ def get_payment_status(
 
     Returns the current status of a payment intent.
     """
+    set_payment_tenant_context(db, organization_id)
     intent = PaymentService.get_intent_by_reference(db, reference, organization_id)
 
     if not intent:
@@ -359,6 +367,7 @@ def get_payment_intent(
 
     Returns the current status of a payment intent.
     """
+    set_payment_tenant_context(db, organization_id)
     svc = PaymentService(db, organization_id)
     intent = svc.get_intent_by_id(intent_id)
 
@@ -391,6 +400,7 @@ def verify_payment(
     Queries Paystack to get the current status of a payment and updates
     the local payment intent accordingly. Use this if webhook was missed.
     """
+    set_payment_tenant_context(db, organization_id)
     config = get_paystack_config(db, organization_id)
     svc = PaymentService(db, organization_id)
     try:
@@ -433,6 +443,7 @@ def list_banks(
     """
     from app.services.finance.payments import PaystackClient
 
+    set_payment_tenant_context(db, organization_id)
     config = get_paystack_config(db, organization_id)
 
     try:
@@ -462,6 +473,7 @@ def resolve_bank_account(
     """
     from app.services.finance.payments import PaystackClient
 
+    set_payment_tenant_context(db, organization_id)
     config = get_paystack_config(db, organization_id)
 
     try:
@@ -508,6 +520,8 @@ def initialize_expense_payment(
     - Bank account details must be valid (from the expense claim)
     - No existing active payment intent for this claim
     """
+    set_payment_tenant_context(db, organization_id)
+
     # Check if transfers are enabled
     transfers_enabled = resolve_value(
         db, SettingDomain.payments, "paystack_transfers_enabled"
@@ -565,6 +579,7 @@ def reset_expense_payment_intent(
     """
     Reset a non-completed expense payment intent so reimbursement can be retried.
     """
+    set_payment_tenant_context(db, organization_id)
     svc = PaymentService(db, organization_id)
     try:
         intent = svc.reset_expense_payment_intent(
@@ -608,6 +623,8 @@ def initiate_transfer(
 
     Authorization: Requires appropriate permission to process payments.
     """
+    set_payment_tenant_context(db, organization_id)
+
     # Check if transfers are enabled
     transfers_enabled = resolve_value(
         db, SettingDomain.payments, "paystack_transfers_enabled"
@@ -675,6 +692,7 @@ def list_pending_transfers(
 
     Returns transfers that have been initialized but not yet completed.
     """
+    set_payment_tenant_context(db, organization_id)
     svc = PaymentService(db, organization_id)
     intents = svc.list_pending_transfers()
 
@@ -747,6 +765,8 @@ async def paystack_webhook(
             status="ignored",
             message=f"Unknown reference: {reference}",
         )
+
+    set_payment_tenant_context(db, intent.organization_id)
 
     # Get Paystack config for this organization
     try:

@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings as app_settings
 from app.db import SessionLocal
 from app.models.auth import ApiKey
 from app.models.person import Person
@@ -56,6 +57,7 @@ from app.schemas.sync.dotmac_crm import (
 )
 from app.services.auth import hash_api_key
 from app.services.auth_dependencies import require_tenant_auth
+from app.services.common import coerce_uuid
 from app.services.sync.dotmac_crm_sync_service import DotMacCRMSyncService
 
 logger = logging.getLogger(__name__)
@@ -120,6 +122,12 @@ def require_service_auth(
         raise HTTPException(
             status_code=403,
             detail="API key not associated with a user",
+        )
+
+    if app_settings.default_organization_id:
+        set_current_organization_sync(
+            db,
+            coerce_uuid(app_settings.default_organization_id),
         )
 
     person = db.get(Person, api_key.person_id)
@@ -412,6 +420,7 @@ def get_expense_totals(
     List sizes capped at 200 per entity type.
     """
     org_id = auth["organization_id"]
+    set_current_organization_sync(db, org_id)
     service = DotMacCRMSyncService(db)
 
     result = service.get_batch_expense_totals(

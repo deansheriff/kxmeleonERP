@@ -175,6 +175,12 @@ def _noop_tenant_context_sync(db, organization_id):
     yield
 
 
+@contextmanager
+def _noop_bypass_rls_sync(db):
+    """No-op RLS bypass for SQLite."""
+    yield
+
+
 # No-op async RLS functions for SQLite
 async def _noop_set_org_async(db, organization_id):
     """No-op for SQLite: PostgreSQL RLS not available."""
@@ -207,6 +213,7 @@ mock_rls_module.set_current_organization_sync = _noop_set_org_sync
 mock_rls_module.clear_organization_context_sync = _noop_clear_org_sync
 mock_rls_module.enable_rls_bypass_sync = _noop_enable_bypass_sync
 mock_rls_module.disable_rls_bypass_sync = _noop_disable_bypass_sync
+mock_rls_module.bypass_rls_sync = _noop_bypass_rls_sync
 mock_rls_module.tenant_context_sync = _noop_tenant_context_sync
 mock_rls_module.set_current_organization = _noop_set_org_async
 mock_rls_module.clear_organization_context = _noop_clear_org_async

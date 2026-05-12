@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.models.finance.rpt.report_definition import ReportDefinition, ReportType
 from app.models.finance.rpt.report_instance import ReportInstance, ReportStatus
+from app.rls import set_current_organization_sync
 from app.services.common import coerce_uuid
 from app.services.finance.rpt.report_definition import (
     ReportDefinitionInput,
@@ -69,6 +70,15 @@ class ReportInstanceService(ListResponseMixin):
     - Output file management
     - Instance history
     """
+
+    @staticmethod
+    def _commit_and_refresh(db: Session, instance: ReportInstance) -> ReportInstance:
+        """Commit and restore tenant context before refreshing the row."""
+        organization_id = instance.organization_id
+        db.commit()
+        set_current_organization_sync(db, organization_id)
+        db.refresh(instance)
+        return instance
 
     @staticmethod
     def queue_report(
@@ -127,10 +137,7 @@ class ReportInstanceService(ListResponseMixin):
         )
 
         db.add(instance)
-        db.commit()
-        db.refresh(instance)
-
-        return instance
+        return ReportInstanceService._commit_and_refresh(db, instance)
 
     @staticmethod
     def create_instance(
@@ -177,10 +184,7 @@ class ReportInstanceService(ListResponseMixin):
         instance.status = ReportStatus.GENERATING
         instance.started_at = datetime.now(UTC)
 
-        db.commit()
-        db.refresh(instance)
-
-        return instance
+        return ReportInstanceService._commit_and_refresh(db, instance)
 
     @staticmethod
     def generate_report(
@@ -213,8 +217,7 @@ class ReportInstanceService(ListResponseMixin):
         instance.status = ReportStatus.GENERATING
         instance.started_at = datetime.now(UTC)
         instance.generated_by_user_id = user_id
-        db.commit()
-        db.refresh(instance)
+        instance = ReportInstanceService._commit_and_refresh(db, instance)
 
         try:
             payload = ReportInstanceService._generate_payload(
@@ -291,10 +294,7 @@ class ReportInstanceService(ListResponseMixin):
         instance.output_size_bytes = output_size_bytes
         instance.generation_time_ms = generation_time_ms
 
-        db.commit()
-        db.refresh(instance)
-
-        return instance
+        return ReportInstanceService._commit_and_refresh(db, instance)
 
     @staticmethod
     def fail_generation(
@@ -330,10 +330,7 @@ class ReportInstanceService(ListResponseMixin):
         instance.error_message = error_message
         instance.generation_time_ms = generation_time_ms
 
-        db.commit()
-        db.refresh(instance)
-
-        return instance
+        return ReportInstanceService._commit_and_refresh(db, instance)
 
     @staticmethod
     def cancel_report(
@@ -368,10 +365,7 @@ class ReportInstanceService(ListResponseMixin):
         instance.status = ReportStatus.CANCELLED
         instance.completed_at = datetime.now(UTC)
 
-        db.commit()
-        db.refresh(instance)
-
-        return instance
+        return ReportInstanceService._commit_and_refresh(db, instance)
 
     @staticmethod
     def get_report_data(

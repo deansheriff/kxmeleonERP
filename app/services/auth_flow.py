@@ -661,7 +661,13 @@ def _audit_auth_event(
     from app.services.audit_dispatcher import fire_audit_event
 
     person = db.get(Person, credential.person_id)
-    org_id = person.organization_id if person else credential.person_id
+    org_id = (
+        person.organization_id
+        if person
+        else coerce_uuid(app_settings.default_organization_id)
+        if app_settings.default_organization_id
+        else credential.person_id
+    )
 
     fire_audit_event(
         db=db,

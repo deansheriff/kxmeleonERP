@@ -28,12 +28,22 @@ from app.models.finance.rpt.report_instance import ReportInstance, ReportStatus
 from app.models.notification import EntityType, NotificationType
 from app.models.person import Person
 from app.models.rbac import PersonRole, Role
+from app.rls import bypass_rls_sync, set_current_organization_sync
 from app.services.email import send_email
 from app.services.finance.rpt.report_instance import ReportInstanceService
 from app.services.notification import NotificationService
 from app.services.storage import get_storage
 
 logger = logging.getLogger(__name__)
+
+
+def _get_export_instance(db: Session, instance_id: str) -> ReportInstance | None:
+    """Load a queued report instance and set tenant context for generation."""
+    with bypass_rls_sync(db):
+        instance = db.get(ReportInstance, UUID(instance_id))
+    if instance:
+        set_current_organization_sync(db, instance.organization_id)
+    return instance
 
 
 def _notify_export_result(
@@ -57,6 +67,7 @@ def _notify_export_result(
         action_url=action_url,
     )
     db.commit()
+    set_current_organization_sync(db, instance.organization_id)
 
     recipient = db.get(Person, instance.generated_by_user_id)
     if not recipient or not recipient.email:
@@ -88,7 +99,7 @@ def process_general_ledger_export(
 ) -> dict[str, Any]:
     """Generate a queued General Ledger export and notify the requester."""
     with SessionLocal() as db:
-        instance = db.get(ReportInstance, UUID(instance_id))
+        instance = _get_export_instance(db, instance_id)
         if not instance:
             return {"success": False, "error": "Report instance not found"}
 
@@ -268,7 +279,7 @@ async def _build_list_export_response(
 def _process_list_export(instance_id: str, report_code: str) -> dict[str, Any]:
     label = _export_label(report_code)
     with SessionLocal() as db:
-        instance = db.get(ReportInstance, UUID(instance_id))
+        instance = _get_export_instance(db, instance_id)
         if not instance:
             return {"success": False, "error": "Report instance not found"}
 

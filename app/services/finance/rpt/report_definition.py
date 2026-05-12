@@ -17,6 +17,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.models.finance.rpt.report_definition import ReportDefinition, ReportType
+from app.rls import set_current_organization_sync
 from app.services.common import coerce_uuid
 from app.services.response import ListResponseMixin
 
@@ -145,6 +146,7 @@ class ReportDefinitionService(ListResponseMixin):
 
         db.add(definition)
         db.commit()
+        set_current_organization_sync(db, org_id)
         db.refresh(definition)
 
         return definition
