@@ -131,8 +131,15 @@ _PER_TABLE_MIGRATION = [
 
 
 def upgrade() -> None:
+    inspector = sa.inspect(op.get_bind())
+
     # 1. Add new is_active columns where needed.
     for schema, table in _TABLES_NEEDING_IS_ACTIVE:
+        existing_columns = {
+            col["name"] for col in inspector.get_columns(table, schema=schema)
+        }
+        if "is_active" in existing_columns:
+            continue
         op.add_column(
             table,
             sa.Column(
@@ -165,6 +172,8 @@ def downgrade() -> None:
     """DEV-ONLY downgrade. Lossy: reverses the schema but cannot perfectly
     distinguish soft-delete-via-status from legitimate status transitions.
     Production rollback is restore-from-backup."""
+    inspector = sa.inspect(op.get_bind())
+
     # 0. Re-add deleted_by_id (matches original SoftDeleteMixin shape).
     #    The original column had ForeignKey('people.id'); we omit the FK
     #    constraint here because this downgrade is dev-only and the FK
@@ -244,4 +253,8 @@ def downgrade() -> None:
 
     # 3. Drop the new is_active columns.
     for schema, table in _TABLES_NEEDING_IS_ACTIVE:
-        op.drop_column(table, "is_active", schema=schema)
+        existing_columns = {
+            col["name"] for col in inspector.get_columns(table, schema=schema)
+        }
+        if "is_active" in existing_columns:
+            op.drop_column(table, "is_active", schema=schema)
