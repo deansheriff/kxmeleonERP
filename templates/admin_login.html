@@ -291,7 +291,7 @@ function adminLoginForm() {
                     ...csrfHeaders,
                 },
                 body: JSON.stringify({
-                    username: this.username,
+                    username: this.username.trim(),
                     password: this.password,
                 }),
             });
@@ -300,10 +300,11 @@ function adminLoginForm() {
 
             if (!response.ok) {
                 if (response.status === 428) {
+                    sessionStorage.setItem('passwordResetRequiredUsername', this.username.trim());
                     window.location.href = '/reset-password-required';
                     return;
                 }
-                throw new Error(data.detail || 'Invalid credentials');
+                throw new Error(data.detail || data.message || 'Invalid credentials');
             }
 
             if (data.mfa_required) {
@@ -347,7 +348,7 @@ function adminLoginForm() {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.detail || 'Invalid authentication code');
+                throw new Error(data.detail || data.message || 'Invalid authentication code');
             }
 
             // Verify admin role from token

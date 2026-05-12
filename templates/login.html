@@ -285,7 +285,7 @@ function loginForm() {
                     ...csrfHeaders,
                 },
                 body: JSON.stringify({
-                    username: this.username,
+                    username: this.username.trim(),
                     password: this.password,
                 }),
             });
@@ -294,10 +294,11 @@ function loginForm() {
 
             if (!response.ok) {
                 if (response.status === 428) {
+                    sessionStorage.setItem('passwordResetRequiredUsername', this.username.trim());
                     window.location.href = '/reset-password-required';
                     return;
                 }
-                throw new Error(data.detail || 'Invalid credentials');
+                throw new Error(data.detail || data.message || 'Invalid credentials');
             }
 
             if (data.mfa_required) {
@@ -316,7 +317,7 @@ function loginForm() {
 
             // Redirect to intended destination or dashboard
             const params = new URLSearchParams(window.location.search);
-            const next = params.get('next') || '/';
+            const next = params.get('next') || '/dashboard';
             window.location.href = next;
         },
 
@@ -336,7 +337,7 @@ function loginForm() {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.detail || 'Invalid authentication code');
+                throw new Error(data.detail || data.message || 'Invalid authentication code');
             }
 
             // Store access token in cookie
@@ -346,7 +347,7 @@ function loginForm() {
 
             // Redirect to intended destination or dashboard
             const params = new URLSearchParams(window.location.search);
-            const next = params.get('next') || '/';
+            const next = params.get('next') || '/dashboard';
             window.location.href = next;
         },
 
