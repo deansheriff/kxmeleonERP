@@ -917,11 +917,11 @@ class SelfServiceWebService:
     ) -> list[dict]:
         """Get tasks for expense linking."""
         try:
-            from app.models.pm.task import Task
+            from app.models.pm.task import Task, TaskStatus
 
             stmt = select(Task).where(
                 Task.organization_id == org_id,
-                Task.is_deleted == False,  # noqa: E712
+                Task.status != TaskStatus.CANCELLED,
             )
             if project_id:
                 stmt = stmt.where(Task.project_id == coerce_uuid(project_id))
@@ -2944,7 +2944,7 @@ class SelfServiceWebService:
             query = select(DisciplinaryCase).where(
                 DisciplinaryCase.organization_id == org_id,
                 DisciplinaryCase.employee_id.in_(report_ids),
-                DisciplinaryCase.is_deleted == False,  # noqa: E712
+                DisciplinaryCase.status != CaseStatus.WITHDRAWN,
             )
             if not include_closed:
                 query = query.where(
