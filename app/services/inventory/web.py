@@ -501,6 +501,7 @@ class InventoryWebService:
         search: str | None,
         category: str | None,
         status: str | None = None,
+        item_type: str | None = None,
         page: int = 1,
         limit: int = 50,
     ) -> dict:
@@ -514,6 +515,7 @@ class InventoryWebService:
             search=search,
             category=category,
             status=status,
+            item_type=item_type,
         )
 
         total_count = db.scalar(select(func.count()).select_from(query.subquery())) or 0
@@ -572,6 +574,10 @@ class InventoryWebService:
             )
             .order_by(ItemCategory.category_code)
         ).all()
+        item_types = [
+            {"value": t.value, "label": t.value.replace("_", " ").title()}
+            for t in ItemType
+        ]
 
         # Pre-computed stat-card counts (across ALL items, not just the page)
         active_count = (
@@ -598,6 +604,8 @@ class InventoryWebService:
             "search": search or "",
             "category": category or "",
             "status": status or "",
+            "item_type": item_type or "",
+            "item_types": item_types,
             "page": page,
             "limit": limit,
             "offset": offset,
@@ -610,11 +618,13 @@ class InventoryWebService:
                     "search": search or "",
                     "category": category or "",
                     "status": status or "",
+                    "item_type": item_type or "",
                 },
                 labels={
                     "search": "Search",
                     "category": "Category",
                     "status": "Status",
+                    "item_type": "Type",
                 },
                 options={
                     "category": {
@@ -622,7 +632,8 @@ class InventoryWebService:
                             f"{cat.category_code} - {cat.category_name}"
                         )
                         for cat in categories
-                    }
+                    },
+                    "item_type": {t["value"]: t["label"] for t in item_types},
                 },
             ),
         }
@@ -857,6 +868,7 @@ class InventoryWebService:
         search: str | None,
         category: str | None,
         status: str | None,
+        item_type: str | None,
         page: int,
         limit: int,
         db: Session,
@@ -869,6 +881,7 @@ class InventoryWebService:
                 search=search,
                 category=category,
                 status=status,
+                item_type=item_type,
                 page=page,
                 limit=limit,
             )

@@ -426,17 +426,44 @@ function downloadExportNow(url) {
  * @param {string} baseUrl - GET endpoint path (e.g. "/finance/ar/invoices/export")
  */
 function exportAll(baseUrl) {
-    // Gather current search/filter params from the URL
+    const filterKeys = ['search', 'status', 'category', 'type', 'item_type', 'start_date', 'end_date', 'customer_id', 'supplier_id', 'account_id', 'match_status', 'date_from', 'date_to'];
+
+    function collectFilterValue(source, key) {
+        const values = source.getAll(key).filter(function(value) {
+            return value !== null && String(value).trim() !== '';
+        });
+        return values.length ? values[values.length - 1] : null;
+    }
+
     const params = new URLSearchParams(window.location.search);
     const exportParams = new URLSearchParams();
 
-    // Forward known filter params (matches all list page filter names)
-    for (const key of ['search', 'status', 'category', 'type', 'start_date', 'end_date', 'customer_id', 'supplier_id', 'account_id', 'match_status', 'date_from', 'date_to']) {
-        const val = params.get(key);
+    // Forward known filter params from the URL first.
+    for (const key of filterKeys) {
+        const val = collectFilterValue(params, key);
         if (val) {
             exportParams.set(key, val);
         }
     }
+
+    // Then let the current filter form override the URL. This keeps export in
+    // sync with HTMX-updated lists where the visible controls are the source of truth.
+    document.querySelectorAll('form[action], form[hx-get]').forEach(function(form) {
+        const action = form.getAttribute('action') || form.getAttribute('hx-get') || '';
+        const actionPath = action.split('?')[0];
+        if (actionPath !== baseUrl.replace(/\/export$/, '')) {
+            return;
+        }
+        const formParams = new URLSearchParams(new FormData(form));
+        for (const key of filterKeys) {
+            const val = collectFilterValue(formParams, key);
+            if (val) {
+                exportParams.set(key, val);
+            } else {
+                exportParams.delete(key);
+            }
+        }
+    });
 
     const url = exportParams.toString()
         ? `${baseUrl}?${exportParams.toString()}`

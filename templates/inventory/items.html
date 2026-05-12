@@ -94,6 +94,13 @@
             ],
             filter_attrs
         ) }}
+        {{ filter_select_field(
+            "item_type",
+            "Type",
+            item_type,
+            item_types,
+            filter_attrs
+        ) }}
         {% call filter_custom_select_field("category", "Category", filter_attrs) %}
             {% for cat in categories %}
             <option value="{{ cat.category_id }}" {{ 'selected' if category == cat.category_id|string else '' }}>
@@ -113,7 +120,7 @@
                 total_count=total_count,
                 limit=limit,
                 search=search,
-                filters={"category": category, "status": status},
+                filters={"category": category, "status": status, "item_type": item_type},
                 show_navigation=false,
                 bordered=false
             ) }}
@@ -230,7 +237,7 @@
                                         {{ icon_svg("box", "h-8 w-8 text-slate-400 dark:text-slate-500", stroke_width="1.5") }}
                                     </div>
                                     <h3 class="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-1">No items found</h3>
-                                    {% if search or category or status %}
+                                    {% if search or category or status or item_type %}
                                     <p class="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">Try adjusting your search or filter criteria</p>
                                     <a href="/inventory/items" class="btn btn-secondary mt-4">Clear all filters</a>
                                     {% else %}
@@ -255,7 +262,7 @@
                 total_count=total_count,
                 limit=limit,
                 search=search,
-                filters={"category": category, "status": status},
+                filters={"category": category, "status": status, "item_type": item_type},
                 show_summary=false
             ) }}
         </div>

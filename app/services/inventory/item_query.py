@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session
 
-from app.models.inventory.item import Item
+from app.models.inventory.item import Item, ItemType
 from app.models.inventory.item_category import ItemCategory
 from app.services.common import coerce_uuid
 
@@ -29,6 +29,7 @@ def build_item_query(
     search: str | None = None,
     category: str | None = None,
     status: str | None = None,
+    item_type: str | None = None,
 ) -> Select:
     """
     Build the base inventory item query with filters applied.
@@ -50,6 +51,12 @@ def build_item_query(
         query = query.where(Item.is_active.is_(True))
     elif status == "inactive":
         query = query.where(Item.is_active.is_(False))
+
+    if item_type:
+        try:
+            query = query.where(Item.item_type == ItemType(item_type))
+        except ValueError:
+            query = query.where(Item.item_type == item_type.upper())
 
     if search:
         search_pattern = f"%{search}%"

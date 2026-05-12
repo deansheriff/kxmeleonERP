@@ -127,10 +127,12 @@ class ItemBulkService(BulkActionService[Item]):
         from app.services.inventory.item_query import build_item_query
 
         category = ""
+        item_type = ""
         if extra_filters:
             category = str(
                 extra_filters.get("category") or extra_filters.get("category_id") or ""
             )
+            item_type = str(extra_filters.get("item_type") or "")
 
         query = build_item_query(
             db=self.db,
@@ -138,6 +140,7 @@ class ItemBulkService(BulkActionService[Item]):
             search=search,
             category=category or None,
             status=status,
+            item_type=item_type or None,
         )
 
         entities = list(self.db.scalars(query).all())

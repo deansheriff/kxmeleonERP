@@ -59,13 +59,14 @@ def list_items(
     search: str | None = None,
     category: str | None = None,
     status: str | None = None,
+    item_type: str | None = None,
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=10, le=500),
     db: Session = Depends(get_db),
 ):
     """Items list page."""
     return inv_web_service.list_items_response(
-        request, auth, search, category, status, page, limit, db
+        request, auth, search, category, status, item_type, page, limit, db
     )
 
 
@@ -144,6 +145,7 @@ async def export_all_items(
     search: str = "",
     status: str = "",
     category: str = "",
+    item_type: str = "",
     auth: WebAuthContext = Depends(require_inventory_access),
     db: Session = Depends(get_db),
 ):
@@ -151,7 +153,7 @@ async def export_all_items(
     from app.services.inventory.bulk import get_item_bulk_service
 
     service = get_item_bulk_service(db, auth.organization_id, auth.user_id)
-    extra = {"category_id": category} if category else None
+    extra = {"category_id": category, "item_type": item_type}
     return await service.export_all(search=search, status=status, extra_filters=extra)
 
 
