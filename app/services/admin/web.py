@@ -939,6 +939,8 @@ class AdminWebService:
             for role_id in normalized_role_ids:
                 db.add(PersonRole(person_id=person.id, role_id=coerce_uuid(role_id)))
 
+            audit_person_id = str(person.id)
+            audit_organization_id = person.organization_id
             roles_changed = current_role_ids != normalized_role_ids
             session_ids_to_invalidate: list[UUID] = []
             if roles_changed:
@@ -967,20 +969,20 @@ class AdminWebService:
             # Audit: user updated
             fire_audit_event(
                 db=db,
-                organization_id=person.organization_id,
+                organization_id=audit_organization_id,
                 table_schema="auth",
                 table_name="user",
-                record_id=str(person.id),
+                record_id=audit_person_id,
                 action=AuditAction.UPDATE,
                 new_values={"email": email, "username": username, "status": status},
             )
             if roles_changed:
                 fire_audit_event(
                     db=db,
-                    organization_id=person.organization_id,
+                    organization_id=audit_organization_id,
                     table_schema="rbac",
                     table_name="role_assignment",
-                    record_id=str(person.id),
+                    record_id=audit_person_id,
                     action=AuditAction.UPDATE,
                     old_values={"role_ids": sorted(current_role_ids)},
                     new_values={"role_ids": sorted(normalized_role_ids)},
