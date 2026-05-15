@@ -48,15 +48,10 @@ _CANONICAL = {
 # schemas only) are still listed here — the goal is architectural
 # consistency, not just risk mitigation.
 _PRE_MIGRATION_BASELINE = {
-    # ── Non-tenant or admin-scoped (won't fit get_db_with_org's auth dep) ──
-    "app/api/audit.py",  # require_audit_auth (admin/cross-tenant)
-    "app/api/auth.py",  # auth flows, not tenant-scoped
-    "app/api/auth_flow.py",
-    "app/api/rbac.py",
-    "app/api/persons.py",
-    "app/api/settings.py",
-    "app/api/crm.py",  # partial — has webhook_router; main router migrated separately
-    "app/api/careers.py",  # public slug-resolved, RLS handled inside service
+    # ── Partial migrations (local get_db for the unauth webhook only) ──
+    "app/api/crm.py",  # webhook_router stays on local get_db
+    # ── Public/slug-resolved (RLS handled inside service) ──
+    "app/api/careers.py",
     "app/web/careers.py",
     "app/web/onboarding_portal.py",
     # ── Tenant-scoped but retain a local ``get_db`` for an unauth
@@ -113,6 +108,43 @@ def test_no_unexpected_local_get_db_definitions():
         )
 
     assert not msg_parts, "\n\n".join(msg_parts)
+
+
+def test_admin_bypass_dep_pairs_with_admin_gate():
+    """``get_db_admin_bypass`` deliberately requires no auth itself —
+    its docstring puts the burden on the caller. Without a safety
+    check, a future module could ``Depends(get_db_admin_bypass)``
+    without pairing it with an admin auth gate and silently expose
+    cross-tenant data on an unauthenticated route.
+
+    Any API module that uses ``Depends(get_db_admin_bypass)`` MUST
+    also reference one of the recognized admin auth gates in the same
+    file. Extend the allow-list when introducing a new admin gate.
+    """
+    admin_gate_patterns = (
+        "require_audit_auth",
+        "require_permission",
+        "require_user_auth",  # auth_flow paths gate user identity first
+        "require_admin_bypass",
+    )
+
+    violations = []
+    api_root = APP_ROOT / "api"
+    for py in api_root.rglob("*.py"):
+        text = py.read_text(encoding="utf-8")
+        if "Depends(get_db_admin_bypass)" not in text:
+            continue
+        if not any(gate in text for gate in admin_gate_patterns):
+            rel = py.relative_to(REPO_ROOT).as_posix()
+            violations.append(rel)
+    assert not violations, (
+        "These modules use ``Depends(get_db_admin_bypass)`` without "
+        "pairing it with an admin auth gate. The dep bypasses tenant "
+        "scoping at *both* layers (PostgreSQL bypass_rls + Python "
+        "allow_cross_org), so unauthenticated cross-tenant access is "
+        "exactly what gets exposed. Add ``require_audit_auth`` or "
+        "another gate from the allow-list:\n  - " + "\n  - ".join(sorted(violations))
+    )
 
 
 def test_no_unprimed_get_db_imports_in_api_modules():
@@ -229,12 +261,35 @@ def test_migrated_modules_use_get_db_with_org():
         "app/api/service_hooks.py",
         "app/api/support.py",
         "app/api/workflow_tasks.py",
+        # Wave 4B — admin/cross-tenant via get_db_admin_bypass (genuine
+        # cross-tenant access, app.bypass_rls + allow_cross_org).
+        "app/api/audit.py",
+        "app/api/auth.py",
+        "app/api/auth_flow.py",
+        "app/api/persons.py",
+        "app/api/rbac.py",
+        "app/api/settings.py",
+    }
+    # Modules that legitimately use the admin-bypass variant instead of
+    # the tenant-scoped one (genuine cross-tenant access).
+    admin_bypass_modules = {
+        "app/api/audit.py",
+        "app/api/auth.py",
+        "app/api/auth_flow.py",
+        "app/api/persons.py",
+        "app/api/rbac.py",
+        "app/api/settings.py",
     }
     regressions = []
     for rel in sorted(migrated):
         text = (REPO_ROOT / rel).read_text(encoding="utf-8")
         if _DEF_GET_DB.search(text):
             regressions.append(f"{rel}: re-introduced local ``def get_db()``")
-        if "Depends(get_db_with_org)" not in text:
-            regressions.append(f"{rel}: no longer uses Depends(get_db_with_org)")
+        expected_dep = (
+            "Depends(get_db_admin_bypass)"
+            if rel in admin_bypass_modules
+            else "Depends(get_db_with_org)"
+        )
+        if expected_dep not in text:
+            regressions.append(f"{rel}: no longer uses {expected_dep}")
     assert not regressions, "\n".join(regressions)
