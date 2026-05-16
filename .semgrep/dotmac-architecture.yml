@@ -106,7 +106,6 @@ rules:
         - "**/app/tasks/analytics.py"
         - "**/app/tasks/hooks.py"
         - "**/app/tasks/fleet.py"
-        - "**/app/tasks/project_sla.py"
         - "**/app/tasks/license.py"
         - "**/app/tasks/feature_flags.py"
         - "**/app/tasks/email.py"
