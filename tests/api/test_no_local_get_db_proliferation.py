@@ -61,9 +61,19 @@ _PRE_MIGRATION_BASELINE = {
     # ── RLS) so the unauth handler can keep its un-primed yielder. ──
     "app/api/finance/banking.py",  # banking.* no RLS; webhook = /banking/webhook/mono
     "app/api/finance/payments.py",  # payments.* no RLS; webhook = /payments/webhook/paystack
+    # ── Legit cross-org ``_get_db`` retained for API-key lookup only ──
+    # Routes themselves use ``get_db_with_service_org`` (defined locally)
+    # which primes both layers from the require_service_auth org context.
+    "app/api/sync/dotmac_crm.py",  # _get_db scoped to require_service_auth lookup
 }
 
-_DEF_GET_DB = re.compile(r"^def get_db\b", re.MULTILINE)
+# Match both ``def get_db`` and ``def _get_db`` — the original regex
+# missed the underscored variant, which hid two real RLS holes
+# (app/api/sync/dotmac_crm.py::_get_db, app/api/finance/fx.py::_get_db)
+# until the 2026-05-16 route-layer audit. The latter was fully migrated;
+# the former retains its ``_get_db`` for the API-key lookup path
+# (cross-org by necessity — see comment in baseline above).
+_DEF_GET_DB = re.compile(r"^def _?get_db\b", re.MULTILINE)
 
 
 def _scan_for_local_get_db() -> set[str]:

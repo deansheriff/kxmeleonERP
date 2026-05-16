@@ -10,20 +10,14 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select as select  # noqa: F401
+from sqlalchemy import select as select  # noqa: F401  # test-mocking seam
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_tenant_auth
-from app.db import SessionLocal
+from app.api.deps import get_db_with_org, require_tenant_auth
 from app.services.common import coerce_uuid
 from app.services.finance.platform.fx import FXService
 
 router = APIRouter(prefix="/fx", tags=["fx"])
-
-
-def _get_db():  # noqa: ANN202
-    with SessionLocal() as db:
-        yield db
 
 
 @router.get("/rate")
@@ -35,7 +29,7 @@ def lookup_rate(
         None, alias="date", description="Effective date (default: today)"
     ),
     auth: dict = Depends(require_tenant_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_org),
 ) -> dict:
     """
     Look up the latest SPOT exchange rate for a currency pair.

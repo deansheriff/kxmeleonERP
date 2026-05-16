@@ -24,7 +24,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings as app_settings
+from app.api.deps import get_db_with_org
 from app.db import SessionLocal
+from app.db.session_context import prime_session
 from app.models.auth import ApiKey
 from app.models.person import Person
 from app.rls import set_current_organization_sync
@@ -157,6 +159,42 @@ def require_service_auth(
     }
 
 
+def get_db_with_service_org(
+    auth: dict = Depends(require_service_auth),
+):
+    """Tenant-primed DB session for service-to-service CRM sync routes.
+
+    Parallel to ``app.api.deps.get_db_with_org`` (which derives the org
+    from JWT-based ``require_tenant_auth``); this variant derives it from
+    the API-key based ``require_service_auth`` used by the CRM service.
+
+    Yields a fresh session with *both* tenant layers set: the SQLAlchemy
+    ORM listener (``session.info``) and the PostgreSQL GUC
+    (``app.current_organization_id``). Without this, RLS-protected
+    queries inside route handlers (and the services they call) silently
+    return zero rows even though authentication succeeded — same bug
+    class as the Celery ``session_for_org`` migration.
+
+    Auto-commits on successful yield, rolls back on exception — matches
+    the contract of ``get_db_with_org``.
+    """
+    organization_id = auth["organization_id"]
+    if not isinstance(organization_id, UUID):
+        organization_id = UUID(str(organization_id))
+
+    db = SessionLocal()
+    try:
+        prime_session(db, organization_id)
+        set_current_organization_sync(db, organization_id)
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 # ============ Sync Endpoints (CRM → ERP) ============
 
 
@@ -164,7 +202,7 @@ def require_service_auth(
 def bulk_sync(
     payload: BulkSyncRequest,
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> BulkSyncResponse:
     """
     Bulk sync projects, tickets, and work orders from DotMac CRM.
@@ -273,7 +311,7 @@ def handle_webhook(
         | CRMInventoryItemPayload
     ),
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> dict:
     """
     Handle real-time entity updates from CRM webhook.
@@ -320,7 +358,7 @@ def handle_webhook(
 @router.get("/projects", response_model=list[CRMProjectRead])
 def list_crm_projects(
     auth: dict = Depends(require_tenant_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_org),
     search: str | None = None,
     status: str | None = None,
     limit: int = 50,
@@ -340,7 +378,7 @@ def list_crm_projects(
 @router.get("/tickets", response_model=list[CRMTicketRead])
 def list_crm_tickets(
     auth: dict = Depends(require_tenant_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_org),
     search: str | None = None,
     limit: int = 50,
 ) -> list[CRMTicketRead]:
@@ -357,7 +395,7 @@ def list_crm_tickets(
 @router.get("/work-orders", response_model=list[CRMWorkOrderRead])
 def list_crm_work_orders(
     auth: dict = Depends(require_tenant_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_org),
     search: str | None = None,
     employee_id: UUID | None = None,
     limit: int = 50,
@@ -383,7 +421,7 @@ def list_crm_work_orders(
 def upsert_inventory_item(
     payload: CRMInventoryItemPayload,
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> CRMInventoryItemResponse:
     """Create or update an ERP inventory item from CRM."""
     org_id = auth["organization_id"]
@@ -410,7 +448,7 @@ def upsert_inventory_item(
 def get_expense_totals(
     payload: ExpenseTotalsRequest,
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> ExpenseTotalsResponse:
     """
     Get expense totals for CRM entities (batch).
@@ -439,7 +477,7 @@ def get_expense_totals(
 @router.get("/inventory/meta/categories")
 def list_inventory_categories(
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> list[dict]:
     """
     Get list of item categories for filtering inventory.
@@ -454,7 +492,7 @@ def list_inventory_categories(
 @router.get("/inventory/meta/warehouses")
 def list_warehouses(
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> list[dict]:
     """
     Get list of warehouses for filtering inventory.
@@ -470,7 +508,7 @@ def list_warehouses(
 def get_inventory_item(
     item_id: UUID,
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> InventoryItemDetail:
     """
     Get detailed inventory item with warehouse-level stock breakdown.
@@ -490,7 +528,7 @@ def get_inventory_item(
 @router.get("/inventory", response_model=InventoryListResponse)
 def list_inventory(
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
     search: str | None = None,
     category_code: str | None = None,
     warehouse_id: UUID | None = None,
@@ -526,7 +564,7 @@ def list_inventory(
 @router.get("/workforce/employees", response_model=WorkforceEmployeeListResponse)
 def list_workforce_employees(
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
     include_inactive: bool = False,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -549,7 +587,7 @@ def list_workforce_employees(
 @router.get("/workforce/departments", response_model=DepartmentListResponse)
 def list_departments(
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
     include_inactive: bool = False,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -575,7 +613,7 @@ def list_departments(
 @router.get("/contacts/companies", response_model=CompanyListResponse)
 def list_companies(
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
     updated_since: datetime | None = None,
     include_inactive: bool = False,
     limit: int = Query(100, ge=1, le=500),
@@ -600,7 +638,7 @@ def list_companies(
 @router.get("/contacts/people", response_model=PersonListResponse)
 def list_people_contacts(
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
     updated_since: datetime | None = None,
     include_inactive: bool = False,
     limit: int = Query(100, ge=1, le=500),
@@ -634,7 +672,7 @@ def create_material_request(
     payload: CRMMaterialRequestPayload,
     response: Response,
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> CRMMaterialRequestResponse:
     """
     Create a material request from CRM.
@@ -684,7 +722,7 @@ def create_material_request(
 def get_material_request_status(
     omni_id: str,
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> CRMMaterialRequestStatusRead:
     """
     Get material request status by CRM omni_id.
@@ -713,7 +751,7 @@ def get_material_request_status(
 def create_purchase_order(
     payload: CRMPurchaseOrderPayload,
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> CRMPurchaseOrderResponse:
     """
     Create a DRAFT purchase order from a CRM vendor quote approval.
@@ -748,7 +786,7 @@ def create_purchase_order(
 def create_purchase_order_variation(
     payload: CRMPurchaseOrderVariationPayload,
     auth: dict = Depends(require_service_auth),
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db_with_service_org),
 ) -> CRMPurchaseOrderResponse:
     """
     Create a PO amendment from a CRM variation approval.
