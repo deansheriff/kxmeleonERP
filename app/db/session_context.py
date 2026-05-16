@@ -1,43 +1,112 @@
 """Session context primitives for multi-tenant scoping.
 
-Three public surfaces:
-- ``prime_session(session, org_id)``: set the org context for a session.
-- ``allow_cross_org(session)``: context manager that bypasses scoping.
-- ``session_for_org(org_id)``: factory for non-HTTP entry points (added in Task 3).
+This codebase has **two independent layers** that filter queries by org:
+
+1. The SQLAlchemy ORM listener — reads ``session.info["organization_id"]``
+   and injects ``WHERE organization_id = :org`` into ORM queries. Set by
+   :func:`prime_session`.
+2. PostgreSQL native RLS policies — read the ``app.current_organization_id``
+   GUC (``current_setting('app.current_organization_id')``) and filter at
+   the database layer. Set by :func:`app.rls.set_current_organization_sync`.
+
+**Production code that opens a session MUST set both.** Setting only one is
+a silent bug: queries either filter to zero rows under DB-RLS (if enabled
+on the target schema) or skip filtering under the ORM listener (if not).
+This is the same hazard that has hit Celery tasks repeatedly — a session
+opened for "an org" that doesn't actually scope its queries to that org.
+
+Public API for callers
+----------------------
+
+Use the high-level context managers — they set both layers and clean up:
+
+- :func:`session_for_org` — single-org tenant session (Celery tasks,
+  CLI scripts, anything outside a web request).
+- :func:`cross_org_session` — explicit cross-tenant access for global
+  batch jobs (e.g. "list every org with pending work").
+
+The low-level primitives below (:func:`prime_session`,
+:func:`allow_cross_org`) exist for infrastructure code only — the web
+dependency at ``app/api/deps.py::get_db_for_org`` composes them with the
+RLS helpers because it owns the session-lifecycle contract for HTTP
+requests. New code should not compose primitives manually.
+
+A note on ``SET LOCAL`` and commits
+------------------------------------
+
+``SET LOCAL app.current_organization_id = ...`` is **transaction-scoped**
+— it is reset at COMMIT and ROLLBACK. A session that commits in the
+middle of its work loses its RLS GUC and silently starts returning zero
+rows on the next query. The strongest pattern is therefore one tenant
+session per org, commit once at the end:
+
+    for org_id in org_ids:
+        with session_for_org(org_id) as db:
+            service.run()
+            db.commit()
+
+Avoid commit-and-continue within a single ``session_for_org`` block. If
+truly necessary, re-prime explicitly after each commit (call site
+becomes the contract owner — the helpers can't catch this for you).
 """
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from collections.abc import Iterator
+from contextlib import contextmanager
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.rls import (
+    bypass_rls_sync,
+    set_current_organization_sync,
+)
+
 
 def prime_session(session: Session, organization_id: UUID) -> None:
-    """Set the org context for ``session``. Called once at the entry-point
-    boundary (HTTP request via ``get_db``; Celery task via ``session_for_org``).
+    """Set ``session.info["organization_id"]`` for the ORM-listener layer.
 
-    Subsequent ORM queries on org-scoped models will be filtered by this
-    org_id (provided the listener is enabled). Calling this on an already-
-    primed session overwrites the previous value — useful for tasks that
-    iterate orgs.
+    .. warning::
+
+       This sets ONLY the SQLAlchemy listener half of tenant scoping. It
+       does NOT set the PostgreSQL ``app.current_organization_id`` GUC
+       used by native RLS policies. Calling this alone leaves DB-level
+       RLS unprimed, which on RLS-enabled schemas (``expense``, ``payroll``,
+       ``recruit``, ``training``, ``ipsas``, and any future additions)
+       causes silent zero-row reads.
+
+       **Do not use this as a Celery task entry-point helper.** Use
+       :func:`session_for_org` instead — it sets both layers.
+
+       Direct callers are limited to infrastructure code that already
+       composes both layers explicitly (notably ``app.api.deps.get_db_for_org``
+       and ``app.web.deps``). Application code should not import this.
+
+    Calling on an already-primed session overwrites the previous value —
+    useful for tasks that iterate orgs *within a single session*, though
+    one-session-per-org (via :func:`session_for_org`) is preferred.
     """
     session.info["organization_id"] = organization_id
 
 
 @contextmanager
 def allow_cross_org(session: Session) -> Iterator[None]:
-    """Temporarily bypass org-scoping for the duration of the ``with`` block.
+    """Temporarily bypass the SQLAlchemy ORM-listener org filter.
 
-    Restores the prior state in ``finally`` so an exception inside the block
-    does not leak the bypass to subsequent queries. Nested usage preserves
-    the outer state correctly.
+    .. warning::
 
-    Use sparingly — only for genuinely cross-tenant operations such as super-
-    admin tooling, system maintenance jobs, or queries against globally-shared
-    models that happen to have an ``organization_id`` column.
+       Like :func:`prime_session`, this bypasses ONLY the ORM listener
+       layer. It does NOT bypass PostgreSQL RLS policies. Use
+       :func:`cross_org_session` for genuine cross-tenant work — it
+       bypasses both layers and opens a dedicated session.
+
+       Direct use is reserved for infrastructure code that composes both
+       layers (web admin-bypass dependencies, audit listeners that
+       deliberately re-pin context).
+
+    Restores prior state in ``finally`` so an exception inside the block
+    does not leak the bypass. Nested usage preserves outer state.
     """
     prior = session.info.get("allow_cross_org", False)
     session.info["allow_cross_org"] = True
@@ -49,16 +118,31 @@ def allow_cross_org(session: Session) -> Iterator[None]:
 
 @contextmanager
 def session_for_org(organization_id: UUID) -> Iterator[Session]:
-    """Open a primed session for non-HTTP entry points (Celery tasks, CLI
-    scripts). Yields a Session with ``organization_id`` already set on
-    ``info``. Closes the session on exit, even on exception.
+    """Canonical tenant-scoped session for non-HTTP entry points.
 
-    For tasks that span multiple organizations (e.g., daily reminder
-    batch), call this once per org_id in the loop:
+    Opens a fresh ``SessionLocal``, sets **both** tenant-context layers
+    (ORM listener via :func:`prime_session` and PostgreSQL GUC via
+    ``set_current_organization_sync``), yields the session, and closes
+    it on exit (even on exception).
 
-        with session_for_org(org_id) as db:
-            service.process(db)
-            db.commit()
+    Use this in every Celery task, CLI script, scheduled job, or other
+    non-HTTP entry point that operates on a single org's data::
+
+        @shared_task
+        def process_payroll(org_id: str) -> dict:
+            with session_for_org(UUID(org_id)) as db:
+                PayrollService(db).run()
+                db.commit()
+                return {"ok": True}
+
+    For tasks that span multiple organizations, open one session per org
+    in the loop — this avoids ``SET LOCAL`` being cleared on commit and
+    prevents identity-map contamination across tenants::
+
+        for org_id in org_ids:
+            with session_for_org(org_id) as db:
+                Service(db).run()
+                db.commit()
     """
     # Local import: SessionLocal is at module top-level of app.db; importing
     # it here avoids a circular dependency at import time.
@@ -66,7 +150,44 @@ def session_for_org(organization_id: UUID) -> Iterator[Session]:
 
     session = SessionLocal()
     try:
+        # Layer 1: ORM listener — filters ORM queries based on session.info
         prime_session(session, organization_id)
+        # Layer 2: PostgreSQL GUC — filters DB-RLS-policy-protected tables.
+        # SET LOCAL is transaction-scoped, so a commit inside the with-block
+        # will silently un-set this. Per-org sessions sidestep that.
+        set_current_organization_sync(session, organization_id)
         yield session
     finally:
+        session.close()
+
+
+@contextmanager
+def cross_org_session() -> Iterator[Session]:
+    """Canonical session for genuinely cross-tenant work (admin/batch).
+
+    Opens a fresh ``SessionLocal`` with **both** bypass layers active —
+    ``allow_cross_org`` for the ORM listener and ``bypass_rls_sync`` for
+    PostgreSQL RLS. Use this when a task needs to list rows across every
+    organization, then process them under per-org sessions::
+
+        with cross_org_session() as cross_db:
+            org_ids = list(cross_db.scalars(select(Organization.id)).all())
+        for org_id in org_ids:
+            with session_for_org(org_id) as db:
+                ...
+
+    Don't reuse a ``cross_org_session`` for per-org work — switching
+    contexts mid-session is the bug class this helper exists to prevent.
+    """
+    from app.db import SessionLocal
+
+    session = SessionLocal()
+    try:
+        # ORM listener bypass — session.info marker the listener checks.
+        session.info["allow_cross_org"] = True
+        # PostgreSQL RLS bypass — SET LOCAL app.bypass_rls = 'true'.
+        with bypass_rls_sync(session):
+            yield session
+    finally:
+        session.info["allow_cross_org"] = False
         session.close()

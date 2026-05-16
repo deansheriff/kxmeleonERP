@@ -12,8 +12,6 @@ from typing import Any
 
 from celery import shared_task
 
-from app.db import SessionLocal
-
 logger = logging.getLogger(__name__)
 
 
@@ -31,14 +29,22 @@ def auto_match_unreconciled_statements() -> dict[str, Any]:
     statement was imported, as well as backfilling matches on
     historical statements.
 
-    Each statement is processed in its own savepoint so a failure
-    in one does not roll back matches already committed for others.
+    Session shape (two-step, the canonical batch pattern):
+
+    1. List unmatched statements across all tenants via
+       :func:`cross_org_session`, then close that session.
+    2. Process each statement under its own :func:`session_for_org` —
+       per-org session, single commit, isolated failure. This avoids
+       (a) the SET LOCAL clearing that would silently de-prime a
+       shared session after the first commit, and (b) identity-map
+       contamination between tenants on the same session.
 
     Returns:
         Dict with processing statistics.
     """
     from sqlalchemy import select
 
+    from app.db.session_context import cross_org_session, session_for_org
     from app.models.finance.banking.bank_statement import BankStatement
     from app.services.finance.banking.auto_reconciliation import (
         AutoReconciliationService,
@@ -52,53 +58,45 @@ def auto_match_unreconciled_statements() -> dict[str, Any]:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        # NOTE: Intentionally queries across all organizations — this is a global
-        # periodic task that processes every tenant's unmatched statements.
-        statements = list(
-            db.scalars(
-                select(BankStatement).where(
-                    BankStatement.unmatched_lines > 0,
+    # Step 1 — cross-tenant listing under bypass. Materialise the (id, org)
+    # pairs we need, then drop the cross-org session before per-tenant work
+    # so we never accidentally hand a bypassed session to the matcher.
+    with cross_org_session() as cross_db:
+        statement_meta = list(
+            cross_db.execute(
+                select(BankStatement.statement_id, BankStatement.organization_id).where(
+                    BankStatement.unmatched_lines > 0
                 )
             ).all()
         )
 
-        auto_svc = AutoReconciliationService()
+    auto_svc = AutoReconciliationService()
 
-        for statement in statements:
-            try:
-                with db.begin_nested():  # savepoint
-                    match_result = auto_svc.auto_match_statement(
-                        db,
-                        statement.organization_id,
-                        statement.statement_id,
+    # Step 2 — per-tenant matching, fresh session + single commit per org.
+    for stmt_id, org_id in statement_meta:
+        try:
+            with session_for_org(org_id) as db:
+                match_result = auto_svc.auto_match_statement(db, org_id, stmt_id)
+                db.commit()
+
+                if match_result.matched > 0:
+                    results["total_matched"] += match_result.matched
+                    logger.info(
+                        "Auto-matched %d lines for statement %s (org %s)",
+                        match_result.matched,
+                        stmt_id,
+                        org_id,
                     )
-                    if match_result.matched > 0:
-                        results["total_matched"] += match_result.matched
-                        logger.info(
-                            "Auto-matched %d lines for statement %s (org %s)",
-                            match_result.matched,
-                            statement.statement_id,
-                            statement.organization_id,
-                        )
 
-                    if match_result.errors:
-                        for err in match_result.errors:
-                            results["errors"].append(
-                                f"Statement {statement.statement_id}: {err}"
-                            )
-                # Savepoint auto-commits on successful exit
+                if match_result.errors:
+                    for err in match_result.errors:
+                        results["errors"].append(f"Statement {stmt_id}: {err}")
+
                 results["statements_processed"] += 1
 
-            except Exception as e:
-                # Savepoint auto-rolls back on exception
-                logger.exception(
-                    "Failed to auto-match statement %s", statement.statement_id
-                )
-                results["errors"].append(f"Statement {statement.statement_id}: {e}")
-
-        # Single commit at the end for all successful savepoints
-        db.commit()
+        except Exception as e:
+            logger.exception("Failed to auto-match statement %s", stmt_id)
+            results["errors"].append(f"Statement {stmt_id}: {e}")
 
     logger.info(
         "Periodic auto-match complete: %d statements, %d lines matched",

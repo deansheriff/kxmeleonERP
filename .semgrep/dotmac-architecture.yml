@@ -54,3 +54,64 @@ rules:
       exclude:
         - "**/app/services/scheduler_config.py"
         - "**/tests/"
+
+  - id: tasks-must-use-session-for-org
+    pattern: SessionLocal()
+    message: >
+      Celery tasks must NOT open a bare `SessionLocal()`. Use the canonical
+      dual-layer helpers from `app.db.session_context` so tenant context is
+      set at both the ORM listener AND the PostgreSQL RLS layer:
+
+        with session_for_org(org_id) as db:    # single tenant work
+            ...
+
+        with cross_org_session() as db:         # cross-tenant batch listing
+            ...
+
+      Bare `SessionLocal()` leaves the session unscoped — RLS-protected
+      queries silently return zero rows and the task completes "successfully"
+      with no data. This is the bug class that produced the 2026-05-16
+      banking auto-match outage.
+
+      If a task genuinely needs an unscoped session (global maintenance,
+      cross-tenant cleanup that does NOT query org-scoped tables), opt out
+      with a per-line annotation that includes a reason:
+
+        SessionLocal()  # nosemgrep: tasks-must-use-session-for-org -- <reason>
+
+      Every allowlist entry MUST explain why bypassing the contract is safe.
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/app/tasks/"
+      # Pre-existing unmigrated task files. Each one is a known bug pile
+      # (per the 2026-05-16 audit). Migrate using session_for_org /
+      # cross_org_session, then remove the line from this list — the rule
+      # starts enforcing that file immediately. Do NOT add new files to
+      # this list; new tasks must use the canonical helpers from day one.
+      exclude:
+        - "**/app/tasks/finance.py"
+        - "**/app/tasks/hr.py"
+        - "**/app/tasks/expense.py"
+        - "**/app/tasks/performance.py"
+        - "**/app/tasks/data_health.py"
+        - "**/app/tasks/crm.py"
+        - "**/app/tasks/coach.py"
+        - "**/app/tasks/pms.py"
+        - "**/app/tasks/splynx.py"
+        - "**/app/tasks/payroll.py"
+        - "**/app/tasks/discipline.py"
+        - "**/app/tasks/automation.py"
+        - "**/app/tasks/analytics.py"
+        - "**/app/tasks/hooks.py"
+        - "**/app/tasks/fleet.py"
+        - "**/app/tasks/project_sla.py"
+        - "**/app/tasks/license.py"
+        - "**/app/tasks/feature_flags.py"
+        - "**/app/tasks/exchange_rates.py"
+        - "**/app/tasks/email.py"
+        - "**/app/tasks/audit_integrity.py"
+        - "**/app/tasks/audit.py"
+        - "**/app/tasks/notifications.py"
+        - "**/app/tasks/outbox_relay.py"
