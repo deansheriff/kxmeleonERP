@@ -14,7 +14,7 @@ from celery import shared_task
 from sqlalchemy import select
 
 from app.config import settings as app_settings
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 from app.models.finance.core_org.organization import Organization
 
 logger = logging.getLogger(__name__)
@@ -36,34 +36,36 @@ def generate_daily_data_quality_insights(organization_id: str | None = None) -> 
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 from app.services.coach.analyzers.data_quality import (
                     DataQualityAnalyzer,
                 )
 
                 analyzer = DataQualityAnalyzer(db)
-                written = analyzer.upsert_daily_org_insights(org.organization_id)
+                written = analyzer.upsert_daily_org_insights(org_id)
                 db.commit()
-                results["organizations_processed"] += 1
-                results["insights_written"] += int(written)
-            except Exception as exc:
-                logger.exception(
-                    "Coach data-quality generation failed for org %s",
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+            results["insights_written"] += int(written)
+        except Exception as exc:
+            logger.exception(
+                "Coach data-quality generation failed for org %s",
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     return results
 
@@ -84,32 +86,34 @@ def generate_daily_banking_health_insights(organization_id: str | None = None) -
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 from app.services.coach.analyzers.banking import BankingHealthAnalyzer
 
                 analyzer = BankingHealthAnalyzer(db)
-                written = analyzer.upsert_daily_org_insights(org.organization_id)
+                written = analyzer.upsert_daily_org_insights(org_id)
                 db.commit()
-                results["organizations_processed"] += 1
-                results["insights_written"] += int(written)
-            except Exception as exc:
-                logger.exception(
-                    "Coach banking health generation failed for org %s",
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+            results["insights_written"] += int(written)
+        except Exception as exc:
+            logger.exception(
+                "Coach banking health generation failed for org %s",
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     return results
 
@@ -133,35 +137,37 @@ def generate_daily_expense_approval_insights(
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 from app.services.coach.analyzers.expense import ExpenseApprovalAnalyzer
 
                 analyzer = ExpenseApprovalAnalyzer(db)
                 written = analyzer.upsert_daily_insights(
-                    org.organization_id,
+                    org_id,
                     limit=min(20, per_org_limit),
                 )
                 db.commit()
-                results["organizations_processed"] += 1
-                results["insights_written"] += int(written)
-            except Exception as exc:
-                logger.exception(
-                    "Coach expense approval generation failed for org %s",
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+            results["insights_written"] += int(written)
+        except Exception as exc:
+            logger.exception(
+                "Coach expense approval generation failed for org %s",
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     return results
 
@@ -180,32 +186,34 @@ def generate_daily_ar_overdue_insights(organization_id: str | None = None) -> di
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 from app.services.coach.analyzers.ar_overdue import AROverdueAnalyzer
 
                 analyzer = AROverdueAnalyzer(db)
-                written = analyzer.upsert_daily_org_insights(org.organization_id)
+                written = analyzer.upsert_daily_org_insights(org_id)
                 db.commit()
-                results["organizations_processed"] += 1
-                results["insights_written"] += int(written)
-            except Exception as exc:
-                logger.exception(
-                    "Coach AR overdue generation failed for org %s",
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+            results["insights_written"] += int(written)
+        except Exception as exc:
+            logger.exception(
+                "Coach AR overdue generation failed for org %s",
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     return results
 
@@ -224,34 +232,36 @@ def generate_daily_ap_due_insights(organization_id: str | None = None) -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 from app.services.coach.analyzers.ap_due import (
                     APDueAnalyzer,  # pragma: allowlist secret
                 )
 
                 analyzer = APDueAnalyzer(db)
-                written = analyzer.upsert_daily_org_insights(org.organization_id)
+                written = analyzer.upsert_daily_org_insights(org_id)
                 db.commit()
-                results["organizations_processed"] += 1
-                results["insights_written"] += int(written)
-            except Exception as exc:
-                logger.exception(
-                    "Coach AP due generation failed for org %s",
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+            results["insights_written"] += int(written)
+        except Exception as exc:
+            logger.exception(
+                "Coach AP due generation failed for org %s",
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     return results
 
@@ -279,33 +289,35 @@ def _run_org_analyzer(
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 mod = importlib.import_module(analyzer_path)
                 cls = getattr(mod, analyzer_cls_name)
                 analyzer = cls(db)
-                written = analyzer.upsert_daily_org_insights(org.organization_id)
+                written = analyzer.upsert_daily_org_insights(org_id)
                 db.commit()
-                results["organizations_processed"] += 1
-                results["insights_written"] += int(written)
-            except Exception as exc:
-                logger.exception(
-                    "Coach %s generation failed for org %s",
-                    task_label,
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+            results["insights_written"] += int(written)
+        except Exception as exc:
+            logger.exception(
+                "Coach %s generation failed for org %s",
+                task_label,
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     return results
 
@@ -388,34 +400,36 @@ def generate_weekly_finance_report(organization_id: str | None = None) -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 from app.services.coach.report_generator import ReportGenerator
 
                 generator = ReportGenerator(db)
-                report = generator.generate_weekly_finance_report(org.organization_id)
+                report = generator.generate_weekly_finance_report(org_id)
                 if report:
                     db.add(report)
                     db.commit()
                     results["reports_written"] += 1
-                results["organizations_processed"] += 1
-            except Exception as exc:
-                logger.exception(
-                    "Weekly finance report failed for org %s",
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+        except Exception as exc:
+            logger.exception(
+                "Weekly finance report failed for org %s",
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     return results
 
@@ -432,33 +446,35 @@ def generate_weekly_hr_report(organization_id: str | None = None) -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 from app.services.coach.report_generator import ReportGenerator
 
                 generator = ReportGenerator(db)
-                report = generator.generate_weekly_hr_report(org.organization_id)
+                report = generator.generate_weekly_hr_report(org_id)
                 if report:
                     db.add(report)
                     db.commit()
                     results["reports_written"] += 1
-                results["organizations_processed"] += 1
-            except Exception as exc:
-                logger.exception(
-                    "Weekly HR report failed for org %s",
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+        except Exception as exc:
+            logger.exception(
+                "Weekly HR report failed for org %s",
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     return results

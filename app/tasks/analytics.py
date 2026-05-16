@@ -16,7 +16,7 @@ from celery import shared_task
 from sqlalchemy import select
 
 from app.config import settings as app_settings
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 from app.models.finance.core_org.organization import Organization
 
 logger = logging.getLogger(__name__)
@@ -42,34 +42,36 @@ def refresh_cash_flow_metrics(organization_id: str | None = None) -> dict:
 
     today = date.today()
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 from app.services.analytics.computers.cash_flow import (
                     CashFlowComputer,
                 )
 
                 computer = CashFlowComputer(db)
-                written = computer.compute_for_org(org.organization_id, today)
+                written = computer.compute_for_org(org_id, today)
                 db.commit()
-                results["organizations_processed"] += 1
-                results["metrics_written"] += written
-            except Exception as exc:
-                logger.exception(
-                    "Cash flow metric refresh failed for org %s",
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+            results["metrics_written"] += written
+        except Exception as exc:
+            logger.exception(
+                "Cash flow metric refresh failed for org %s",
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     logger.info(
         "refresh_cash_flow_metrics complete: %d orgs, %d metrics, %d errors",
@@ -100,34 +102,36 @@ def refresh_efficiency_metrics(organization_id: str | None = None) -> dict:
 
     today = date.today()
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 from app.services.analytics.computers.efficiency import (
                     EfficiencyComputer,
                 )
 
                 computer = EfficiencyComputer(db)
-                written = computer.compute_for_org(org.organization_id, today)
+                written = computer.compute_for_org(org_id, today)
                 db.commit()
-                results["organizations_processed"] += 1
-                results["metrics_written"] += written
-            except Exception as exc:
-                logger.exception(
-                    "Efficiency metric refresh failed for org %s",
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+            results["metrics_written"] += written
+        except Exception as exc:
+            logger.exception(
+                "Efficiency metric refresh failed for org %s",
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     logger.info(
         "refresh_efficiency_metrics complete: %d orgs, %d metrics, %d errors",
@@ -157,16 +161,19 @@ def _run_computer(
     }
     today = date.today()
 
-    with SessionLocal() as db:
-        org_query = select(Organization).where(Organization.is_active == True)  # noqa: E712
+    with cross_org_session() as cross_db:
+        org_query = select(Organization.organization_id).where(
+            Organization.is_active == True  # noqa: E712
+        )
         if organization_id:
             org_query = org_query.where(
                 Organization.organization_id == uuid.UUID(organization_id)
             )
+        org_ids = list(cross_db.scalars(org_query).all())
 
-        orgs = db.scalars(org_query).all()
-        for org in orgs:
-            try:
+    for org_id in org_ids:
+        try:
+            with session_for_org(org_id) as db:
                 # Dynamic import to avoid circular deps
                 import importlib
 
@@ -174,20 +181,19 @@ def _run_computer(
                 mod = importlib.import_module(module_path)
                 computer_cls = getattr(mod, cls_name)
                 computer = computer_cls(db)
-                written = computer.compute_for_org(org.organization_id, today)
+                written = computer.compute_for_org(org_id, today)
                 db.commit()
-                results["organizations_processed"] += 1
-                results["metrics_written"] += written
-            except Exception as exc:
-                logger.exception(
-                    "%s metric refresh failed for org %s",
-                    computer_name,
-                    org.organization_id,
-                )
-                db.rollback()
-                results["errors"].append(
-                    {"organization_id": str(org.organization_id), "error": str(exc)}
-                )
+            results["organizations_processed"] += 1
+            results["metrics_written"] += written
+        except Exception as exc:
+            logger.exception(
+                "%s metric refresh failed for org %s",
+                computer_name,
+                org_id,
+            )
+            results["errors"].append(
+                {"organization_id": str(org_id), "error": str(exc)}
+            )
 
     logger.info(
         "%s complete: %d orgs, %d metrics, %d errors",
