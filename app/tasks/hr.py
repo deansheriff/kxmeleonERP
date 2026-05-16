@@ -19,6 +19,7 @@ from celery import shared_task
 from sqlalchemy import func, select
 
 from app.db import SessionLocal
+from app.db.session_context import session_for_org
 from app.models.finance.core_org.organization import Organization
 from app.models.people.hr.employee import Employee, EmployeeStatus
 from app.services.people.hr.org_resolver import OrgResolver
@@ -682,9 +683,9 @@ def calculate_hr_analytics(organization_id: str) -> dict:
     """
     logger.info("Calculating HR analytics for org %s", organization_id)
 
-    with SessionLocal() as db:
+    org_id = uuid.UUID(organization_id)
+    with session_for_org(org_id) as db:
         try:
-            org_id = uuid.UUID(organization_id)
             today = date.today()
 
             # Get active employee count

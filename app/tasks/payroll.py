@@ -10,6 +10,7 @@ Handles:
 from __future__ import annotations
 
 import logging
+import uuid
 from calendar import monthrange
 from datetime import date
 from typing import Any
@@ -18,6 +19,7 @@ from celery import shared_task
 
 from app.config import settings
 from app.db import SessionLocal
+from app.db.session_context import session_for_org
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +107,6 @@ def send_payslip_email(slip_id: str, org_id: str) -> dict[str, Any]:
     Returns:
         Dict with status and any error message
     """
-    import uuid
 
     logger.info("Sending payslip email for slip %s", slip_id)
 
@@ -115,7 +116,8 @@ def send_payslip_email(slip_id: str, org_id: str) -> dict[str, Any]:
         "error": None,
     }
 
-    with SessionLocal() as db:
+    org_uuid = uuid.UUID(org_id)
+    with session_for_org(org_uuid) as db:
         try:
             from sqlalchemy import select
             from sqlalchemy.orm import joinedload, selectinload
@@ -338,7 +340,6 @@ def process_payroll_entry_notifications(entry_id: str, org_id: str) -> dict[str,
     Returns:
         Dict with processing statistics
     """
-    import uuid
 
     logger.info("Processing notifications for payroll entry %s", entry_id)
 
@@ -349,7 +350,8 @@ def process_payroll_entry_notifications(entry_id: str, org_id: str) -> dict[str,
     }
     errors_list: list[str] = results["errors"]
 
-    with SessionLocal() as db:
+    org_uuid = uuid.UUID(org_id)
+    with session_for_org(org_uuid) as db:
         try:
             from app.models.people.payroll.payroll_entry import PayrollEntry
             from app.models.people.payroll.salary_slip import SalarySlipStatus

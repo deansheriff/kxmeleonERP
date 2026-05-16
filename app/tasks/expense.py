@@ -24,6 +24,7 @@ from celery import shared_task
 from sqlalchemy import select
 
 from app.db import SessionLocal
+from app.db.session_context import session_for_org
 from app.models.expense import (
     ExpenseClaim,
     ExpenseClaimStatus,
@@ -422,9 +423,9 @@ def post_approved_expense(
 
     logger.info("Posting approved expense claim %s", claim_id)
 
-    with SessionLocal() as db:
+    org_id = uuid.UUID(organization_id)
+    with session_for_org(org_id) as db:
         try:
-            org_id = uuid.UUID(organization_id)
             c_id = uuid.UUID(claim_id)
             u_id = uuid.UUID(user_id)
 
@@ -511,11 +512,12 @@ def post_cash_advance_disbursement(
 
     logger.info("Posting cash advance disbursement %s", advance_id)
 
-    with SessionLocal() as db:
+    org_id = uuid.UUID(organization_id)
+    with session_for_org(org_id) as db:
         try:
             result = ExpensePostingAdapter.post_cash_advance(
                 db,
-                uuid.UUID(organization_id),
+                org_id,
                 uuid.UUID(advance_id),
                 date.today(),
                 uuid.UUID(user_id),
@@ -581,13 +583,14 @@ def settle_cash_advance_with_claim(
         claim_id,
     )
 
-    with SessionLocal() as db:
+    org_id = uuid.UUID(organization_id)
+    with session_for_org(org_id) as db:
         try:
             settle_amt = Decimal(settlement_amount) if settlement_amount else None
 
             result = ExpensePostingAdapter.settle_cash_advance(
                 db,
-                uuid.UUID(organization_id),
+                org_id,
                 uuid.UUID(advance_id),
                 uuid.UUID(claim_id),
                 date.today(),
@@ -647,9 +650,9 @@ def calculate_expense_analytics(
         period,
     )
 
-    with SessionLocal() as db:
+    org_id = uuid.UUID(organization_id)
+    with session_for_org(org_id) as db:
         try:
-            org_id = uuid.UUID(organization_id)
             service = ExpenseService(db)
 
             # Get date range based on period

@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import SessionLocal
+from app.db.session_context import session_for_org
 from app.models.email_profile import EmailModule
 from app.models.finance.core_org.organization import Organization
 from app.models.finance.rpt.report_instance import ReportInstance, ReportStatus
@@ -1340,7 +1341,7 @@ def auto_generate_aging_snapshots(
     period_id = UUIDType(fiscal_period_id)
     uid = UUIDType(user_id)
 
-    with SessionLocal() as db:
+    with session_for_org(org_id) as db:
         from sqlalchemy import delete as sa_delete
 
         # AR aging snapshots — use savepoint so failure doesn't affect AP
