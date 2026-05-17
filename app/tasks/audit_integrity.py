@@ -21,7 +21,7 @@ from uuid import UUID
 
 from celery import shared_task
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 from app.services.common import coerce_uuid
 
 logger = logging.getLogger(__name__)
@@ -71,33 +71,34 @@ def verify_audit_hash_chain(
     to_date = datetime.now(UTC)
     from_date = to_date - timedelta(days=days_back)
 
-    with SessionLocal() as db:
-        from sqlalchemy import distinct, select
+    from sqlalchemy import distinct, select
 
-        from app.models.finance.audit.audit_log import AuditLog
+    from app.models.finance.audit.audit_log import AuditLog
 
-        # Determine which organizations to verify
-        target_org_id = _resolve_org_id(organization_id)
+    # Determine which organizations to verify
+    target_org_id = _resolve_org_id(organization_id)
 
-        if target_org_id:
-            org_ids = [target_org_id]
-        else:
-            # Get all organizations that have audit records in the period
-            stmt = select(distinct(AuditLog.organization_id)).where(
-                AuditLog.occurred_at >= from_date,
-                AuditLog.occurred_at <= to_date,
-            )
+    if target_org_id:
+        org_ids = [target_org_id]
+    else:
+        # Get all organizations that have audit records in the period
+        stmt = select(distinct(AuditLog.organization_id)).where(
+            AuditLog.occurred_at >= from_date,
+            AuditLog.occurred_at <= to_date,
+        )
+        with cross_org_session() as db:
             org_ids = list(db.scalars(stmt).all())
 
-        if not org_ids:
-            logger.info("No audit records found in period — nothing to verify")
-            return results
+    if not org_ids:
+        logger.info("No audit records found in period — nothing to verify")
+        return results
 
-        from app.services.finance.platform.audit_log import AuditLogService
+    from app.services.finance.platform.audit_log import AuditLogService
 
-        for org_id in org_ids:
-            results["organizations_checked"] += 1
-            try:
+    for org_id in org_ids:
+        results["organizations_checked"] += 1
+        try:
+            with session_for_org(org_id) as db:
                 is_valid, first_invalid_id = AuditLogService.verify_hash_chain(
                     db=db,
                     organization_id=org_id,
@@ -125,14 +126,11 @@ def verify_audit_hash_chain(
                     _notify_integrity_violation(
                         db, org_id, first_invalid_id, from_date, to_date
                     )
+                    db.commit()
 
-            except Exception as e:
-                logger.exception("Failed to verify hash chain for org %s", org_id)
-                results["errors"].append(
-                    {"organization_id": str(org_id), "error": str(e)}
-                )
-
-        db.commit()
+        except Exception as e:
+            logger.exception("Failed to verify hash chain for org %s", org_id)
+            results["errors"].append({"organization_id": str(org_id), "error": str(e)})
 
     logger.info(
         "Hash chain verification complete: %d checked, %d valid, %d invalid, %d errors",

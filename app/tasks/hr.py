@@ -18,8 +18,7 @@ from typing import Any
 from celery import shared_task
 from sqlalchemy import func, select
 
-from app.db import SessionLocal
-from app.db.session_context import session_for_org
+from app.db.session_context import cross_org_session, session_for_org
 from app.models.finance.core_org.organization import Organization
 from app.models.people.hr.employee import Employee, EmployeeStatus
 from app.services.people.hr.org_resolver import OrgResolver
@@ -29,6 +28,11 @@ logger = logging.getLogger(__name__)
 
 def _resolve_manager(db, employee: Employee, organization_id) -> Employee | None:
     return OrgResolver(db).get_manager(employee.employee_id, organization_id)
+
+
+def _list_organization_ids() -> list[uuid.UUID]:
+    with cross_org_session() as db:
+        return list(db.scalars(select(Organization.organization_id)).all())
 
 
 @shared_task
@@ -59,17 +63,15 @@ def process_probation_ending_notifications() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        today = date.today()
-        organizations = db.scalars(select(Organization)).all()
+    today = date.today()
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
+            notification_service = HRNotificationService(db)
 
-        notification_service = HRNotificationService(db)
-
-        for org in organizations:
             # Find employees on probation with probation end dates
             probation_employees = db.scalars(
                 select(Employee).where(
-                    Employee.organization_id == org.organization_id,
+                    Employee.organization_id == org_id,
                     Employee.status == EmployeeStatus.ACTIVE,
                     Employee.probation_end_date.isnot(None),
                 )
@@ -97,7 +99,7 @@ def process_probation_ending_notifications() -> dict:
                         continue
 
                     # Get manager
-                    manager = _resolve_manager(db, employee, org.organization_id)
+                    manager = _resolve_manager(db, employee, org_id)
 
                     # Send notification to manager
                     if manager:
@@ -130,7 +132,7 @@ def process_probation_ending_notifications() -> dict:
                         }
                     )
 
-        db.commit()
+            db.commit()
 
     total_sent = (
         results["first_notices_sent"]
@@ -168,24 +170,22 @@ def process_contract_expiry_notifications() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        today = date.today()
+    today = date.today()
 
-        contract_end_attr = getattr(Employee, "contract_end_date", None)
-        if contract_end_attr is None:
-            logger.info(
-                "Employee.contract_end_date not available; skipping contract expiry notifications"
-            )
-            return results
+    contract_end_attr = getattr(Employee, "contract_end_date", None)
+    if contract_end_attr is None:
+        logger.info(
+            "Employee.contract_end_date not available; skipping contract expiry notifications"
+        )
+        return results
 
-        organizations = db.scalars(select(Organization)).all()
-        notification_service = HRNotificationService(db)
-
-        for org in organizations:
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
+            notification_service = HRNotificationService(db)
             # Find employees with contract end dates
             contract_employees = db.scalars(
                 select(Employee).where(
-                    Employee.organization_id == org.organization_id,
+                    Employee.organization_id == org_id,
                     Employee.status == EmployeeStatus.ACTIVE,
                     contract_end_attr.isnot(None),
                 )
@@ -211,7 +211,7 @@ def process_contract_expiry_notifications() -> dict:
                         continue
 
                     # Get manager
-                    manager = _resolve_manager(db, employee, org.organization_id)
+                    manager = _resolve_manager(db, employee, org_id)
 
                     # Send notification to manager and HR
                     if manager:
@@ -239,7 +239,7 @@ def process_contract_expiry_notifications() -> dict:
                         }
                     )
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Contract expiry notifications complete: %d sent", results["notifications_sent"]
@@ -268,18 +268,16 @@ def process_work_anniversary_notifications() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        today = date.today()
-        week_end = today + timedelta(days=7)
-        organizations = db.scalars(select(Organization)).all()
+    today = date.today()
+    week_end = today + timedelta(days=7)
 
-        notification_service = HRNotificationService(db)
-
-        for org in organizations:
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
+            notification_service = HRNotificationService(db)
             # Find active employees
             active_employees = db.scalars(
                 select(Employee).where(
-                    Employee.organization_id == org.organization_id,
+                    Employee.organization_id == org_id,
                     Employee.status == EmployeeStatus.ACTIVE,
                     Employee.date_of_joining.isnot(None),
                 )
@@ -303,7 +301,7 @@ def process_work_anniversary_notifications() -> dict:
                     is_milestone = years_of_service > 0 and years_of_service % 5 == 0
 
                     # Get manager
-                    manager = _resolve_manager(db, employee, org.organization_id)
+                    manager = _resolve_manager(db, employee, org_id)
 
                     # Send notification
                     success = notification_service.send_work_anniversary_notification(
@@ -331,7 +329,7 @@ def process_work_anniversary_notifications() -> dict:
                         }
                     )
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Work anniversary notifications complete: %d sent (%d milestones)",
@@ -361,18 +359,16 @@ def process_birthday_notifications() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        today = date.today()
-        tomorrow = today + timedelta(days=1)
-        organizations = db.scalars(select(Organization)).all()
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
 
-        notification_service = HRNotificationService(db)
-
-        for org in organizations:
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
+            notification_service = HRNotificationService(db)
             # Find active employees
             active_employees = db.scalars(
                 select(Employee).where(
-                    Employee.organization_id == org.organization_id,
+                    Employee.organization_id == org_id,
                     Employee.status == EmployeeStatus.ACTIVE,
                     Employee.date_of_birth.isnot(None),
                 )
@@ -395,7 +391,7 @@ def process_birthday_notifications() -> dict:
                         continue
 
                     # Get manager
-                    manager = _resolve_manager(db, employee, org.organization_id)
+                    manager = _resolve_manager(db, employee, org_id)
 
                     # Send notification to manager
                     if manager and notification_type == "tomorrow":
@@ -421,7 +417,7 @@ def process_birthday_notifications() -> dict:
                         }
                     )
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Birthday notifications complete: %d sent", results["notifications_sent"]
@@ -459,17 +455,15 @@ def process_performance_review_reminders() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        today = date.today()
-        organizations = db.scalars(select(Organization)).all()
+    today = date.today()
 
-        notification_service = HRNotificationService(db)
-
-        for org in organizations:
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
+            notification_service = HRNotificationService(db)
             # Find active cycles for this organization
             active_cycles = db.scalars(
                 select(AppraisalCycle).where(
-                    AppraisalCycle.organization_id == org.organization_id,
+                    AppraisalCycle.organization_id == org_id,
                     AppraisalCycle.status.in_(
                         [
                             AppraisalCycleStatus.ACTIVE,
@@ -553,7 +547,7 @@ def process_performance_review_reminders() -> dict:
                         }
                     )
 
-        db.commit()
+            db.commit()
 
     total_sent = (
         results["self_assessment_reminders"]
@@ -592,17 +586,15 @@ def process_certification_expiry_notifications() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        today = date.today()
-        organizations = db.scalars(select(Organization)).all()
+    today = date.today()
 
-        notification_service = HRNotificationService(db)
-
-        for org in organizations:
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
+            notification_service = HRNotificationService(db)
             # Find certifications with expiry dates for this organization
             expiring_certs = db.scalars(
                 select(EmployeeCertification).where(
-                    EmployeeCertification.organization_id == org.organization_id,
+                    EmployeeCertification.organization_id == org_id,
                     EmployeeCertification.expiry_date.isnot(None),
                     EmployeeCertification.expiry_date >= today,
                     EmployeeCertification.expiry_date
@@ -654,7 +646,7 @@ def process_certification_expiry_notifications() -> dict:
                         }
                     )
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Certification expiry notifications complete: %d sent",
@@ -798,14 +790,11 @@ def process_onboarding_overdue_activities() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        # Get all organizations
-        organizations = db.scalars(select(Organization)).all()
-
-        for org in organizations:
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
             try:
                 service = OnboardingService(db)
-                count = service.update_overdue_flags(org.organization_id)
+                count = service.update_overdue_flags(org_id)
 
                 results["organizations_processed"] += 1
                 results["activities_marked_overdue"] += count
@@ -813,17 +802,17 @@ def process_onboarding_overdue_activities() -> dict:
             except Exception as e:
                 logger.error(
                     "Failed to process overdue activities for org %s: %s",
-                    org.organization_id,
+                    org_id,
                     e,
                 )
                 results["errors"].append(
                     {
-                        "organization_id": str(org.organization_id),
+                        "organization_id": str(org_id),
                         "error": str(e),
                     }
                 )
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Onboarding overdue processing complete: %d activities marked in %d orgs",
@@ -865,17 +854,15 @@ def process_onboarding_reminders() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        notification_service = NotificationService()
-        organizations = db.scalars(select(Organization)).all()
-
-        for org in organizations:
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
+            notification_service = NotificationService()
             try:
                 onboarding_service = OnboardingService(db)
 
                 # Get activities needing reminders
                 activities = onboarding_service.get_activities_needing_reminder(
-                    org.organization_id,
+                    org_id,
                     days_before_due=2,
                     remind_if_overdue=True,
                     hours_since_last_reminder=24,
@@ -947,7 +934,7 @@ def process_onboarding_reminders() -> dict:
                         # Send notification
                         notification_service.create(
                             db,
-                            organization_id=org.organization_id,
+                            organization_id=org_id,
                             recipient_id=recipient_id,
                             entity_type=EntityType.SYSTEM,
                             entity_id=activity.activity_id,
@@ -982,17 +969,17 @@ def process_onboarding_reminders() -> dict:
             except Exception as e:
                 logger.error(
                     "Failed to process reminders for org %s: %s",
-                    org.organization_id,
+                    org_id,
                     e,
                 )
                 results["errors"].append(
                     {
-                        "organization_id": str(org.organization_id),
+                        "organization_id": str(org_id),
                         "error": str(e),
                     }
                 )
 
-        db.commit()
+            db.commit()
 
     total_sent = results["due_soon_reminders"] + results["overdue_reminders"]
     logger.info(
@@ -1034,21 +1021,18 @@ def sync_leave_attendance() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        # Get all orgs
-        organizations = db.scalars(select(Organization)).all()
-
-        for org in organizations:
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
             try:
                 from app.services.people.leave import LeaveService
 
                 leave_service = LeaveService(db)
-                org_today = leave_service.get_org_today(org.organization_id)
+                org_today = leave_service.get_org_today(org_id)
 
                 # Find approved leave applications covering today
                 approved_leaves = db.scalars(
                     select(LeaveApplication).where(
-                        LeaveApplication.organization_id == org.organization_id,
+                        LeaveApplication.organization_id == org_id,
                         LeaveApplication.status == LeaveApplicationStatus.APPROVED,
                         LeaveApplication.from_date <= org_today,
                         LeaveApplication.to_date >= org_today,
@@ -1071,7 +1055,7 @@ def sync_leave_attendance() -> dict:
 
                         # Create ON_LEAVE attendance record
                         attendance = Attendance(
-                            organization_id=org.organization_id,
+                            organization_id=org_id,
                             employee_id=leave.employee_id,
                             attendance_date=org_today,
                             status=AttendanceStatus.ON_LEAVE,
@@ -1098,7 +1082,7 @@ def sync_leave_attendance() -> dict:
                         )
 
                 status_result = leave_service.sync_employee_statuses_for_date(
-                    org.organization_id,
+                    org_id,
                     as_of_date=org_today,
                 )
                 results["status_set_on_leave"] += status_result["set_on_leave"]
@@ -1107,17 +1091,17 @@ def sync_leave_attendance() -> dict:
             except Exception as e:
                 logger.exception(
                     "Failed to process leave sync for org %s: %s",
-                    org.organization_id,
+                    org_id,
                     e,
                 )
                 results["errors"].append(
                     {
-                        "organization_id": str(org.organization_id),
+                        "organization_id": str(org_id),
                         "error": str(e),
                     }
                 )
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Leave → attendance/status sync complete: %d attendance synced, %d already marked, "
@@ -1154,8 +1138,6 @@ def send_welcome_email(onboarding_id: str) -> dict:
 
     # Mode 3 — resolve the onboarding's owning org under cross-org bypass,
     # then re-fetch + send under a session primed for that org.
-    from app.db.session_context import cross_org_session
-
     onboarding_uuid = uuid.UUID(onboarding_id)
     with cross_org_session() as cross_db:
         onboarding = cross_db.get(EmployeeOnboarding, onboarding_uuid)

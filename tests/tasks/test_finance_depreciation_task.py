@@ -14,7 +14,7 @@ class TestProcessMonthlyDepreciationRuns:
         mock_db = MagicMock()
 
         with (
-            patch("app.tasks.finance.SessionLocal") as mock_session,
+            patch("app.tasks.finance.cross_org_session") as mock_session,
             patch(
                 "app.services.fixed_assets.depreciation.DepreciationService.automation_enabled",
                 return_value=False,
@@ -38,7 +38,8 @@ class TestProcessMonthlyDepreciationRuns:
         mock_db = MagicMock()
 
         with (
-            patch("app.tasks.finance.SessionLocal") as mock_session,
+            patch("app.tasks.finance.cross_org_session") as mock_session,
+            patch("app.tasks.finance.session_for_org") as mock_org_session,
             patch(
                 "app.services.fixed_assets.depreciation.DepreciationService.automation_enabled",
                 return_value=True,
@@ -62,6 +63,8 @@ class TestProcessMonthlyDepreciationRuns:
         ):
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
+            mock_org_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_org_session.return_value.__exit__ = MagicMock(return_value=False)
 
             from app.tasks.finance import process_monthly_depreciation_runs
 

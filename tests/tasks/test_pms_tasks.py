@@ -26,11 +26,9 @@ class TestPMSMonthlyReviewReminder:
             employee_id=uuid4(),
             supervisor_id=supervisor_employee_id,
         )
-        org = SimpleNamespace(organization_id=org_id)
-
         mock_db = MagicMock()
         mock_db.scalars.side_effect = [
-            _make_scalars_result([org]),
+            _make_scalars_result([org_id]),
             _make_scalars_result([contract]),
         ]
         mock_db.scalar.return_value = None
@@ -39,7 +37,8 @@ class TestPMSMonthlyReviewReminder:
         notification_service.create_if_not_sent_since.return_value = object()
 
         with (
-            patch("app.tasks.pms.SessionLocal") as mock_session,
+            patch("app.tasks.pms.cross_org_session") as mock_session,
+            patch("app.tasks.pms.session_for_org") as mock_org_session,
             patch(
                 "app.services.notification.NotificationService",
                 return_value=notification_service,
@@ -51,6 +50,8 @@ class TestPMSMonthlyReviewReminder:
         ):
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
+            mock_org_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_org_session.return_value.__exit__ = MagicMock(return_value=False)
 
             result = pms.pms_monthly_review_reminder()
 
@@ -67,7 +68,6 @@ class TestPMSProbationCheck:
         employee_id = uuid4()
         manager_employee_id = uuid4()
         manager_person_id = uuid4()
-        org = SimpleNamespace(organization_id=org_id)
         from app.models.people.hr.employee import EmployeeStatus
 
         employee = SimpleNamespace(
@@ -83,7 +83,7 @@ class TestPMSProbationCheck:
         milestone = {"employee_id": employee_id, "months_of_service": 20}
 
         mock_db = MagicMock()
-        mock_db.scalars.return_value = _make_scalars_result([org])
+        mock_db.scalars.return_value = _make_scalars_result([org_id])
         mock_db.get.return_value = employee
 
         underperformance_service = MagicMock()
@@ -92,7 +92,8 @@ class TestPMSProbationCheck:
         notification_service.create_if_not_sent_since.return_value = object()
 
         with (
-            patch("app.tasks.pms.SessionLocal") as mock_session,
+            patch("app.tasks.pms.cross_org_session") as mock_session,
+            patch("app.tasks.pms.session_for_org") as mock_org_session,
             patch(
                 "app.services.notification.NotificationService",
                 return_value=notification_service,
@@ -106,6 +107,8 @@ class TestPMSProbationCheck:
             resolver_cls.return_value.get_manager.return_value = manager
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
+            mock_org_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_org_session.return_value.__exit__ = MagicMock(return_value=False)
 
             result = pms.pms_probation_check()
 

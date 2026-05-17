@@ -30,7 +30,8 @@ def test_subledger_reconciliation_alert_uses_dashboard_balance_keys() -> None:
     }
 
     with (
-        patch("app.tasks.finance.SessionLocal") as mock_session,
+        patch("app.tasks.finance._list_active_organization_ids", return_value=[org_id]),
+        patch("app.tasks.finance.session_for_org") as mock_session,
         patch("app.tasks.finance._get_finance_recipients", return_value=[recipient_id]),
         patch(
             "app.services.finance.dashboard.DashboardService.get_subledger_reconciliation",

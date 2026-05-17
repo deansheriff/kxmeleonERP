@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -8,6 +7,7 @@ from uuid import uuid4
 from app.models.people.hr.employee import EmployeeStatus
 from app.models.person import PersonStatus
 from app.tasks import payroll as payroll_tasks
+from tests._helpers.session_mocks import org_session_context
 
 
 def test_send_payslip_email_skips_inactive_employee(monkeypatch):
@@ -37,8 +37,8 @@ def test_send_payslip_email_skips_inactive_employee(monkeypatch):
 
     monkeypatch.setattr(
         payroll_tasks,
-        "SessionLocal",
-        lambda: nullcontext(mock_db),
+        "session_for_org",
+        org_session_context(mock_db),
     )
 
     send_calls: list[str] = []

@@ -21,7 +21,7 @@ class TestCleanupOldNotifications:
             MagicMock(rowcount=0),
         ]
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -37,7 +37,7 @@ class TestCleanupOldNotifications:
         mock_db = MagicMock()
         mock_db.execute.side_effect = RuntimeError("DB error")
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -68,7 +68,7 @@ class TestProcessStuckOutboxEvents:
         mock_db.scalars.return_value.all.return_value = [mock_event]
 
         with (
-            patch("app.tasks.data_health.SessionLocal") as mock_session,
+            patch("app.tasks.data_health.cross_org_session") as mock_session,
             patch(
                 "app.tasks.data_health.process_stuck_outbox_events.__wrapped__",
                 process_stuck_outbox_events.__wrapped__,
@@ -93,7 +93,7 @@ class TestProcessStuckOutboxEvents:
         mock_db = MagicMock()
         mock_db.scalars.return_value.all.return_value = [mock_event]
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -122,7 +122,7 @@ class TestReconcileInvoiceStatuses:
         mock_db = MagicMock()
         mock_db.scalars.return_value.all.return_value = [mock_inv]
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -144,7 +144,7 @@ class TestReconcileInvoiceStatuses:
         mock_db = MagicMock()
         mock_db.scalars.return_value.all.return_value = [mock_inv]
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -167,7 +167,7 @@ class TestCleanupStaleDrafts:
         mock_db = MagicMock()
         mock_db.scalar.side_effect = [3, 5, 2]  # journals, invoices, AP
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -192,7 +192,7 @@ class TestRunDataHealthCheck:
         mock_db = MagicMock()
         mock_db.scalar.return_value = 0
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -233,7 +233,7 @@ class TestAutoPostApprovedInvoices:
         mock_db.scalars.return_value.all.return_value = [mock_inv]
 
         with (
-            patch("app.tasks.data_health.SessionLocal") as mock_session,
+            patch("app.tasks.data_health.cross_org_session") as mock_session,
             patch(
                 "app.services.finance.ar.invoice.ARInvoiceService.post_invoice",
                 side_effect=ValueError("Period closed"),
@@ -279,7 +279,7 @@ class TestRebuildAccountBalances:
         mock_db.execute.return_value.all.return_value = [mock_row]
         mock_db.scalar.return_value = None  # No existing balance
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -324,7 +324,7 @@ class TestReconcilePaymentAllocations:
             [mock_invoice],
         ]
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -367,7 +367,7 @@ class TestReconcilePaymentAllocations:
             [mock_invoice],
         ]
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -397,7 +397,7 @@ class TestReconcilePaymentAllocations:
             [],  # No matching invoices
         ]
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -431,7 +431,7 @@ class TestFixUnbalancedPostedJournals:
         mock_db = MagicMock()
         mock_db.execute.return_value.all.return_value = [mock_row]
 
-        with patch("app.tasks.data_health.SessionLocal") as mock_session:
+        with patch("app.tasks.data_health.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -471,7 +471,7 @@ class TestFixUnbalancedPostedJournals:
         mock_db.execute.return_value.all.return_value = [mock_row]
 
         with (
-            patch("app.tasks.data_health.SessionLocal") as mock_session,
+            patch("app.tasks.data_health.cross_org_session") as mock_session,
             patch(
                 "app.services.finance.gl.reversal.ReversalService.create_reversal",
                 return_value=mock_reversal_result,
@@ -511,7 +511,7 @@ class TestFixUnbalancedPostedJournals:
         mock_db.execute.return_value.all.return_value = [mock_row]
 
         with (
-            patch("app.tasks.data_health.SessionLocal") as mock_session,
+            patch("app.tasks.data_health.cross_org_session") as mock_session,
             patch(
                 "app.services.finance.gl.reversal.ReversalService.create_reversal",
                 return_value=mock_reversal_result,

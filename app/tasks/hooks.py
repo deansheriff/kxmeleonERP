@@ -18,7 +18,7 @@ from celery import shared_task
 from sqlalchemy import select
 from sqlalchemy.engine import CursorResult
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 from app.models.finance.platform.service_hook import HookHandlerType, ServiceHook
 from app.models.finance.platform.service_hook_execution import (
     ExecutionStatus,
@@ -99,7 +99,8 @@ def cleanup_old_hook_executions(
     errors: list[str] = []
     org_id = UUID(str(organization_id)) if organization_id is not None else None
 
-    with SessionLocal() as db:
+    session_context = session_for_org(org_id) if org_id else cross_org_session()
+    with session_context as db:
         try:
             stmt = (
                 select(ServiceHookExecution.execution_id)
@@ -138,7 +139,7 @@ def execute_async_hook(
     hook_id: str,
 ) -> dict[str, Any]:
     """Execute queued service hook and persist execution result."""
-    with SessionLocal() as db:
+    with cross_org_session() as db:
         execution = db.get(ServiceHookExecution, UUID(execution_id))
         hook = db.get(ServiceHook, UUID(hook_id))
 
@@ -150,10 +151,6 @@ def execute_async_hook(
             )
             return {"ok": False, "error": "missing entities"}
 
-        started = time.monotonic()
-        payload = dict(execution.event_payload or {})
-        meta = payload.pop("_hook_meta", {}) if isinstance(payload, dict) else {}
-
         org_id = execution.organization_id or hook.organization_id
         if org_id is None:
             logger.error("Async hook missing organization context: %s", execution_id)
@@ -162,6 +159,23 @@ def execute_async_hook(
             db.flush()
             db.commit()
             return {"ok": False, "error": "missing organization context"}
+
+    with session_for_org(org_id) as db:
+        execution = db.get(ServiceHookExecution, UUID(execution_id))
+        hook = db.get(ServiceHook, UUID(hook_id))
+
+        if execution is None or hook is None:
+            logger.error(
+                "Async hook references missing entities after tenant scoping "
+                "(execution=%s, hook=%s)",
+                execution_id,
+                hook_id,
+            )
+            return {"ok": False, "error": "missing entities"}
+
+        started = time.monotonic()
+        payload = dict(execution.event_payload or {})
+        meta = payload.pop("_hook_meta", {}) if isinstance(payload, dict) else {}
 
         entity_type = str(meta.get("entity_type") or "Unknown")
         entity_id = (

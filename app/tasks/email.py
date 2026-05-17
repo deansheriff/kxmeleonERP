@@ -15,7 +15,7 @@ from typing import Any
 
 from celery import shared_task
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 from app.services.common import coerce_uuid
 
 logger = logging.getLogger(__name__)
@@ -184,9 +184,11 @@ def send_email_async(
                 mime_type = att["mime_type"]
                 attachments.append((filename, data, mime_type))
 
-        # Use SessionLocal to get SMTP settings from DB
+        # Use a tenant-aware task session to get SMTP settings from DB
         # Use raise_on_error=True to get the actual exception for classification
-        with SessionLocal() as db:
+        org_uuid = coerce_uuid(organization_id) if organization_id else None
+        session_context = session_for_org(org_uuid) if org_uuid else cross_org_session()
+        with session_context as db:
             module_enum = EmailModule(module) if module else None
             send_email(
                 db=db,
@@ -197,9 +199,7 @@ def send_email_async(
                 attachments=attachments,
                 raise_on_error=True,
                 module=module_enum,
-                organization_id=coerce_uuid(organization_id)
-                if organization_id
-                else None,
+                organization_id=org_uuid,
             )
 
         result["success"] = True

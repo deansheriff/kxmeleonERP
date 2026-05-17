@@ -15,7 +15,7 @@ from celery import shared_task
 from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 from app.models.fleet.enums import MaintenanceStatus
 from app.models.fleet.maintenance import MaintenanceRecord
 from app.models.fleet.vehicle_document import VehicleDocument
@@ -128,13 +128,12 @@ def process_document_expiry_notifications() -> dict[str, Any]:
     reminder_days = [30, 14, 7]
     expiry_cutoff = today + timedelta(days=30)
 
-    with SessionLocal() as db:
-        notification_service = NotificationService()
-
-        # Get organizations that have expiring documents
+    notification_service = NotificationService()
+    with cross_org_session() as db:
         org_ids = _get_organization_ids_with_documents(db, expiry_cutoff)
 
-        for org_id in org_ids:
+    for org_id in org_ids:
+        with session_for_org(org_id) as db:
             # Get documents for this organization with eager-loaded vehicle
             stmt = (
                 select(VehicleDocument)
@@ -209,7 +208,7 @@ def process_document_expiry_notifications() -> dict[str, Any]:
                     )
                     results["errors"].append(str(e))
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Completed document expiry notifications: %s checked, %s sent, %s errors",
@@ -250,13 +249,12 @@ def process_maintenance_due_notifications() -> dict[str, Any]:
     reminder_days = [7, 3, 1]
     date_cutoff = today + timedelta(days=7)
 
-    with SessionLocal() as db:
-        notification_service = NotificationService()
-
-        # Get organizations that have due maintenance
+    notification_service = NotificationService()
+    with cross_org_session() as db:
         org_ids = _get_organization_ids_with_maintenance(db, date_cutoff)
 
-        for org_id in org_ids:
+    for org_id in org_ids:
+        with session_for_org(org_id) as db:
             # Get maintenance records for this organization with eager-loaded vehicle
             stmt = (
                 select(MaintenanceRecord)
@@ -326,7 +324,7 @@ def process_maintenance_due_notifications() -> dict[str, Any]:
                     )
                     results["errors"].append(str(e))
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Completed maintenance due notifications: %s checked, %s sent, %s errors",

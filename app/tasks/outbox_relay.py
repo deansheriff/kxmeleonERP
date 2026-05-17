@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -30,37 +29,16 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session
 from app.services.finance.platform.outbox_publisher import OutboxPublisher
 
 logger = logging.getLogger(__name__)
 _DB_RETRYABLE_ERRORS = (OperationalError, ProgrammingError)
 
 
-@contextmanager
 def _task_db_session():
     """Yield a task DB session and ensure it is rolled back/closed on any error."""
-    db = SessionLocal()
-    try:
-        yield db
-    except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            logger.debug(
-                "Failed to rollback DB session after relay error",
-                exc_info=True,
-            )
-            try:
-                db.invalidate()
-            except Exception:
-                logger.debug("Failed to invalidate DB session", exc_info=True)
-        raise
-    finally:
-        try:
-            db.close()
-        except Exception:
-            logger.debug("Failed to close task DB session", exc_info=True)
+    return cross_org_session()
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ from typing import Any
 from celery import shared_task
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 
 logger = logging.getLogger(__name__)
 _DB_RETRYABLE_ERRORS = (OperationalError, ProgrammingError)
@@ -41,9 +41,10 @@ def _write_audit_event(
     except ValueError:
         resolved_actor_type = AuditActorType.system
 
-    with SessionLocal() as db:
+    org_uuid = coerce_uuid(organization_id, raise_http=False)
+    session_context = session_for_org(org_uuid) if org_uuid else cross_org_session()
+    with session_context as db:
         try:
-            org_uuid = coerce_uuid(organization_id, raise_http=False)
             actor_person_uuid = coerce_uuid(actor_person_id, raise_http=False)
             payload = AuditEventCreate(
                 actor_type=resolved_actor_type,

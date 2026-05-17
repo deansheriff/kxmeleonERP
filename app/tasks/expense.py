@@ -23,7 +23,6 @@ from typing import Any
 from celery import shared_task
 from sqlalchemy import select
 
-from app.db import SessionLocal
 from app.db.session_context import cross_org_session, session_for_org
 from app.models.expense import (
     ExpenseClaim,
@@ -178,115 +177,130 @@ def process_expense_approval_reminders() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        today = date.today()
-        today_start = datetime.combine(today, datetime.min.time())
+    today = date.today()
+    today_start = datetime.combine(today, datetime.min.time())
 
-        # Find all pending claims
-        # PENDING_APPROVAL is unused — all claims awaiting approval
-        # are in SUBMITTED status.
-        pending_claims = db.scalars(
-            select(ExpenseClaim)
-            .where(
-                ExpenseClaim.status == ExpenseClaimStatus.SUBMITTED,
-            )
-            .order_by(ExpenseClaim.claim_date)
-        ).all()
+    with cross_org_session() as cross_db:
+        # Find all pending claims. PENDING_APPROVAL is unused — all claims
+        # awaiting approval are in SUBMITTED status.
+        pending_claim_meta = list(
+            cross_db.execute(
+                select(ExpenseClaim.claim_id, ExpenseClaim.organization_id)
+                .where(ExpenseClaim.status == ExpenseClaimStatus.SUBMITTED)
+                .order_by(ExpenseClaim.claim_date)
+            ).all()
+        )
 
-        notification_service = ExpenseNotificationService(db)
+    claims_by_org: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for claim_id, org_id in pending_claim_meta:
+        claims_by_org.setdefault(org_id, []).append(claim_id)
 
-        for claim in pending_claims:
-            try:
-                # Use updated_at (set on status change to SUBMITTED) instead
-                # of claim_date (the expense incurrence date) for accuracy.
-                pending_since = (
-                    claim.updated_at.date() if claim.updated_at else claim.claim_date
-                )
-                days_pending = (today - pending_since).days
+    for org_id, claim_ids in claims_by_org.items():
+        with session_for_org(org_id) as db:
+            pending_claims = db.scalars(
+                select(ExpenseClaim)
+                .where(ExpenseClaim.claim_id.in_(claim_ids))
+                .order_by(ExpenseClaim.claim_date)
+            ).all()
 
-                # Determine reminder type
-                if days_pending >= ESCALATION_WARNING_DAYS:
-                    reminder_type = "escalation"
-                elif days_pending >= SECOND_REMINDER_DAYS:
-                    reminder_type = "second"
-                elif days_pending >= FIRST_REMINDER_DAYS:
-                    reminder_type = "first"
-                else:
-                    continue  # Too early for reminder
+            notification_service = ExpenseNotificationService(db)
 
-                # Dedup: skip if reminder already sent today for this claim.
-                if NotificationService().was_sent_since(
-                    db,
-                    organization_id=claim.organization_id,
-                    entity_type=EntityType.EXPENSE,
-                    entity_id=claim.claim_id,
-                    notification_type=NotificationType.REMINDER,
-                    since=today_start,
-                ):
-                    continue
+            for claim in pending_claims:
+                try:
+                    # Use updated_at (set on status change to SUBMITTED) instead
+                    # of claim_date (the expense incurrence date) for accuracy.
+                    pending_since = (
+                        claim.updated_at.date()
+                        if claim.updated_at
+                        else claim.claim_date
+                    )
+                    days_pending = (today - pending_since).days
 
-                # Get approver
-                approver = None
-                if claim.approver_id:
-                    approver = db.get(Employee, claim.approver_id)
+                    # Determine reminder type
+                    if days_pending >= ESCALATION_WARNING_DAYS:
+                        reminder_type = "escalation"
+                    elif days_pending >= SECOND_REMINDER_DAYS:
+                        reminder_type = "second"
+                    elif days_pending >= FIRST_REMINDER_DAYS:
+                        reminder_type = "first"
+                    else:
+                        continue  # Too early for reminder
 
-                # Fall back to employee's expense approver, then manager
-                if not approver and claim.employee:
-                    if claim.employee.expense_approver_id:
-                        approver = db.get(Employee, claim.employee.expense_approver_id)
-                    if not approver:
-                        approver = OrgResolver(db).get_manager(
-                            claim.employee.employee_id,
-                            claim.organization_id,
-                        )
-
-                if not approver:
-                    continue  # No approver to remind
-
-                # Send reminder
-                success = notification_service.send_pending_approval_reminder(
-                    claim,
-                    approver,
-                    days_pending=days_pending,
-                )
-
-                if success:
-                    # Record notification for dedup on subsequent runs.
-                    NotificationService().create_if_not_sent_since(
+                    # Dedup: skip if reminder already sent today for this claim.
+                    if NotificationService().was_sent_since(
                         db,
                         organization_id=claim.organization_id,
-                        recipient_id=approver.person_id,
                         entity_type=EntityType.EXPENSE,
                         entity_id=claim.claim_id,
                         notification_type=NotificationType.REMINDER,
-                        title=f"Expense Approval Reminder: {claim.claim_number}",
-                        message="Claim "
-                        f"{claim.claim_number} pending {days_pending} days",
                         since=today_start,
-                        dedup_by_recipient=False,
-                        channel=NotificationChannel.EMAIL,
+                    ):
+                        continue
+
+                    # Get approver
+                    approver = None
+                    if claim.approver_id:
+                        approver = db.get(Employee, claim.approver_id)
+
+                    # Fall back to employee's expense approver, then manager
+                    if not approver and claim.employee:
+                        if claim.employee.expense_approver_id:
+                            approver = db.get(
+                                Employee, claim.employee.expense_approver_id
+                            )
+                        if not approver:
+                            approver = OrgResolver(db).get_manager(
+                                claim.employee.employee_id,
+                                claim.organization_id,
+                            )
+
+                    if not approver:
+                        continue  # No approver to remind
+
+                    # Send reminder
+                    success = notification_service.send_pending_approval_reminder(
+                        claim,
+                        approver,
+                        days_pending=days_pending,
                     )
-                    if reminder_type == "first":
-                        results["first_reminders_sent"] += 1
-                    elif reminder_type == "second":
-                        results["second_reminders_sent"] += 1
-                    else:
-                        results["escalation_warnings_sent"] += 1
 
-            except Exception as e:
-                logger.error(
-                    "Failed to process reminder for claim %s: %s",
-                    claim.claim_id,
-                    e,
-                )
-                results["errors"].append(
-                    {
-                        "claim_id": str(claim.claim_id),
-                        "error": str(e),
-                    }
-                )
+                    if success:
+                        # Record notification for dedup on subsequent runs.
+                        NotificationService().create_if_not_sent_since(
+                            db,
+                            organization_id=claim.organization_id,
+                            recipient_id=approver.person_id,
+                            entity_type=EntityType.EXPENSE,
+                            entity_id=claim.claim_id,
+                            notification_type=NotificationType.REMINDER,
+                            title=f"Expense Approval Reminder: {claim.claim_number}",
+                            message="Claim "
+                            f"{claim.claim_number} pending {days_pending} days",
+                            since=today_start,
+                            dedup_by_recipient=False,
+                            channel=NotificationChannel.EMAIL,
+                        )
+                        if reminder_type == "first":
+                            results["first_reminders_sent"] += 1
+                        elif reminder_type == "second":
+                            results["second_reminders_sent"] += 1
+                        else:
+                            results["escalation_warnings_sent"] += 1
 
-        db.commit()
+                except Exception as e:
+                    logger.error(
+                        "Failed to process reminder for claim %s: %s",
+                        claim.claim_id,
+                        e,
+                    )
+                    results["errors"].append(
+                        {
+                            "claim_id": str(claim.claim_id),
+                            "error": str(e),
+                        }
+                    )
+
+            db.commit()
 
     total_sent = (
         results["first_reminders_sent"]
@@ -783,62 +797,74 @@ def poll_stuck_expense_transfers() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        # Expire PENDING intents that never had a transfer initiated
-        # (step 2 was never called) and are past their expires_at
-        now = datetime.now(UTC)
-        stale_pending = db.scalars(
-            select(PaymentIntent).where(
-                PaymentIntent.direction == PaymentDirection.OUTBOUND,
-                PaymentIntent.status == PaymentIntentStatus.PENDING,
-                PaymentIntent.source_type == "EXPENSE_CLAIM",
-                PaymentIntent.transfer_code.is_(None),
-                PaymentIntent.expires_at.isnot(None),
-                PaymentIntent.expires_at <= now,
-            )
-        ).all()
+    # Expire PENDING intents that never had a transfer initiated
+    # (step 2 was never called) and are past their expires_at.
+    now = datetime.now(UTC)
+    with cross_org_session() as cross_db:
+        stale_pending_meta = list(
+            cross_db.execute(
+                select(PaymentIntent.intent_id, PaymentIntent.organization_id).where(
+                    PaymentIntent.direction == PaymentDirection.OUTBOUND,
+                    PaymentIntent.status == PaymentIntentStatus.PENDING,
+                    PaymentIntent.source_type == "EXPENSE_CLAIM",
+                    PaymentIntent.transfer_code.is_(None),
+                    PaymentIntent.expires_at.isnot(None),
+                    PaymentIntent.expires_at <= now,
+                )
+            ).all()
+        )
 
-        for intent in stale_pending:
-            intent.status = PaymentIntentStatus.EXPIRED
-            logger.info(
-                "Expired stale PENDING transfer intent %s (created %s)",
-                intent.intent_id,
-                intent.created_at,
-            )
-            results["expired"] = results.get("expired", 0) + 1
+    stale_by_org: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for intent_id, org_id in stale_pending_meta:
+        stale_by_org.setdefault(org_id, []).append(intent_id)
 
-        if stale_pending:
+    for org_id, intent_ids in stale_by_org.items():
+        with session_for_org(org_id) as db:
+            stale_pending = db.scalars(
+                select(PaymentIntent).where(PaymentIntent.intent_id.in_(intent_ids))
+            ).all()
+            for intent in stale_pending:
+                intent.status = PaymentIntentStatus.EXPIRED
+                logger.info(
+                    "Expired stale PENDING transfer intent %s (created %s)",
+                    intent.intent_id,
+                    intent.created_at,
+                )
+                results["expired"] = results.get("expired", 0) + 1
             db.commit()
 
-        # Fast fallback: check PROCESSING transfers older than 2 minutes.
-        cutoff = now - timedelta(minutes=2)
+    # Fast fallback: check PROCESSING transfers older than 2 minutes.
+    cutoff = now - timedelta(minutes=2)
+    with cross_org_session() as cross_db:
+        stuck_intent_meta = list(
+            cross_db.execute(
+                select(PaymentIntent.intent_id, PaymentIntent.organization_id).where(
+                    PaymentIntent.direction == PaymentDirection.OUTBOUND,
+                    PaymentIntent.status.in_(
+                        [
+                            PaymentIntentStatus.PROCESSING,
+                            PaymentIntentStatus.PENDING,
+                        ]
+                    ),
+                    PaymentIntent.source_type == "EXPENSE_CLAIM",
+                    PaymentIntent.transfer_code.isnot(None),
+                    PaymentIntent.created_at < cutoff,
+                    PaymentIntent.poll_count < MAX_POLL_ATTEMPTS,
+                )
+            ).all()
+        )
 
-        stuck_intents = db.scalars(
-            select(PaymentIntent).where(
-                PaymentIntent.direction == PaymentDirection.OUTBOUND,
-                PaymentIntent.status.in_(
-                    [
-                        PaymentIntentStatus.PROCESSING,
-                        PaymentIntentStatus.PENDING,
-                    ]
-                ),
-                PaymentIntent.source_type == "EXPENSE_CLAIM",
-                PaymentIntent.transfer_code.isnot(None),
-                PaymentIntent.created_at < cutoff,
-                PaymentIntent.poll_count < MAX_POLL_ATTEMPTS,
-            )
-        ).all()
+    if not stuck_intent_meta:
+        logger.info("No stuck transfers found")
+        return results
 
-        if not stuck_intents:
-            logger.info("No stuck transfers found")
-            return results
+    # Group by organization to use correct config
+    by_org: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for intent_id, org_id in stuck_intent_meta:
+        by_org.setdefault(org_id, []).append(intent_id)
 
-        # Group by organization to use correct config
-        by_org: dict[uuid.UUID, list[PaymentIntent]] = {}
-        for intent in stuck_intents:
-            by_org.setdefault(intent.organization_id, []).append(intent)
-
-        for org_id, intents in by_org.items():
+    for org_id, intent_ids in by_org.items():
+        with session_for_org(org_id) as db:
             # Get Paystack config for this org
             secret_key = resolve_value(
                 db, SettingDomain.payments, "paystack_secret_key"
@@ -859,6 +885,9 @@ def poll_stuck_expense_transfers() -> dict:
                 webhook_secret=str(webhook_secret or ""),
             )
             svc = PaymentService(db, org_id)
+            intents = db.scalars(
+                select(PaymentIntent).where(PaymentIntent.intent_id.in_(intent_ids))
+            ).all()
 
             for intent in intents:
                 try:

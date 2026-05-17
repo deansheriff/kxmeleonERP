@@ -35,7 +35,10 @@ def test_process_pending_notification_emails_retries_on_operational_error() -> N
         pass
 
     with (
-        patch("app.tasks.notifications.SessionLocal", side_effect=_operational_error()),
+        patch(
+            "app.tasks.notifications.cross_org_session",
+            side_effect=_operational_error(),
+        ),
         patch(
             "app.tasks.notifications.process_pending_notification_emails.retry"
         ) as mock_retry,
@@ -58,7 +61,7 @@ def test_process_pending_notification_emails_retries_on_operational_error() -> N
 
 def test_process_pending_notification_emails_sends_active_notification() -> None:
     with (
-        patch("app.tasks.notifications.SessionLocal") as mock_session_local,
+        patch("app.tasks.notifications.cross_org_session") as mock_session_local,
         patch("app.tasks.notifications.person_can_receive_email", return_value=True),
         patch(
             "app.tasks.notifications.send_email", return_value=True
@@ -67,7 +70,8 @@ def test_process_pending_notification_emails_sends_active_notification() -> None
         from app.tasks.notifications import process_pending_notification_emails
 
         db = MagicMock()
-        mock_session_local.return_value = db
+        mock_session_local.return_value.__enter__.return_value = db
+        mock_session_local.return_value.__exit__.return_value = False
         execute_result = MagicMock()
         execute_result.scalars.return_value.all.side_effect = [
             [],
@@ -88,7 +92,7 @@ def test_process_pending_notification_emails_sends_active_notification() -> None
 
 def test_process_pending_notification_emails_routes_non_leave_to_admin() -> None:
     with (
-        patch("app.tasks.notifications.SessionLocal") as mock_session_local,
+        patch("app.tasks.notifications.cross_org_session") as mock_session_local,
         patch("app.tasks.notifications.person_can_receive_email", return_value=True),
         patch(
             "app.tasks.notifications.send_email", return_value=True
@@ -97,7 +101,8 @@ def test_process_pending_notification_emails_routes_non_leave_to_admin() -> None
         from app.tasks.notifications import process_pending_notification_emails
 
         db = MagicMock()
-        mock_session_local.return_value = db
+        mock_session_local.return_value.__enter__.return_value = db
+        mock_session_local.return_value.__exit__.return_value = False
         execute_result = MagicMock()
         execute_result.scalars.return_value.all.side_effect = [
             [],
@@ -115,14 +120,15 @@ def test_process_pending_notification_emails_routes_non_leave_to_admin() -> None
 
 def test_process_pending_notification_emails_skips_when_email_missing() -> None:
     with (
-        patch("app.tasks.notifications.SessionLocal") as mock_session_local,
+        patch("app.tasks.notifications.cross_org_session") as mock_session_local,
         patch("app.tasks.notifications.person_can_receive_email", return_value=True),
         patch("app.tasks.notifications.send_email") as mock_send_email,
     ):
         from app.tasks.notifications import process_pending_notification_emails
 
         db = MagicMock()
-        mock_session_local.return_value = db
+        mock_session_local.return_value.__enter__.return_value = db
+        mock_session_local.return_value.__exit__.return_value = False
         execute_result = MagicMock()
         execute_result.scalars.return_value.all.side_effect = [
             [],

@@ -25,7 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 from app.models.finance.ar.customer import Customer
 from app.models.finance.core_org.organization import Organization
 from app.models.finance.gl.account import Account
@@ -253,9 +253,7 @@ def _finalize_sync(
         history_fresh.add_error("splynx", "sync", error)
     history_fresh.complete()
 
-    db.commit()
-
-    return {
+    summary = {
         "success": history_fresh.error_count == 0,
         "history_id": str(history_id),
         "organization_id": str(org_id) if org_id else None,
@@ -265,6 +263,8 @@ def _finalize_sync(
         "skipped_count": history_fresh.skipped_count,
         "error_count": history_fresh.error_count,
     }
+    db.commit()
+    return summary
 
 
 def _handle_sync_failure(
@@ -275,7 +275,7 @@ def _handle_sync_failure(
 ) -> None:
     """Mark SyncHistory as failed in a fresh session (original may be broken)."""
     logger.exception("%s Splynx sync failed for org %s", tier_name, org_id)
-    with SessionLocal() as db2:
+    with session_for_org(org_id) as db2:
         history2 = db2.get(SyncHistory, history_id)
         if history2:
             history2.fail(str(exc))
@@ -309,7 +309,7 @@ def cleanup_stale_splynx_sync_history(
     now_utc = datetime.now(UTC)
     cutoff = now_utc - timedelta(minutes=stale_after_minutes)
 
-    with SessionLocal() as db:
+    with cross_org_session() as db:
         stmt = (
             select(SyncHistory)
             .where(
@@ -394,10 +394,14 @@ def run_splynx_incremental_sync(
     """
     entity_types = ["customers", "invoices", "payments", "credit_notes"]
 
-    with SessionLocal() as db:
+    org_id = _resolve_org_id(organization_id)
+    if org_id is None:
+        return {"success": False, "error": "No valid organization ID configured"}
+
+    with session_for_org(org_id) as db:
         ctx = _build_sync_context(
             db,
-            organization_id,
+            str(org_id),
             SyncType.INCREMENTAL,
             entity_types,
         )
@@ -527,10 +531,14 @@ def run_splynx_daily_reconciliation(
     """
     entity_types = ["invoices_reconciliation", "payments_reconciliation"]
 
-    with SessionLocal() as db:
+    org_id = _resolve_org_id(organization_id)
+    if org_id is None:
+        return {"success": False, "error": "No valid organization ID configured"}
+
+    with session_for_org(org_id) as db:
         ctx = _build_sync_context(
             db,
-            organization_id,
+            str(org_id),
             SyncType.INCREMENTAL,
             entity_types,
         )
@@ -623,10 +631,14 @@ def run_splynx_full_reconciliation(
     """
     entity_types = ["full_reconciliation"]
 
-    with SessionLocal() as db:
+    org_id = _resolve_org_id(organization_id)
+    if org_id is None:
+        return {"success": False, "error": "No valid organization ID configured"}
+
+    with session_for_org(org_id) as db:
         ctx = _build_sync_context(
             db,
-            organization_id,
+            str(org_id),
             SyncType.FULL,
             entity_types,
         )

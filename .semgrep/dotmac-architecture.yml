@@ -85,28 +85,3 @@ rules:
     paths:
       include:
         - "**/app/tasks/"
-      # Pre-existing unmigrated task files. Each one is a known bug pile
-      # (per the 2026-05-16 audit). Migrate using session_for_org /
-      # cross_org_session, then remove the line from this list — the rule
-      # starts enforcing that file immediately. Do NOT add new files to
-      # this list; new tasks must use the canonical helpers from day one.
-      exclude:
-        - "**/app/tasks/finance.py"
-        - "**/app/tasks/hr.py"
-        - "**/app/tasks/expense.py"
-        - "**/app/tasks/performance.py"
-        - "**/app/tasks/data_health.py"
-        - "**/app/tasks/crm.py"
-        - "**/app/tasks/splynx.py"
-        - "**/app/tasks/discipline.py"
-        - "**/app/tasks/automation.py"
-        - "**/app/tasks/hooks.py"
-        - "**/app/tasks/fleet.py"
-        # coach.py removed 2026-05-16 — all 12 tasks now use session_for_org
-        - "**/app/tasks/license.py"
-        - "**/app/tasks/feature_flags.py"
-        - "**/app/tasks/email.py"
-        - "**/app/tasks/audit_integrity.py"
-        - "**/app/tasks/audit.py"
-        - "**/app/tasks/notifications.py"
-        - "**/app/tasks/outbox_relay.py"

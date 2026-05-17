@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import defaultdict
 
 from celery import shared_task
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 
 logger = logging.getLogger(__name__)
 
@@ -89,51 +90,56 @@ def _notify_admins(state, results: dict) -> None:
         else NotificationType.DUE_SOON
     )
 
-    with SessionLocal() as db:
-        try:
-            from sqlalchemy import select
+    try:
+        from sqlalchemy import select
 
-            from app.models.people.person import Person
-            from app.models.rbac import PersonRole, Role
+        from app.models.people.person import Person
+        from app.models.rbac import PersonRole, Role
 
-            # Notify all admin/finance_manager-role users across all orgs
-            stmt = (
-                select(PersonRole.person_id, Person.organization_id)
-                .join(Role, PersonRole.role_id == Role.id)
-                .join(Person, PersonRole.person_id == Person.id)
-                .where(
-                    Role.name.in_(["admin", "finance_manager"]),
-                    Role.is_active.is_(True),
-                )
+        # Notify all admin/finance_manager-role users across all orgs
+        stmt = (
+            select(PersonRole.person_id, Person.organization_id)
+            .join(Role, PersonRole.role_id == Role.id)
+            .join(Person, PersonRole.person_id == Person.id)
+            .where(
+                Role.name.in_(["admin", "finance_manager"]),
+                Role.is_active.is_(True),
             )
+        )
+        with cross_org_session() as db:
             rows = db.execute(stmt).all()
 
-            for person_id, org_id in rows:
-                try:
-                    notification_service.create(
-                        db,
-                        organization_id=org_id,
-                        recipient_id=person_id,
-                        entity_type=EntityType.SYSTEM,
-                        entity_id=person_id,  # no specific entity
-                        notification_type=notification_type,
-                        title=title,
-                        message=message,
-                        channel=NotificationChannel.BOTH,
-                        action_url="/admin/license",
-                    )
-                    results["notifications_sent"] = (
-                        int(results["notifications_sent"]) + 1
-                    )
-                except Exception as exc:
-                    logger.exception("Failed to notify %s: %s", person_id, exc)
-                    errors = results.get("errors", [])
-                    if isinstance(errors, list):
-                        errors.append(str(exc))
+        rows_by_org = defaultdict(list)
+        for person_id, org_id in rows:
+            rows_by_org[org_id].append(person_id)
 
-            db.commit()
-        except Exception as exc:
-            logger.exception("Failed to send license notifications: %s", exc)
-            errors = results.get("errors", [])
-            if isinstance(errors, list):
-                errors.append(str(exc))
+        for org_id, person_ids in rows_by_org.items():
+            with session_for_org(org_id) as db:
+                for person_id in person_ids:
+                    try:
+                        notification_service.create(
+                            db,
+                            organization_id=org_id,
+                            recipient_id=person_id,
+                            entity_type=EntityType.SYSTEM,
+                            entity_id=person_id,  # no specific entity
+                            notification_type=notification_type,
+                            title=title,
+                            message=message,
+                            channel=NotificationChannel.BOTH,
+                            action_url="/admin/license",
+                        )
+                        results["notifications_sent"] = (
+                            int(results["notifications_sent"]) + 1
+                        )
+                    except Exception as exc:
+                        logger.exception("Failed to notify %s: %s", person_id, exc)
+                        errors = results.get("errors", [])
+                        if isinstance(errors, list):
+                            errors.append(str(exc))
+                db.commit()
+    except Exception as exc:
+        logger.exception("Failed to send license notifications: %s", exc)
+        errors = results.get("errors", [])
+        if isinstance(errors, list):
+            errors.append(str(exc))

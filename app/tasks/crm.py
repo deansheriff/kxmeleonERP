@@ -14,9 +14,28 @@ from uuid import UUID
 from celery import shared_task
 
 from app.config import settings
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_org_id(
+    organization_id: str | None,
+    results: dict[str, Any],
+) -> UUID | None:
+    """Resolve an optional task org argument to a UUID."""
+    org_id_str = organization_id or settings.default_organization_id
+    if not org_id_str:
+        logger.error("No organization ID provided and no default configured")
+        results["errors"].append("No organization ID available")
+        return None
+
+    try:
+        return UUID(org_id_str)
+    except ValueError:
+        logger.error("Invalid organization ID: %s", org_id_str)
+        results["errors"].append(f"Invalid organization ID: {org_id_str}")
+        return None
 
 
 @shared_task
@@ -48,20 +67,11 @@ def sync_crm_tickets(
     }
 
     # Determine organization
-    org_id_str = organization_id or settings.default_organization_id
-    if not org_id_str:
-        logger.error("No organization ID provided and no default configured")
-        results["errors"].append("No organization ID available")
+    org_id = _resolve_org_id(organization_id, results)
+    if org_id is None:
         return results
 
-    try:
-        org_id = UUID(org_id_str)
-    except ValueError:
-        logger.error("Invalid organization ID: %s", org_id_str)
-        results["errors"].append(f"Invalid organization ID: {org_id_str}")
-        return results
-
-    with SessionLocal() as db:
+    with session_for_org(org_id) as db:
         try:
             with CRMClient() as client:
                 # Health check only for full syncs (skip for incremental to reduce latency)
@@ -128,20 +138,11 @@ def sync_crm_projects(
     }
 
     # Determine organization
-    org_id_str = organization_id or settings.default_organization_id
-    if not org_id_str:
-        logger.error("No organization ID provided and no default configured")
-        results["errors"].append("No organization ID available")
+    org_id = _resolve_org_id(organization_id, results)
+    if org_id is None:
         return results
 
-    try:
-        org_id = UUID(org_id_str)
-    except ValueError:
-        logger.error("Invalid organization ID: %s", org_id_str)
-        results["errors"].append(f"Invalid organization ID: {org_id_str}")
-        return results
-
-    with SessionLocal() as db:
+    with session_for_org(org_id) as db:
         try:
             with CRMClient() as client:
                 # Health check only for full syncs
@@ -219,22 +220,14 @@ def sync_all_crm_entities(
     }
 
     # Determine organization
-    org_id_str = organization_id or settings.default_organization_id
-    if not org_id_str:
-        logger.error("No organization ID provided and no default configured")
+    org_results: dict[str, Any] = {"errors": []}
+    org_id = _resolve_org_id(organization_id, org_results)
+    if org_id is None:
         results["success"] = False
-        results["error"] = "No organization ID available"
+        results["error"] = "; ".join(org_results["errors"])
         return results
 
-    try:
-        org_id = UUID(org_id_str)
-    except ValueError:
-        logger.error("Invalid organization ID: %s", org_id_str)
-        results["success"] = False
-        results["error"] = f"Invalid organization ID: {org_id_str}"
-        return results
-
-    with SessionLocal() as db:
+    with session_for_org(org_id) as db:
         try:
             with CRMClient() as client:
                 # Health check only for full syncs
@@ -351,18 +344,11 @@ def retry_failed_crm_push_syncs(
         "errors": [],
     }
 
-    org_id_str = organization_id or settings.default_organization_id
-    if not org_id_str:
-        results["errors"].append("No organization ID available")
+    org_id = _resolve_org_id(organization_id, results)
+    if org_id is None:
         return results
 
-    try:
-        org_id = UUID(org_id_str)
-    except ValueError:
-        results["errors"].append(f"Invalid organization ID: {org_id_str}")
-        return results
-
-    with SessionLocal() as db:
+    with session_for_org(org_id) as db:
         # Find failed mappings
         stmt = (
             select(CRMSyncMapping)
@@ -438,20 +424,11 @@ def push_inventory_to_crm(
     }
 
     # Determine organization
-    org_id_str = organization_id or settings.default_organization_id
-    if not org_id_str:
-        logger.error("No organization ID provided and no default configured")
-        results["errors"].append("No organization ID available")
+    org_id = _resolve_org_id(organization_id, results)
+    if org_id is None:
         return results
 
-    try:
-        org_id = UUID(org_id_str)
-    except ValueError:
-        logger.error("Invalid organization ID: %s", org_id_str)
-        results["errors"].append(f"Invalid organization ID: {org_id_str}")
-        return results
-
-    with SessionLocal() as db:
+    with session_for_org(org_id) as db:
         try:
             with InventoryPushService(db) as service:
                 if not service.is_configured:
@@ -511,20 +488,11 @@ def push_low_stock_alerts_to_crm(organization_id: str | None = None) -> dict:
     }
 
     # Determine organization
-    org_id_str = organization_id or settings.default_organization_id
-    if not org_id_str:
-        logger.error("No organization ID provided and no default configured")
-        results["errors"].append("No organization ID available")
+    org_id = _resolve_org_id(organization_id, results)
+    if org_id is None:
         return results
 
-    try:
-        org_id = UUID(org_id_str)
-    except ValueError:
-        logger.error("Invalid organization ID: %s", org_id_str)
-        results["errors"].append(f"Invalid organization ID: {org_id_str}")
-        return results
-
-    with SessionLocal() as db:
+    with session_for_org(org_id) as db:
         try:
             with InventoryPushService(db) as service:
                 if not service.is_configured:
@@ -588,7 +556,7 @@ def push_specific_items_to_crm(
         results["errors"].append(f"Invalid UUID: {str(e)}")
         return results
 
-    with SessionLocal() as db:
+    with session_for_org(org_id) as db:
         try:
             with InventoryPushService(db) as service:
                 if not service.is_configured:
@@ -620,5 +588,5 @@ def crm_inventory_health_check() -> dict:
 
     logger.info("Running CRM inventory webhook health check")
 
-    with SessionLocal() as db, InventoryPushService(db) as service:
+    with cross_org_session() as db, InventoryPushService(db) as service:
         return service.health_check()

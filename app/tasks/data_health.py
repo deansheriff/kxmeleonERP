@@ -30,7 +30,7 @@ from uuid import UUID
 from celery import shared_task
 from sqlalchemy.engine import CursorResult
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 from app.services.common import coerce_uuid
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,13 @@ def _resolve_org_id(organization_id: UUID | str | None) -> UUID | None:
     if organization_id is None:
         return None
     return UUID(str(coerce_uuid(organization_id)))
+
+
+def _task_session(organization_id: UUID | str | None):
+    """Return resolved org_id plus the correct task session context."""
+    org_id = _resolve_org_id(organization_id)
+    session_context = session_for_org(org_id) if org_id else cross_org_session()
+    return org_id, session_context
 
 
 @shared_task
@@ -68,10 +75,10 @@ def cleanup_old_notifications(
     unread_deleted = 0
     errors: list[str] = []
 
-    with SessionLocal() as db:
+    org_id, session_context = _task_session(organization_id)
+    with session_context as db:
         from app.models.notification import Notification
 
-        org_id = _resolve_org_id(organization_id)
         now = datetime.now(UTC)
         read_cutoff = now - timedelta(days=read_days)
         unread_cutoff = now - timedelta(days=unread_days)
@@ -150,12 +157,12 @@ def process_stuck_outbox_events(
     marked_dead = 0
     errors: list[str] = []
 
-    with SessionLocal() as db:
+    org_id, session_context = _task_session(organization_id)
+    with session_context as db:
         from sqlalchemy import select
 
         from app.models.finance.platform.event_outbox import EventOutbox, EventStatus
 
-        org_id = _resolve_org_id(organization_id)
         cutoff = datetime.now(UTC) - timedelta(minutes=stuck_minutes)
 
         stmt = select(EventOutbox).where(
@@ -217,12 +224,12 @@ def reconcile_invoice_statuses(
     fixed_to_posted = 0
     errors: list[str] = []
 
-    with SessionLocal() as db:
+    org_id, session_context = _task_session(organization_id)
+    with session_context as db:
         from sqlalchemy import select
 
         from app.models.finance.ar.invoice import Invoice, InvoiceStatus
 
-        org_id = _resolve_org_id(organization_id)
         stmt = select(Invoice).where(
             Invoice.status == InvoiceStatus.PAID,
             (Invoice.total_amount - Invoice.amount_paid) > Decimal("0.01"),
@@ -288,13 +295,13 @@ def auto_post_approved_invoices(
     skipped = 0
     errors: list[str] = []
 
-    with SessionLocal() as db:
+    org_id, session_context = _task_session(organization_id)
+    with session_context as db:
         from sqlalchemy import select
 
         from app.models.finance.ar.invoice import Invoice, InvoiceStatus
         from app.services.finance.ar.invoice import ARInvoiceService
 
-        org_id = _resolve_org_id(organization_id)
         cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
 
         stmt = select(Invoice).where(
@@ -366,7 +373,8 @@ def cleanup_stale_drafts(
     voided = 0
     errors: list[str] = []
 
-    with SessionLocal() as db:
+    org_id, session_context = _task_session(organization_id)
+    with session_context as db:
         from sqlalchemy import func, select
 
         from app.models.finance.ap.supplier_invoice import (
@@ -376,7 +384,6 @@ def cleanup_stale_drafts(
         from app.models.finance.ar.invoice import Invoice, InvoiceStatus
         from app.models.finance.gl.journal_entry import JournalEntry, JournalStatus
 
-        org_id = _resolve_org_id(organization_id)
         cutoff = datetime.now(UTC) - timedelta(days=draft_age_days)
 
         journal_drafts_stmt = select(func.count(JournalEntry.journal_entry_id)).where(
@@ -482,14 +489,14 @@ def rebuild_account_balances(
     rows_written = 0
     errors: list[str] = []
 
-    with SessionLocal() as db:
+    org_id, session_context = _task_session(organization_id)
+    with session_context as db:
         from sqlalchemy import func, select
 
         from app.models.finance.gl.account_balance import AccountBalance, BalanceType
         from app.models.finance.gl.posted_ledger_line import PostedLedgerLine
 
         try:
-            org_id = _resolve_org_id(organization_id)
             agg_stmt = select(
                 PostedLedgerLine.organization_id,
                 PostedLedgerLine.account_id,
@@ -607,7 +614,8 @@ def reconcile_payment_allocations(
     allocations_created = 0
     errors: list[str] = []
 
-    with SessionLocal() as db:
+    org_id, session_context = _task_session(organization_id)
+    with session_context as db:
         from sqlalchemy import select
 
         from app.models.finance.ar.customer_payment import (
@@ -617,7 +625,6 @@ def reconcile_payment_allocations(
         from app.models.finance.ar.invoice import Invoice, InvoiceStatus
         from app.models.finance.ar.payment_allocation import PaymentAllocation
 
-        org_id = _resolve_org_id(organization_id)
         # Find payments with no allocations (effective status = APPROVED or CLEARED)
         has_alloc = (
             select(PaymentAllocation.payment_id)
@@ -771,13 +778,13 @@ def fix_unbalanced_posted_journals(
     details: list[dict[str, Any]] = []
     errors: list[str] = []
 
-    with SessionLocal() as db:
+    org_id, session_context = _task_session(organization_id)
+    with session_context as db:
         from sqlalchemy import func, select
 
         from app.models.finance.gl.journal_entry import JournalEntry, JournalStatus
         from app.models.finance.gl.journal_entry_line import JournalEntryLine
 
-        org_id = _resolve_org_id(organization_id)
         debit_total = func.sum(
             func.coalesce(
                 JournalEntryLine.debit_amount_functional,
@@ -922,7 +929,8 @@ def run_data_health_check(
 
     results: dict[str, Any] = {}
 
-    with SessionLocal() as db:
+    org_id, session_context = _task_session(organization_id)
+    with session_context as db:
         from sqlalchemy import exists, func, select
 
         from app.models.finance.ar.customer_payment import (
@@ -937,7 +945,6 @@ def run_data_health_check(
         from app.models.finance.platform.event_outbox import EventOutbox, EventStatus
         from app.models.notification import Notification
 
-        org_id = _resolve_org_id(organization_id)
         # 1. Unbalanced posted journals
         debit_total = func.sum(
             func.coalesce(

@@ -151,7 +151,7 @@ class TestLogAuditEvent:
         session_ctx.__enter__.return_value = mock_db
         session_ctx.__exit__.return_value = False
 
-        with patch("app.tasks.audit.SessionLocal", return_value=session_ctx):
+        with patch("app.tasks.audit.cross_org_session", return_value=session_ctx):
             from app.tasks.audit import _write_audit_event
 
             try:

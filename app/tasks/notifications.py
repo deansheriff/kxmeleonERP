@@ -9,7 +9,6 @@ Handles:
 import html
 import logging
 from datetime import datetime, timedelta, timezone
-from contextlib import contextmanager
 
 try:
     from datetime import UTC  # type: ignore
@@ -22,7 +21,7 @@ from celery import shared_task
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session
 from app.models.email_profile import EmailModule
 from app.models.notification import EntityType, Notification, NotificationChannel
 from app.services.email import person_can_receive_email, send_email
@@ -32,30 +31,9 @@ logger = logging.getLogger(__name__)
 _DB_RETRYABLE_ERRORS = (OperationalError, ProgrammingError)
 
 
-@contextmanager
 def _task_db_session():
     """Yield a task DB session and ensure it is rolled back/closed on any error."""
-    db = SessionLocal()
-    try:
-        yield db
-    except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            logger.debug(
-                "Failed to rollback DB session after task error",
-                exc_info=True,
-            )
-            try:
-                db.invalidate()
-            except Exception:
-                logger.debug("Failed to invalidate DB session", exc_info=True)
-        raise
-    finally:
-        try:
-            db.close()
-        except Exception:
-            logger.debug("Failed to close task DB session", exc_info=True)
+    return cross_org_session()
 
 
 # Notifications older than this are considered permanently failed and will not

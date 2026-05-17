@@ -34,7 +34,7 @@ class TestCleanupOldHookExecutions:
         mock_db.scalars.return_value.all.return_value = [uuid4(), uuid4()]
         mock_db.execute.return_value = MagicMock(rowcount=2)
 
-        with patch("app.tasks.hooks.SessionLocal") as mock_session:
+        with patch("app.tasks.hooks.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -50,7 +50,7 @@ class TestCleanupOldHookExecutions:
         mock_db = MagicMock()
         mock_db.scalars.return_value.all.return_value = []
 
-        with patch("app.tasks.hooks.SessionLocal") as mock_session:
+        with patch("app.tasks.hooks.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -66,7 +66,7 @@ class TestCleanupOldHookExecutions:
         mock_db = MagicMock()
         mock_db.scalars.return_value.all.side_effect = RuntimeError("DB failure")
 
-        with patch("app.tasks.hooks.SessionLocal") as mock_session:
+        with patch("app.tasks.hooks.cross_org_session") as mock_session:
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -121,16 +121,19 @@ class TestExecuteAsyncHook:
         )
 
         mock_db = MagicMock()
-        mock_db.get.side_effect = [execution, hook]
+        mock_db.get.side_effect = [execution, hook, execution, hook]
         request = httpx.Request("POST", "https://example.com/hook")
         retryable_error = httpx.ConnectError("boom", request=request)
 
         with (
-            patch("app.tasks.hooks.SessionLocal") as mock_session,
+            patch("app.tasks.hooks.cross_org_session") as mock_session,
+            patch("app.tasks.hooks.session_for_org") as mock_org_session,
             patch("app.tasks.hooks._execute_hook_handler", side_effect=retryable_error),
         ):
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
+            mock_org_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_org_session.return_value.__exit__ = MagicMock(return_value=False)
             from app.tasks.hooks import execute_async_hook
 
             retry_exc = RuntimeError("retry requested")
@@ -182,17 +185,20 @@ class TestExecuteAsyncHook:
         )
 
         mock_db = MagicMock()
-        mock_db.get.side_effect = [execution, hook]
+        mock_db.get.side_effect = [execution, hook, execution, hook]
         mock_db.scalars.return_value.all.return_value = [ExecutionStatus.DEAD]
         request = httpx.Request("POST", "https://example.com/hook")
         retryable_error = httpx.ConnectError("boom", request=request)
 
         with (
-            patch("app.tasks.hooks.SessionLocal") as mock_session,
+            patch("app.tasks.hooks.cross_org_session") as mock_session,
+            patch("app.tasks.hooks.session_for_org") as mock_org_session,
             patch("app.tasks.hooks._execute_hook_handler", side_effect=retryable_error),
         ):
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
+            mock_org_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_org_session.return_value.__exit__ = MagicMock(return_value=False)
             from app.tasks.hooks import execute_async_hook
 
             with patch.object(execute_async_hook, "retry") as mock_retry:
@@ -243,14 +249,17 @@ class TestExecuteAsyncHook:
         )
 
         mock_db = MagicMock()
-        mock_db.get.side_effect = [execution, hook]
+        mock_db.get.side_effect = [execution, hook, execution, hook]
 
         with (
-            patch("app.tasks.hooks.SessionLocal") as mock_session,
+            patch("app.tasks.hooks.cross_org_session") as mock_session,
+            patch("app.tasks.hooks.session_for_org") as mock_org_session,
             patch("app.tasks.hooks._execute_hook_handler", side_effect=error),
         ):
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
+            mock_org_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_org_session.return_value.__exit__ = MagicMock(return_value=False)
             from app.tasks.hooks import execute_async_hook
 
             with patch.object(execute_async_hook, "retry") as mock_retry:
@@ -300,14 +309,17 @@ class TestExecuteAsyncHook:
         )
 
         mock_db = MagicMock()
-        mock_db.get.side_effect = [execution, hook]
+        mock_db.get.side_effect = [execution, hook, execution, hook]
 
         with (
-            patch("app.tasks.hooks.SessionLocal") as mock_session,
+            patch("app.tasks.hooks.cross_org_session") as mock_session,
+            patch("app.tasks.hooks.session_for_org") as mock_org_session,
             patch("app.tasks.hooks._execute_hook_handler", side_effect=error),
         ):
             mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
             mock_session.return_value.__exit__ = MagicMock(return_value=False)
+            mock_org_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_org_session.return_value.__exit__ = MagicMock(return_value=False)
             from app.tasks.hooks import execute_async_hook
 
             retry_exc = RuntimeError("retry requested")

@@ -5,7 +5,7 @@ from typing import Any
 
 from celery import shared_task
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ def archive_expired_feature_flags() -> dict:
 
     results: dict[str, Any] = {"archived": 0, "errors": []}
 
-    with SessionLocal() as db:
+    with cross_org_session() as db:
         from app.services.feature_flag_service import FeatureFlagService
 
         service = FeatureFlagService(db)

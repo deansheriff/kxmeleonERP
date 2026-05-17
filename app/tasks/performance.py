@@ -15,11 +15,16 @@ from uuid import UUID
 from celery import shared_task
 from sqlalchemy import select
 
-from app.db import SessionLocal
 from app.db.session_context import cross_org_session, session_for_org
+from app.models.finance.core_org.organization import Organization
 from app.models.people.perf.appraisal_cycle import AppraisalCycle, AppraisalCycleStatus
 
 logger = logging.getLogger(__name__)
+
+
+def _list_organization_ids() -> list[UUID]:
+    with cross_org_session() as db:
+        return list(db.scalars(select(Organization.organization_id)).all())
 
 
 @shared_task
@@ -42,46 +47,59 @@ def process_cycle_phase_transitions() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        service = PerformanceAutomationService(db)
+    with cross_org_session() as cross_db:
+        transitions = [
+            (cycle.cycle_id, cycle.organization_id, target_status)
+            for cycle, target_status in PerformanceAutomationService(
+                cross_db
+            ).get_cycles_ready_for_transition()
+        ]
 
-        try:
-            transitions = service.get_cycles_ready_for_transition()
-
-            for cycle, target_status in transitions:
-                try:
-                    old_status = cycle.status.value
-                    success = service.advance_cycle_phase(cycle, target_status)
-
-                    if success:
-                        results["transitions"].append(
-                            {
-                                "cycle_id": str(cycle.cycle_id),
-                                "cycle_name": cycle.cycle_name,
-                                "from_status": old_status,
-                                "to_status": target_status.value,
-                            }
-                        )
-
-                except Exception as e:
-                    logger.error(
-                        "Failed to transition cycle %s: %s",
-                        cycle.cycle_id,
-                        e,
-                    )
+    for cycle_id, org_id, target_status in transitions:
+        with session_for_org(org_id) as db:
+            service = PerformanceAutomationService(db)
+            try:
+                cycle = db.get(AppraisalCycle, cycle_id)
+                if not cycle:
                     results["errors"].append(
                         {
+                            "cycle_id": str(cycle_id),
+                            "error": "Cycle not found",
+                        }
+                    )
+                    continue
+
+                old_status = cycle.status.value
+                success = service.advance_cycle_phase(cycle, target_status)
+
+                if success:
+                    results["transitions"].append(
+                        {
                             "cycle_id": str(cycle.cycle_id),
-                            "error": str(e),
+                            "cycle_name": cycle.cycle_name,
+                            "from_status": old_status,
+                            "to_status": target_status.value,
                         }
                     )
 
-            db.commit()
+                db.commit()
 
-        except Exception as e:
-            logger.exception("Cycle phase transition processing failed: %s", e)
-            db.rollback()
-            results["errors"].append({"error": str(e)})
+            except Exception as e:
+                logger.error(
+                    "Failed to transition cycle %s: %s",
+                    cycle_id,
+                    e,
+                )
+                db.rollback()
+                results["errors"].append(
+                    {
+                        "cycle_id": str(cycle_id),
+                        "error": str(e),
+                    }
+                )
+
+    if not transitions:
+        logger.debug("No performance cycles ready for transition")
 
     logger.info(
         "Cycle phase transitions complete: %d transitions, %d errors",
@@ -242,23 +260,30 @@ def check_upcoming_deadlines(days_ahead: int = 7) -> dict:
 
     logger.info("Checking upcoming deadlines within %d days", days_ahead)
 
-    with SessionLocal() as db:
-        try:
-            service = PerformanceAutomationService(db)
-            deadlines = service.get_upcoming_deadlines(days_ahead=days_ahead)
+    deadlines: list[dict[str, Any]] = []
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
+            try:
+                service = PerformanceAutomationService(db)
+                deadlines.extend(
+                    service.get_upcoming_deadlines(
+                        days_ahead=days_ahead,
+                        org_id=org_id,
+                    )
+                )
 
-            results: dict[str, Any] = {
-                "deadlines_found": len(deadlines),
-                "deadlines": deadlines,
-            }
+            except Exception as e:
+                logger.exception("Deadline check failed for org %s: %s", org_id, e)
+                return {"error": str(e)}
 
-            logger.info("Found %d upcoming deadlines", len(deadlines))
+    results: dict[str, Any] = {
+        "deadlines_found": len(deadlines),
+        "deadlines": sorted(deadlines, key=lambda x: x["days_remaining"]),
+    }
 
-            return results
+    logger.info("Found %d upcoming deadlines", len(deadlines))
 
-        except Exception as e:
-            logger.exception("Deadline check failed: %s", e)
-            return {"error": str(e)}
+    return results
 
 
 @shared_task
@@ -282,11 +307,10 @@ def sync_all_cycle_progress() -> dict:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        try:
-            # Get all non-completed cycles
-            cycles = db.scalars(
-                select(AppraisalCycle).where(
+    with cross_org_session() as cross_db:
+        cycle_meta = list(
+            cross_db.execute(
+                select(AppraisalCycle.cycle_id, AppraisalCycle.organization_id).where(
                     AppraisalCycle.status.in_(
                         [
                             AppraisalCycleStatus.ACTIVE,
@@ -296,39 +320,52 @@ def sync_all_cycle_progress() -> dict:
                     ),
                 )
             ).all()
+        )
 
-            service = PerformanceAutomationService(db)
+    cycles_by_org: dict[UUID, list[UUID]] = {}
+    for cycle_id, org_id in cycle_meta:
+        cycles_by_org.setdefault(org_id, []).append(cycle_id)
 
-            for cycle in cycles:
-                try:
-                    progress = service.get_cycle_progress(cycle)
-                    results["cycle_progress"].append(
-                        {
-                            "cycle_id": str(cycle.cycle_id),
-                            "cycle_name": cycle.cycle_name,
-                            "status": cycle.status.value,
-                            "total_appraisals": progress["total_appraisals"],
-                            "completed_pct": progress["progress"].get(
-                                "completed_pct", 0
-                            ),
-                        }
-                    )
-                    results["cycles_processed"] += 1
+    for org_id, cycle_ids in cycles_by_org.items():
+        with session_for_org(org_id) as db:
+            try:
+                cycles = db.scalars(
+                    select(AppraisalCycle).where(AppraisalCycle.cycle_id.in_(cycle_ids))
+                ).all()
+                service = PerformanceAutomationService(db)
 
-                except Exception as e:
-                    logger.error(
-                        "Progress calc failed for cycle %s: %s", cycle.cycle_id, e
-                    )
-                    results["errors"].append(
-                        {
-                            "cycle_id": str(cycle.cycle_id),
-                            "error": str(e),
-                        }
-                    )
+                for cycle in cycles:
+                    try:
+                        progress = service.get_cycle_progress(cycle)
+                        results["cycle_progress"].append(
+                            {
+                                "cycle_id": str(cycle.cycle_id),
+                                "cycle_name": cycle.cycle_name,
+                                "status": cycle.status.value,
+                                "total_appraisals": progress["total_appraisals"],
+                                "completed_pct": progress["progress"].get(
+                                    "completed_pct", 0
+                                ),
+                            }
+                        )
+                        results["cycles_processed"] += 1
 
-        except Exception as e:
-            logger.exception("Cycle progress sync failed: %s", e)
-            results["errors"].append({"error": str(e)})
+                    except Exception as e:
+                        logger.error(
+                            "Progress calc failed for cycle %s: %s", cycle.cycle_id, e
+                        )
+                        results["errors"].append(
+                            {
+                                "cycle_id": str(cycle.cycle_id),
+                                "error": str(e),
+                            }
+                        )
+
+            except Exception as e:
+                logger.exception("Cycle progress sync failed for org %s: %s", org_id, e)
+                results["errors"].append(
+                    {"organization_id": str(org_id), "error": str(e)}
+                )
 
     logger.info(
         "Cycle progress sync complete: %d cycles processed",
@@ -355,14 +392,23 @@ def process_pms_dispute_sla_enforcement() -> dict:
         "pips": {},
         "errors": [],
     }
-    with SessionLocal() as db:
-        try:
-            results = PMSDisputeSLAService(db).enforce_all_overdue()
-            db.commit()
-        except Exception as e:
-            logger.exception("PMS dispute SLA enforcement failed: %s", e)
-            db.rollback()
-            results["errors"] = [str(e)]
+
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
+            try:
+                org_results = PMSDisputeSLAService(db).enforce_all_overdue()
+                db.commit()
+                results["appeals"][str(org_id)] = org_results["appeals"]
+                results["grievances"][str(org_id)] = org_results["grievances"]
+                results["pips"][str(org_id)] = org_results["pips"]
+            except Exception as e:
+                logger.exception(
+                    "PMS dispute SLA enforcement failed for org %s: %s", org_id, e
+                )
+                db.rollback()
+                results["errors"].append(
+                    {"organization_id": str(org_id), "error": str(e)}
+                )
     return results
 
 
@@ -374,14 +420,25 @@ def process_pms_dispute_deadline_reminders(days_ahead: int = 7) -> dict:
     from app.services.people.perf.dispute_sla_service import PMSDisputeSLAService
 
     logger.info("Processing PMS dispute deadline reminders (%d days)", days_ahead)
-    with SessionLocal() as db:
-        try:
-            return PMSDisputeSLAService(db).collect_upcoming_deadline_reminders(
-                days_ahead=days_ahead
-            )
-        except Exception as e:
-            logger.exception("PMS dispute reminder job failed: %s", e)
-            return {"error": str(e), "days_ahead": days_ahead}
+    results: dict[str, Any] = {"days_ahead": days_ahead, "grievances": [], "pips": []}
+
+    for org_id in _list_organization_ids():
+        with session_for_org(org_id) as db:
+            try:
+                org_results = PMSDisputeSLAService(
+                    db
+                ).collect_upcoming_deadline_reminders(days_ahead=days_ahead)
+                results["grievances"].extend(org_results.get("grievances", []))
+                results["pips"].extend(org_results.get("pips", []))
+            except Exception as e:
+                logger.exception(
+                    "PMS dispute reminder job failed for org %s: %s", org_id, e
+                )
+                results.setdefault("errors", []).append(
+                    {"organization_id": str(org_id), "error": str(e)}
+                )
+
+    return results
 
 
 @shared_task

@@ -22,15 +22,17 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import SessionLocal
-from app.db.session_context import session_for_org
+from app.db.session_context import (
+    cross_org_session,
+    prime_tenant_context,
+    session_for_org,
+)
 from app.models.email_profile import EmailModule
 from app.models.finance.core_org.organization import Organization
 from app.models.finance.rpt.report_instance import ReportInstance, ReportStatus
 from app.models.notification import EntityType, NotificationType
 from app.models.person import Person
 from app.models.rbac import PersonRole, Role
-from app.rls import bypass_rls_sync, set_current_organization_sync
 from app.services.email import send_email
 from app.services.finance.rpt.report_instance import ReportInstanceService
 from app.services.notification import NotificationService
@@ -39,13 +41,26 @@ from app.services.storage import get_storage
 logger = logging.getLogger(__name__)
 
 
-def _get_export_instance(db: Session, instance_id: str) -> ReportInstance | None:
-    """Load a queued report instance and set tenant context for generation."""
-    with bypass_rls_sync(db):
+def _list_active_organization_ids() -> list[UUID]:
+    with cross_org_session() as db:
+        return list(
+            db.scalars(
+                select(Organization.organization_id).where(
+                    Organization.is_active.is_(True)
+                )
+            ).all()
+        )
+
+
+def _resolve_report_instance_org(instance_id: str) -> UUID | None:
+    with cross_org_session() as db:
         instance = db.get(ReportInstance, UUID(instance_id))
-    if instance:
-        set_current_organization_sync(db, instance.organization_id)
-    return instance
+        return instance.organization_id if instance else None
+
+
+def _get_export_instance(db: Session, instance_id: str) -> ReportInstance | None:
+    """Load a queued report instance from an already tenant-scoped session."""
+    return db.get(ReportInstance, UUID(instance_id))
 
 
 def _notify_export_result(
@@ -69,7 +84,7 @@ def _notify_export_result(
         action_url=action_url,
     )
     db.commit()
-    set_current_organization_sync(db, instance.organization_id)
+    prime_tenant_context(db, instance.organization_id)
 
     recipient = db.get(Person, instance.generated_by_user_id)
     if not recipient or not recipient.email:
@@ -100,7 +115,11 @@ def process_general_ledger_export(
     instance_id: str,
 ) -> dict[str, Any]:
     """Generate a queued General Ledger export and notify the requester."""
-    with SessionLocal() as db:
+    owning_org_id = _resolve_report_instance_org(instance_id)
+    if owning_org_id is None:
+        return {"success": False, "error": "Report instance not found"}
+
+    with session_for_org(owning_org_id) as db:
         instance = _get_export_instance(db, instance_id)
         if not instance:
             return {"success": False, "error": "Report instance not found"}
@@ -280,7 +299,11 @@ async def _build_list_export_response(
 
 def _process_list_export(instance_id: str, report_code: str) -> dict[str, Any]:
     label = _export_label(report_code)
-    with SessionLocal() as db:
+    owning_org_id = _resolve_report_instance_org(instance_id)
+    if owning_org_id is None:
+        return {"success": False, "error": "Report instance not found"}
+
+    with session_for_org(owning_org_id) as db:
         instance = _get_export_instance(db, instance_id)
         if not instance:
             return {"success": False, "error": "Report instance not found"}
@@ -416,7 +439,7 @@ def process_monthly_depreciation_runs(
 
     run_cutoff_date = date.fromisoformat(as_of_date) if as_of_date else date.today()
 
-    with SessionLocal() as db:
+    with cross_org_session() as db:
         if not DepreciationService.automation_enabled(db):
             logger.info("Monthly FA depreciation automation is disabled")
             return results
@@ -430,9 +453,10 @@ def process_monthly_depreciation_runs(
         results["auto_post"] = effective_auto_post
 
         organization_ids = DepreciationService.list_active_organization_ids(db)
-        results["organizations_checked"] = len(organization_ids)
+    results["organizations_checked"] = len(organization_ids)
 
-        for organization_id in organization_ids:
+    for organization_id in organization_ids:
+        with session_for_org(organization_id) as db:
             try:
                 outcome = DepreciationService.create_automated_monthly_run(
                     db,
@@ -446,6 +470,7 @@ def process_monthly_depreciation_runs(
                     results["runs_calculated"] += 1
                 else:
                     results["skipped"] += 1
+                db.commit()
             except Exception as exc:
                 logger.exception(
                     "Monthly FA depreciation automation failed for org %s",
@@ -494,45 +519,50 @@ def process_fiscal_period_reminders() -> dict[str, Any]:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        service = FinanceReminderService(db)
-        periods = service.get_periods_closing_soon()
-        results["periods_checked"] = len(periods)
+    for org_id in _list_active_organization_ids():
+        with session_for_org(org_id) as db:
+            service = FinanceReminderService(db)
+            periods = service.get_periods_closing_soon()
+            results["periods_checked"] += len(periods)
 
-        for period in periods:
-            try:
-                notice_type = service.get_period_notice_type(period)
-                if not notice_type:
+            for period in periods:
+                if period.organization_id != org_id:
                     continue
+                try:
+                    notice_type = service.get_period_notice_type(period)
+                    if not notice_type:
+                        continue
 
-                # Get accountants and finance managers for this org
-                recipients = _get_finance_recipients(
-                    db,
-                    period.organization_id,
-                    ["accountant", "finance_manager", "controller", "cfo"],
-                )
-
-                if not recipients:
-                    logger.warning(
-                        "No finance recipients found for period %s (org %s)",
-                        period.fiscal_period_id,
+                    # Get accountants and finance managers for this org
+                    recipients = _get_finance_recipients(
+                        db,
                         period.organization_id,
+                        ["accountant", "finance_manager", "controller", "cfo"],
                     )
-                    continue
 
-                sent = service.send_fiscal_period_reminder(
-                    period, recipients, notice_type
-                )
-                results["notifications_sent"] += sent
+                    if not recipients:
+                        logger.warning(
+                            "No finance recipients found for period %s (org %s)",
+                            period.fiscal_period_id,
+                            period.organization_id,
+                        )
+                        continue
 
-            except Exception as e:
-                logger.exception(
-                    "Failed to send reminder for period %s",
-                    period.fiscal_period_id,
-                )
-                results["errors"].append(f"Period {period.fiscal_period_id}: {str(e)}")
+                    sent = service.send_fiscal_period_reminder(
+                        period, recipients, notice_type
+                    )
+                    results["notifications_sent"] += sent
 
-        db.commit()
+                except Exception as e:
+                    logger.exception(
+                        "Failed to send reminder for period %s",
+                        period.fiscal_period_id,
+                    )
+                    results["errors"].append(
+                        f"Period {period.fiscal_period_id}: {str(e)}"
+                    )
+
+            db.commit()
 
     logger.info(
         "Fiscal period reminders complete: %d periods, %d notifications, %d errors",
@@ -569,51 +599,61 @@ def process_tax_period_reminders() -> dict[str, Any]:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        service = FinanceReminderService(db)
+    for org_id in _list_active_organization_ids():
+        with session_for_org(org_id) as db:
+            service = FinanceReminderService(db)
 
-        # Process periods due soon
-        due_soon = service.get_tax_periods_due_soon()
-        results["periods_due_soon"] = len(due_soon)
+            # Process periods due soon
+            due_soon = [
+                period
+                for period in service.get_tax_periods_due_soon()
+                if period.organization_id == org_id
+            ]
+            results["periods_due_soon"] += len(due_soon)
 
-        for period in due_soon:
-            try:
-                notice_type = service.get_tax_period_notice_type(period)
-                if not notice_type:
-                    continue
+            for period in due_soon:
+                try:
+                    notice_type = service.get_tax_period_notice_type(period)
+                    if not notice_type:
+                        continue
 
-                recipients = _get_finance_recipients(
-                    db,
-                    period.organization_id,
-                    ["accountant", "finance_manager", "tax_accountant", "controller"],
-                )
+                    recipients = _get_finance_recipients(
+                        db,
+                        period.organization_id,
+                        [
+                            "accountant",
+                            "finance_manager",
+                            "tax_accountant",
+                            "controller",
+                        ],
+                    )
 
-                if not recipients:
-                    continue
+                    if not recipients:
+                        continue
 
-                sent = service.send_tax_period_reminder(period, recipients, notice_type)
-                results["notifications_sent"] += sent
+                    sent = service.send_tax_period_reminder(
+                        period, recipients, notice_type
+                    )
+                    results["notifications_sent"] += sent
 
-            except Exception as e:
-                logger.exception(
-                    "Failed to send tax reminder for period %s",
-                    period.period_id,
-                )
-                results["errors"].append(f"Tax period {period.period_id}: {str(e)}")
+                except Exception as e:
+                    logger.exception(
+                        "Failed to send tax reminder for period %s",
+                        period.period_id,
+                    )
+                    results["errors"].append(f"Tax period {period.period_id}: {str(e)}")
 
-        # Process overdue periods — send ONE digest per org instead of N
-        # individual notifications (prevents email spam when many periods
-        # are overdue)
-        overdue = service.get_overdue_tax_periods()
-        results["periods_overdue"] = len(overdue)
+            # Process overdue periods — send ONE digest per org instead of N
+            # individual notifications (prevents email spam when many periods
+            # are overdue)
+            overdue = [
+                period
+                for period in service.get_overdue_tax_periods()
+                if period.organization_id == org_id
+            ]
+            results["periods_overdue"] += len(overdue)
 
-        if overdue:
-            # Group by org for multi-tenant safety
-            by_org: dict[UUID, list] = {}
-            for period in overdue:
-                by_org.setdefault(period.organization_id, []).append(period)
-
-            for org_id, org_periods in by_org.items():
+            if overdue:
                 try:
                     recipients = _get_finance_recipients(
                         db,
@@ -628,11 +668,10 @@ def process_tax_period_reminders() -> dict[str, Any]:
                     )
 
                     if not recipients:
+                        db.commit()
                         continue
 
-                    sent = service.send_tax_period_digest(
-                        org_periods, recipients, org_id
-                    )
+                    sent = service.send_tax_period_digest(overdue, recipients, org_id)
                     results["notifications_sent"] += sent
                 except Exception as e:
                     logger.exception(
@@ -643,7 +682,7 @@ def process_tax_period_reminders() -> dict[str, Any]:
                         f"Tax overdue digest org {org_id}: {str(e)}"
                     )
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Tax period reminders complete: %d due soon, %d overdue, %d notifications",
@@ -679,27 +718,26 @@ def process_bank_reconciliation_reminders() -> dict[str, Any]:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        service = FinanceReminderService(db)
-        accounts = service.get_accounts_needing_reconciliation()
-        results["accounts_checked"] = len(accounts)
+    for org_id in _list_active_organization_ids():
+        with session_for_org(org_id) as db:
+            service = FinanceReminderService(db)
+            accounts = [
+                account
+                for account in service.get_accounts_needing_reconciliation()
+                if account.organization_id == org_id
+            ]
+            results["accounts_checked"] += len(accounts)
 
-        # Classify accounts by urgency, then send ONE digest per org
-        # instead of N individual notifications
-        accounts_with_urgency: list[tuple] = []
-        for account in accounts:
-            urgency = service.get_reconciliation_urgency(account)
-            if urgency:
-                accounts_with_urgency.append((account, urgency))
-                results["accounts_needing_action"] += 1
+            # Classify accounts by urgency, then send ONE digest per org
+            # instead of N individual notifications
+            accounts_with_urgency: list[tuple] = []
+            for account in accounts:
+                urgency = service.get_reconciliation_urgency(account)
+                if urgency:
+                    accounts_with_urgency.append((account, urgency))
+                    results["accounts_needing_action"] += 1
 
-        if accounts_with_urgency:
-            # Group by org for multi-tenant safety
-            by_org: dict[UUID, list[tuple]] = {}
-            for acct, urg in accounts_with_urgency:
-                by_org.setdefault(acct.organization_id, []).append((acct, urg))
-
-            for org_id, org_accounts in by_org.items():
+            if accounts_with_urgency:
                 try:
                     recipients = _get_finance_recipients(
                         db,
@@ -708,10 +746,11 @@ def process_bank_reconciliation_reminders() -> dict[str, Any]:
                     )
 
                     if not recipients:
+                        db.commit()
                         continue
 
                     sent = service.send_reconciliation_digest(
-                        org_accounts, recipients, org_id
+                        accounts_with_urgency, recipients, org_id
                     )
                     results["notifications_sent"] += sent
                 except Exception as e:
@@ -721,7 +760,7 @@ def process_bank_reconciliation_reminders() -> dict[str, Any]:
                     )
                     results["errors"].append(f"Recon digest org {org_id}: {str(e)}")
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Bank reconciliation reminders complete: %d accounts, %d need action, %d notifications",
@@ -762,37 +801,42 @@ def process_ar_collection_reminders() -> dict[str, Any]:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        service = FinanceReminderService(db)
-        invoices = service.get_overdue_invoices(min_days_overdue=1)
-        results["invoices_checked"] = len(invoices)
+    for org_id in _list_active_organization_ids():
+        with session_for_org(org_id) as db:
+            service = FinanceReminderService(db)
+            invoices = [
+                invoice
+                for invoice in service.get_overdue_invoices(min_days_overdue=1)
+                if invoice.organization_id == org_id
+            ]
+            results["invoices_checked"] += len(invoices)
 
-        for invoice in invoices:
-            try:
-                bucket = service.get_invoice_aging_bucket(invoice)
-                if bucket != "current" and bucket in results["by_bucket"]:
-                    results["by_bucket"][bucket] += 1
+            for invoice in invoices:
+                try:
+                    bucket = service.get_invoice_aging_bucket(invoice)
+                    if bucket != "current" and bucket in results["by_bucket"]:
+                        results["by_bucket"][bucket] += 1
 
-                recipients = _get_finance_recipients(
-                    db,
-                    invoice.organization_id,
-                    ["accountant", "ar_clerk", "finance_manager", "collections"],
-                )
+                    recipients = _get_finance_recipients(
+                        db,
+                        invoice.organization_id,
+                        ["accountant", "ar_clerk", "finance_manager", "collections"],
+                    )
 
-                if not recipients:
-                    continue
+                    if not recipients:
+                        continue
 
-                sent = service.send_collection_reminder(invoice, recipients)
-                results["notifications_sent"] += sent
+                    sent = service.send_collection_reminder(invoice, recipients)
+                    results["notifications_sent"] += sent
 
-            except Exception as e:
-                logger.exception(
-                    "Failed to send collection reminder for invoice %s",
-                    invoice.invoice_id,
-                )
-                results["errors"].append(f"Invoice {invoice.invoice_id}: {str(e)}")
+                except Exception as e:
+                    logger.exception(
+                        "Failed to send collection reminder for invoice %s",
+                        invoice.invoice_id,
+                    )
+                    results["errors"].append(f"Invoice {invoice.invoice_id}: {str(e)}")
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "AR collection reminders complete: %d invoices, %d notifications, buckets=%s",
@@ -832,21 +876,14 @@ def process_subledger_reconciliation() -> dict[str, Any]:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        # Get all active organizations
-        organizations = db.scalars(
-            select(Organization).where(Organization.is_active.is_(True))
-        ).all()
-
-        results["organizations_checked"] = len(organizations)
-        reminder_service = FinanceReminderService(db)
-
-        for org in organizations:
+    org_ids = _list_active_organization_ids()
+    results["organizations_checked"] = len(org_ids)
+    for org_id in org_ids:
+        with session_for_org(org_id) as db:
+            reminder_service = FinanceReminderService(db)
             try:
                 # Use dashboard service to get reconciliation status
-                recon_data = DashboardService.get_subledger_reconciliation(
-                    db, org.organization_id
-                )
+                recon_data = DashboardService.get_subledger_reconciliation(db, org_id)
 
                 # Check AR discrepancy
                 if not recon_data.get("ar_ok", True):
@@ -854,13 +891,13 @@ def process_subledger_reconciliation() -> dict[str, Any]:
 
                     recipients = _get_finance_recipients(
                         db,
-                        org.organization_id,
+                        org_id,
                         ["accountant", "finance_manager", "controller"],
                     )
 
                     if recipients:
                         sent = reminder_service.send_subledger_discrepancy_alert(
-                            organization_id=org.organization_id,
+                            organization_id=org_id,
                             recipient_ids=recipients,
                             subledger_type="AR",
                             gl_balance=Decimal(str(recon_data.get("gl_ar_balance", 0))),
@@ -876,13 +913,13 @@ def process_subledger_reconciliation() -> dict[str, Any]:
 
                     recipients = _get_finance_recipients(
                         db,
-                        org.organization_id,
+                        org_id,
                         ["accountant", "finance_manager", "controller"],
                     )
 
                     if recipients:
                         sent = reminder_service.send_subledger_discrepancy_alert(
-                            organization_id=org.organization_id,
+                            organization_id=org_id,
                             recipient_ids=recipients,
                             subledger_type="AP",
                             gl_balance=Decimal(str(recon_data.get("gl_ap_balance", 0))),
@@ -895,11 +932,11 @@ def process_subledger_reconciliation() -> dict[str, Any]:
             except Exception as e:
                 logger.exception(
                     "Failed to check subledger reconciliation for org %s",
-                    org.organization_id,
+                    org_id,
                 )
-                results["errors"].append(f"Org {org.organization_id}: {str(e)}")
+                results["errors"].append(f"Org {org_id}: {str(e)}")
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Subledger reconciliation complete: %d orgs, %d AR discrepancies, "
@@ -1000,20 +1037,15 @@ def sync_paystack_transactions(days_back: int = 1) -> dict[str, Any]:
     to_date = date.today()
     from_date = to_date - timedelta(days=days_back)
 
-    with SessionLocal() as db:
-        from app.services.finance.payments.paystack_sync import PaystackSyncService
+    from app.services.finance.payments.paystack_sync import PaystackSyncService
 
-        # Get all organizations with Paystack configured
-        organizations = db.scalars(
-            select(Organization).where(Organization.is_active.is_(True))
-        ).all()
+    total_credits = 0.0
+    total_debits = 0.0
 
-        total_credits = 0.0
-        total_debits = 0.0
-
-        for org in organizations:
+    for org_id in _list_active_organization_ids():
+        with session_for_org(org_id) as db:
             try:
-                sync_svc = PaystackSyncService(db, org.organization_id)
+                sync_svc = PaystackSyncService(db, org_id)
 
                 # Check if Paystack is configured for this org
                 try:
@@ -1033,25 +1065,21 @@ def sync_paystack_transactions(days_back: int = 1) -> dict[str, Any]:
 
                     logger.info(
                         "Paystack sync for org %s: %d collections, %d transfers",
-                        org.organization_id,
+                        org_id,
                         result.transactions_synced,
                         result.transfers_synced,
                     )
                 else:
-                    results["errors"].append(
-                        f"Org {org.organization_id}: {result.message}"
-                    )
+                    results["errors"].append(f"Org {org_id}: {result.message}")
 
             except Exception as e:
-                logger.exception(
-                    "Failed to sync Paystack for org %s", org.organization_id
-                )
-                results["errors"].append(f"Org {org.organization_id}: {str(e)}")
+                logger.exception("Failed to sync Paystack for org %s", org_id)
+                results["errors"].append(f"Org {org_id}: {str(e)}")
 
-        results["total_credits"] = f"{total_credits:,.2f}"
-        results["total_debits"] = f"{total_debits:,.2f}"
+            db.commit()
 
-        db.commit()
+    results["total_credits"] = f"{total_credits:,.2f}"
+    results["total_debits"] = f"{total_debits:,.2f}"
 
     logger.info(
         "Paystack sync complete: %d orgs, %d collections (₦%s), %d transfers (₦%s)",
@@ -1076,16 +1104,49 @@ def sync_mono_transactions(**_legacy_kwargs: Any) -> dict[str, Any]:
     """
     logger.info("Starting Mono sync for all linked accounts")
 
-    with SessionLocal() as db:
-        from app.services.finance.banking.mono_sync import MonoSyncService
+    from app.models.finance.banking.bank_account import BankAccount, BankAccountStatus
 
-        sync_svc = MonoSyncService(db)
+    with cross_org_session() as db:
+        mono_account_ids = list(
+            db.scalars(
+                select(BankAccount.mono_account_id)
+                .where(
+                    BankAccount.mono_account_id.isnot(None),
+                    BankAccount.status == BankAccountStatus.active,
+                )
+                .order_by(BankAccount.organization_id, BankAccount.bank_account_id)
+            ).all()
+        )
 
-        if not sync_svc.is_configured():
-            logger.info("Mono Connect not configured, skipping sync")
-            return {"success": True, "message": "Mono not configured", "skipped": True}
+    if not mono_account_ids:
+        return {
+            "success": True,
+            "accounts_synced": 0,
+            "message": "No Mono-linked bank accounts found",
+        }
 
-        results = sync_svc.sync_all_linked_accounts(commit_per_account=True)
+    account_results = [
+        sync_mono_account(str(mono_account_id))
+        for mono_account_id in mono_account_ids
+        if mono_account_id
+    ]
+    total_errors = sum(0 if result.get("success") else 1 for result in account_results)
+    results = {
+        "success": total_errors == 0,
+        "accounts_synced": sum(
+            1 for result in account_results if result.get("success")
+        ),
+        "accounts_failed": total_errors,
+        "total_transactions": sum(
+            int(result.get("transactions_synced") or 0) for result in account_results
+        ),
+        "total_errors": total_errors,
+        "errors": [
+            str(result.get("message") or result)
+            for result in account_results
+            if not result.get("success")
+        ],
+    }
 
     logger.info(
         "Mono sync complete: %s accounts synced, %s transactions, %s errors",
@@ -1193,18 +1254,13 @@ def rebuild_account_balances() -> dict[str, Any]:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        # Get all active organizations
-        organizations = db.scalars(
-            select(Organization).where(Organization.is_active.is_(True))
-        ).all()
-
-        for org in organizations:
+    for org_id in _list_active_organization_ids():
+        with session_for_org(org_id) as db:
             try:
                 # Get open/reopened periods for this org
                 open_periods = db.scalars(
                     select(FiscalPeriod).where(
-                        FiscalPeriod.organization_id == org.organization_id,
+                        FiscalPeriod.organization_id == org_id,
                         FiscalPeriod.status.in_(
                             [PeriodStatus.OPEN, PeriodStatus.REOPENED]
                         ),
@@ -1220,7 +1276,7 @@ def rebuild_account_balances() -> dict[str, Any]:
                     try:
                         count = AccountBalanceService.rebuild_balances_for_period(
                             db,
-                            organization_id=org.organization_id,
+                            organization_id=org_id,
                             fiscal_period_id=period.fiscal_period_id,
                         )
                         results["periods_rebuilt"] += 1
@@ -1229,14 +1285,14 @@ def rebuild_account_balances() -> dict[str, Any]:
                         logger.debug(
                             "Rebuilt %d balance records for org %s period %s",
                             count,
-                            org.organization_id,
+                            org_id,
                             period.fiscal_period_id,
                         )
                     except Exception as e:
                         logger.exception(
                             "Failed to rebuild balances for period %s (org %s)",
                             period.fiscal_period_id,
-                            org.organization_id,
+                            org_id,
                         )
                         results["errors"].append(
                             f"Period {period.fiscal_period_id}: {str(e)}"
@@ -1245,11 +1301,11 @@ def rebuild_account_balances() -> dict[str, Any]:
             except Exception as e:
                 logger.exception(
                     "Failed to process balance rebuild for org %s",
-                    org.organization_id,
+                    org_id,
                 )
-                results["errors"].append(f"Org {org.organization_id}: {str(e)}")
+                results["errors"].append(f"Org {org_id}: {str(e)}")
 
-        db.commit()
+            db.commit()
 
     logger.info(
         "Account balance rebuild complete: %d orgs, %d periods, %d records, %d errors",
@@ -1269,12 +1325,32 @@ def refresh_stale_balances(batch_size: int = 200) -> dict[str, Any]:
     Runs frequently and refreshes only account/period keys invalidated by
     recent postings, keeping reporting aggregates current.
     """
+    from app.models.finance.gl.balance_refresh_queue import BalanceRefreshQueue
     from app.services.finance.gl.balance_refresh import BalanceRefreshService
 
-    with SessionLocal() as db:
-        service = BalanceRefreshService(db)
-        results = service.process_queue(batch_size=batch_size)
-        db.commit()
+    with cross_org_session() as db:
+        org_ids = list(
+            db.scalars(
+                select(BalanceRefreshQueue.organization_id)
+                .where(BalanceRefreshQueue.processed_at.is_(None))
+                .distinct()
+                .limit(batch_size)
+            ).all()
+        )
+
+    results = {"processed": 0, "refreshed": 0, "errors": 0}
+    remaining = batch_size
+    for org_id in org_ids:
+        if remaining <= 0:
+            break
+        with session_for_org(org_id) as db:
+            service = BalanceRefreshService(db)
+            org_results = service.process_queue(batch_size=remaining)
+            db.commit()
+        results["processed"] += org_results["processed"]
+        results["refreshed"] += org_results["refreshed"]
+        results["errors"] += org_results["errors"]
+        remaining -= org_results["processed"]
 
     if results["refreshed"] > 0 or results["errors"] > 0:
         logger.info(
@@ -1289,12 +1365,32 @@ def refresh_stale_balances(batch_size: int = 200) -> dict[str, Any]:
 @shared_task
 def release_expired_stock_reservations(batch_size: int = 200) -> dict[str, Any]:
     """Release inventory reservations that passed expiry timestamp."""
+    from app.models.inventory.stock_reservation import StockReservation
     from app.services.inventory.stock_reservation import StockReservationService
 
-    with SessionLocal() as db:
-        service = StockReservationService(db)
-        results = service.release_expired(batch_size=batch_size)
-        db.commit()
+    with cross_org_session() as db:
+        org_ids = list(
+            db.scalars(
+                select(StockReservation.organization_id)
+                .where(StockReservation.expires_at.isnot(None))
+                .distinct()
+                .limit(batch_size)
+            ).all()
+        )
+
+    results = {"checked": 0, "released": 0, "errors": 0}
+    remaining = batch_size
+    for org_id in org_ids:
+        if remaining <= 0:
+            break
+        with session_for_org(org_id) as db:
+            service = StockReservationService(db)
+            org_results = service.release_expired(batch_size=remaining)
+            db.commit()
+        results["checked"] += org_results["checked"]
+        results["released"] += org_results["released"]
+        results["errors"] += org_results["errors"]
+        remaining -= org_results["checked"]
 
     if results["released"] > 0 or results["errors"] > 0:
         logger.info(
@@ -1309,11 +1405,31 @@ def release_expired_stock_reservations(batch_size: int = 200) -> dict[str, Any]:
 @shared_task
 def refresh_analysis_cubes() -> dict[str, Any]:
     """Refresh due analysis cube materialized views."""
+    from app.models.finance.rpt.analysis_cube import AnalysisCube
     from app.services.finance.rpt.analysis_cube import AnalysisCubeService
 
-    with SessionLocal() as db:
-        results = AnalysisCubeService(db).refresh_due_cubes()
-        db.commit()
+    with cross_org_session() as db:
+        org_ids = list(
+            db.scalars(
+                select(AnalysisCube.organization_id)
+                .where(AnalysisCube.is_active.is_(True))
+                .distinct()
+            ).all()
+        )
+
+    results = {"checked": 0, "refreshed": 0, "errors": 0}
+    for org_id in org_ids:
+        if org_id is None:
+            with cross_org_session() as db:
+                org_results = AnalysisCubeService(db).refresh_due_cubes()
+                db.commit()
+        else:
+            with session_for_org(org_id) as db:
+                org_results = AnalysisCubeService(db).refresh_due_cubes()
+                db.commit()
+        results["checked"] += org_results["checked"]
+        results["refreshed"] += org_results["refreshed"]
+        results["errors"] += org_results["errors"]
 
     if results["refreshed"] > 0 or results["errors"] > 0:
         logger.info(

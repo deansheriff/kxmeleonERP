@@ -9,6 +9,7 @@ Handles:
 
 import logging
 from datetime import date, datetime, timezone
+from uuid import UUID
 
 try:
     from datetime import UTC  # type: ignore
@@ -18,13 +19,15 @@ except ImportError:  # pragma: no cover
 from typing import TypedDict
 
 from celery import shared_task
+from sqlalchemy import select
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 from app.models.notification import (
     EntityType,
     NotificationChannel,
     NotificationType,
 )
+from app.models.people.discipline import DisciplinaryCase
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,15 @@ class HearingReminderResults(TypedDict):
 class AppealReminderResults(TypedDict):
     reminders_sent: int
     errors: list[str]
+
+
+def _group_case_ids_by_org(
+    cases: list[DisciplinaryCase],
+) -> dict[UUID, list[UUID]]:
+    grouped: dict[UUID, list[UUID]] = {}
+    for case in cases:
+        grouped.setdefault(case.organization_id, []).append(case.case_id)
+    return grouped
 
 
 @shared_task
@@ -66,70 +78,86 @@ def process_discipline_response_reminders() -> ResponseReminderResults:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        from app.services.notification import notification_service
-        from app.services.people.discipline import DisciplineService
+    from app.services.notification import notification_service
+    from app.services.people.discipline import DisciplineService
 
-        service = DisciplineService(db)
+    with cross_org_session() as cross_db:
+        service = DisciplineService(cross_db)
+        pending_by_org = _group_case_ids_by_org(
+            service.get_cases_with_pending_responses(days_before=3)
+        )
+        overdue_by_org = _group_case_ids_by_org(
+            service.get_cases_with_overdue_responses()
+        )
 
-        # Get cases with responses due soon (3 days window)
-        pending_cases = service.get_cases_with_pending_responses(days_before=3)
+    for org_id in set(pending_by_org) | set(overdue_by_org):
+        with session_for_org(org_id) as db:
+            pending_cases = list(
+                db.scalars(
+                    select(DisciplinaryCase).where(
+                        DisciplinaryCase.case_id.in_(pending_by_org.get(org_id, []))
+                    )
+                ).all()
+            )
+            for case in pending_cases:
+                try:
+                    if not case.employee or not case.employee.person_id:
+                        continue
+                    if not case.response_due_date:
+                        continue
 
-        for case in pending_cases:
-            try:
-                if not case.employee or not case.employee.person_id:
-                    continue
-                if not case.response_due_date:
-                    continue
+                    days_until_due = (case.response_due_date - date.today()).days
 
-                days_until_due = (case.response_due_date - date.today()).days
+                    # Send reminder based on days remaining
+                    if days_until_due in (3, 1, 0):
+                        _send_response_reminder(
+                            db,
+                            notification_service,
+                            case,
+                            days_until_due,
+                        )
+                        results["pending_reminders_sent"] += 1
 
-                # Send reminder based on days remaining
-                if days_until_due in (3, 1, 0):
-                    _send_response_reminder(
+                except Exception as e:
+                    logger.exception(
+                        "Failed to send response reminder for case %s",
+                        case.case_number,
+                    )
+                    results["errors"].append(f"{case.case_number}: {str(e)}")
+
+            overdue_cases = list(
+                db.scalars(
+                    select(DisciplinaryCase).where(
+                        DisciplinaryCase.case_id.in_(overdue_by_org.get(org_id, []))
+                    )
+                ).all()
+            )
+            for case in overdue_cases:
+                try:
+                    if not case.employee or not case.employee.person_id:
+                        continue
+                    if not case.response_due_date:
+                        continue
+
+                    days_overdue = (date.today() - case.response_due_date).days
+
+                    # Send daily overdue reminder
+                    _send_overdue_response_reminder(
                         db,
                         notification_service,
                         case,
-                        days_until_due,
+                        days_overdue,
                     )
-                    results["pending_reminders_sent"] += 1
+                    results["overdue_reminders_sent"] += 1
 
-            except Exception as e:
-                logger.exception(
-                    "Failed to send response reminder for case %s",
-                    case.case_number,
-                )
-                results["errors"].append(f"{case.case_number}: {str(e)}")
+                except Exception as e:
+                    logger.exception(
+                        "Failed to send overdue reminder for case %s",
+                        case.case_number,
+                    )
+                    results["errors"].append(f"{case.case_number}: {str(e)}")
 
-        # Get overdue cases
-        overdue_cases = service.get_cases_with_overdue_responses()
-
-        for case in overdue_cases:
-            try:
-                if not case.employee or not case.employee.person_id:
-                    continue
-                if not case.response_due_date:
-                    continue
-
-                days_overdue = (date.today() - case.response_due_date).days
-
-                # Send daily overdue reminder
-                _send_overdue_response_reminder(
-                    db,
-                    notification_service,
-                    case,
-                    days_overdue,
-                )
-                results["overdue_reminders_sent"] += 1
-
-            except Exception as e:
-                logger.exception(
-                    "Failed to send overdue reminder for case %s",
-                    case.case_number,
-                )
-                results["errors"].append(f"{case.case_number}: {str(e)}")
-
-        db.commit()
+            db.commit()
 
     logger.info(
         "Response reminders completed: %d pending, %d overdue, %d errors",
@@ -158,45 +186,53 @@ def process_discipline_hearing_reminders() -> HearingReminderResults:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        from app.services.notification import notification_service
-        from app.services.people.discipline import DisciplineService
+    from app.services.notification import notification_service
+    from app.services.people.discipline import DisciplineService
 
-        service = DisciplineService(db)
+    with cross_org_session() as cross_db:
+        cases_by_org = _group_case_ids_by_org(
+            DisciplineService(cross_db).get_cases_with_upcoming_hearings(days_before=3)
+        )
 
-        # Get cases with hearings within 3 days
-        cases = service.get_cases_with_upcoming_hearings(days_before=3)
-
-        for case in cases:
-            try:
-                if not case.employee or not case.employee.person_id:
-                    continue
-
-                if not case.hearing_date:
-                    continue
-
-                now = datetime.now(UTC)
-                time_until_hearing = case.hearing_date - now
-                days_until = time_until_hearing.days
-
-                # Send reminder at 3 days and 1 day before
-                if days_until in (3, 1, 0):
-                    _send_hearing_reminder(
-                        db,
-                        notification_service,
-                        case,
-                        days_until,
+    for org_id, case_ids in cases_by_org.items():
+        with session_for_org(org_id) as db:
+            cases = list(
+                db.scalars(
+                    select(DisciplinaryCase).where(
+                        DisciplinaryCase.case_id.in_(case_ids)
                     )
-                    results["reminders_sent"] += 1
+                ).all()
+            )
+            for case in cases:
+                try:
+                    if not case.employee or not case.employee.person_id:
+                        continue
 
-            except Exception as e:
-                logger.exception(
-                    "Failed to send hearing reminder for case %s",
-                    case.case_number,
-                )
-                results["errors"].append(f"{case.case_number}: {str(e)}")
+                    if not case.hearing_date:
+                        continue
 
-        db.commit()
+                    now = datetime.now(UTC)
+                    time_until_hearing = case.hearing_date - now
+                    days_until = time_until_hearing.days
+
+                    # Send reminder at 3 days and 1 day before
+                    if days_until in (3, 1, 0):
+                        _send_hearing_reminder(
+                            db,
+                            notification_service,
+                            case,
+                            days_until,
+                        )
+                        results["reminders_sent"] += 1
+
+                except Exception as e:
+                    logger.exception(
+                        "Failed to send hearing reminder for case %s",
+                        case.case_number,
+                    )
+                    results["errors"].append(f"{case.case_number}: {str(e)}")
+
+            db.commit()
 
     logger.info(
         "Hearing reminders completed: %d sent, %d errors",
@@ -225,43 +261,51 @@ def process_discipline_appeal_deadline_reminders() -> AppealReminderResults:
         "errors": [],
     }
 
-    with SessionLocal() as db:
-        from app.services.notification import notification_service
-        from app.services.people.discipline import DisciplineService
+    from app.services.notification import notification_service
+    from app.services.people.discipline import DisciplineService
 
-        service = DisciplineService(db)
+    with cross_org_session() as cross_db:
+        cases_by_org = _group_case_ids_by_org(
+            DisciplineService(cross_db).get_cases_with_expiring_appeals(days_before=7)
+        )
 
-        # Get cases with appeal deadlines within 7 days
-        cases = service.get_cases_with_expiring_appeals(days_before=7)
-
-        for case in cases:
-            try:
-                if not case.employee or not case.employee.person_id:
-                    continue
-
-                if not case.appeal_deadline:
-                    continue
-
-                days_until_deadline = (case.appeal_deadline - date.today()).days
-
-                # Send reminder at 7, 3, and 1 days before
-                if days_until_deadline in (7, 3, 1, 0):
-                    _send_appeal_deadline_reminder(
-                        db,
-                        notification_service,
-                        case,
-                        days_until_deadline,
+    for org_id, case_ids in cases_by_org.items():
+        with session_for_org(org_id) as db:
+            cases = list(
+                db.scalars(
+                    select(DisciplinaryCase).where(
+                        DisciplinaryCase.case_id.in_(case_ids)
                     )
-                    results["reminders_sent"] += 1
+                ).all()
+            )
+            for case in cases:
+                try:
+                    if not case.employee or not case.employee.person_id:
+                        continue
 
-            except Exception as e:
-                logger.exception(
-                    "Failed to send appeal deadline reminder for case %s",
-                    case.case_number,
-                )
-                results["errors"].append(f"{case.case_number}: {str(e)}")
+                    if not case.appeal_deadline:
+                        continue
 
-        db.commit()
+                    days_until_deadline = (case.appeal_deadline - date.today()).days
+
+                    # Send reminder at 7, 3, and 1 days before
+                    if days_until_deadline in (7, 3, 1, 0):
+                        _send_appeal_deadline_reminder(
+                            db,
+                            notification_service,
+                            case,
+                            days_until_deadline,
+                        )
+                        results["reminders_sent"] += 1
+
+                except Exception as e:
+                    logger.exception(
+                        "Failed to send appeal deadline reminder for case %s",
+                        case.case_number,
+                    )
+                    results["errors"].append(f"{case.case_number}: {str(e)}")
+
+            db.commit()
 
     logger.info(
         "Appeal deadline reminders completed: %d sent, %d errors",

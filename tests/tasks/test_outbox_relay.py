@@ -158,7 +158,7 @@ def test_handler_passes_decimal_zero_for_none_amounts(mock_update: MagicMock) ->
 # ---------------------------------------------------------------------------
 
 
-@patch("app.tasks.outbox_relay.SessionLocal")
+@patch("app.tasks.outbox_relay.cross_org_session")
 @patch("app.tasks.outbox_relay.OutboxPublisher")
 def test_relay_no_pending_events(
     mock_publisher_cls: MagicMock, mock_session_local: MagicMock
@@ -166,7 +166,8 @@ def test_relay_no_pending_events(
     from app.tasks.outbox_relay import relay_outbox_events
 
     db = MagicMock()
-    mock_session_local.return_value = db
+    mock_session_local.return_value.__enter__.return_value = db
+    mock_session_local.return_value.__exit__.return_value = False
     mock_publisher_cls.get_pending_events.return_value = []
 
     result = relay_outbox_events()
@@ -174,7 +175,7 @@ def test_relay_no_pending_events(
     assert result == {"published": 0, "skipped": 0, "failed": 0, "errors": []}
 
 
-@patch("app.tasks.outbox_relay.SessionLocal")
+@patch("app.tasks.outbox_relay.cross_org_session")
 @patch("app.tasks.outbox_relay.OutboxPublisher")
 @patch("app.tasks.outbox_relay._get_handler")
 def test_relay_dispatches_to_handler(
@@ -185,7 +186,8 @@ def test_relay_dispatches_to_handler(
     from app.tasks.outbox_relay import relay_outbox_events
 
     db = MagicMock()
-    mock_session_local.return_value = db
+    mock_session_local.return_value.__enter__.return_value = db
+    mock_session_local.return_value.__exit__.return_value = False
 
     event = SimpleNamespace(
         event_id=uuid4(),
@@ -202,7 +204,7 @@ def test_relay_dispatches_to_handler(
     mock_publisher_cls.mark_published.assert_called_once_with(db, event.event_id)
 
 
-@patch("app.tasks.outbox_relay.SessionLocal")
+@patch("app.tasks.outbox_relay.cross_org_session")
 @patch("app.tasks.outbox_relay.OutboxPublisher")
 @patch("app.tasks.outbox_relay._get_handler")
 def test_relay_skips_unregistered_event(
@@ -213,7 +215,8 @@ def test_relay_skips_unregistered_event(
     from app.tasks.outbox_relay import relay_outbox_events
 
     db = MagicMock()
-    mock_session_local.return_value = db
+    mock_session_local.return_value.__enter__.return_value = db
+    mock_session_local.return_value.__exit__.return_value = False
 
     event = SimpleNamespace(
         event_id=uuid4(),
@@ -229,7 +232,7 @@ def test_relay_skips_unregistered_event(
     mock_publisher_cls.mark_published.assert_called_once_with(db, event.event_id)
 
 
-@patch("app.tasks.outbox_relay.SessionLocal")
+@patch("app.tasks.outbox_relay.cross_org_session")
 @patch("app.tasks.outbox_relay.OutboxPublisher")
 @patch("app.tasks.outbox_relay._get_handler")
 def test_relay_handles_handler_failure(
@@ -240,7 +243,8 @@ def test_relay_handles_handler_failure(
     from app.tasks.outbox_relay import relay_outbox_events
 
     db = MagicMock()
-    mock_session_local.return_value = db
+    mock_session_local.return_value.__enter__.return_value = db
+    mock_session_local.return_value.__exit__.return_value = False
 
     event = SimpleNamespace(
         event_id=uuid4(),
@@ -267,7 +271,7 @@ def test_relay_retries_on_operational_error() -> None:
 
     with (
         patch(
-            "app.tasks.outbox_relay.SessionLocal",
+            "app.tasks.outbox_relay.cross_org_session",
             side_effect=OperationalError(
                 "SELECT",
                 {},
@@ -293,7 +297,7 @@ def test_relay_does_not_retry_on_not_implemented_error() -> None:
     from app.tasks.outbox_relay import relay_outbox_events
 
     with (
-        patch("app.tasks.outbox_relay.SessionLocal"),
+        patch("app.tasks.outbox_relay.cross_org_session"),
         patch("app.tasks.outbox_relay.OutboxPublisher") as mock_publisher_cls,
         patch("app.tasks.outbox_relay.relay_outbox_events.retry") as mock_retry,
     ):
@@ -311,13 +315,14 @@ def test_relay_does_not_retry_on_not_implemented_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-@patch("app.tasks.outbox_relay.SessionLocal")
+@patch("app.tasks.outbox_relay.cross_org_session")
 def test_cleanup_deletes_old_published(mock_session_local: MagicMock) -> None:
     from app.tasks.outbox_relay import cleanup_published_outbox_events
 
     db = MagicMock()
     db.execute.return_value.rowcount = 42
-    mock_session_local.return_value = db
+    mock_session_local.return_value.__enter__.return_value = db
+    mock_session_local.return_value.__exit__.return_value = False
 
     result = cleanup_published_outbox_events(retention_days=7, batch_size=100)
 

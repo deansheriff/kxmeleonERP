@@ -11,12 +11,60 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import UUID
 
 from celery import shared_task
+from sqlalchemy import distinct, select
 
-from app.db import SessionLocal
+from app.db.session_context import cross_org_session, session_for_org
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_workflow_rule_org(rule_id: str) -> UUID | None:
+    """Resolve a workflow rule's organization before tenant-scoped execution."""
+    from app.models.finance.automation import WorkflowRule
+
+    with cross_org_session() as db:
+        return db.scalar(
+            select(WorkflowRule.organization_id).where(
+                WorkflowRule.rule_id == UUID(rule_id)
+            )
+        )
+
+
+def _list_orgs_with_due_recurring_templates() -> list[UUID]:
+    """List organizations that have due recurring templates."""
+    from datetime import date
+
+    from app.models.finance.automation import RecurringStatus, RecurringTemplate
+
+    stmt = (
+        select(distinct(RecurringTemplate.organization_id))
+        .where(
+            RecurringTemplate.status == RecurringStatus.ACTIVE,
+            RecurringTemplate.next_run_date <= date.today(),
+        )
+        .order_by(RecurringTemplate.organization_id)
+    )
+    with cross_org_session() as db:
+        return list(db.scalars(stmt).all())
+
+
+def _list_orgs_with_scheduled_workflow_rules() -> list[UUID]:
+    """List organizations that have active scheduled workflow rules."""
+    from app.models.finance.automation import TriggerEvent, WorkflowRule
+
+    stmt = (
+        select(distinct(WorkflowRule.organization_id))
+        .where(
+            WorkflowRule.is_active.is_(True),
+            WorkflowRule.trigger_event == TriggerEvent.ON_SCHEDULE,
+        )
+        .order_by(WorkflowRule.organization_id)
+    )
+    with cross_org_session() as db:
+        return list(db.scalars(stmt).all())
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
@@ -37,8 +85,6 @@ def execute_workflow_action(
     Returns:
         Dict with execution result.
     """
-    from uuid import UUID
-
     logger.info("Executing async workflow action: rule=%s", rule_id)
 
     result: dict[str, Any] = {
@@ -47,8 +93,15 @@ def execute_workflow_action(
         "error": None,
     }
 
-    with SessionLocal() as db:
-        try:
+    org_id = _resolve_workflow_rule_org(rule_id)
+    if org_id is None:
+        result["status"] = "rule_not_found"
+        result["error"] = f"Rule {rule_id} not found"
+        logger.warning("Workflow rule %s not found", rule_id)
+        return result
+
+    try:
+        with session_for_org(org_id) as db:
             from app.services.finance.automation.workflow import (
                 TriggerContext,
                 workflow_service,
@@ -79,16 +132,16 @@ def execute_workflow_action(
             result["status"] = execution.status.value
             result["execution_id"] = str(execution.execution_id)
 
-        except Exception as exc:
-            logger.exception("Async workflow action failed: rule=%s", rule_id)
-            result["status"] = "error"
-            result["error"] = str(exc)
+    except Exception as exc:
+        logger.exception("Async workflow action failed: rule=%s", rule_id)
+        result["status"] = "error"
+        result["error"] = str(exc)
 
-            # Retry on transient failures
-            try:
-                self.retry(exc=exc)
-            except self.MaxRetriesExceededError:
-                logger.error("Max retries exceeded for rule %s", rule_id)
+        # Retry on transient failures
+        try:
+            self.retry(exc=exc)
+        except self.MaxRetriesExceededError:
+            logger.error("Max retries exceeded for rule %s", rule_id)
 
     return result
 
@@ -102,21 +155,25 @@ def process_recurring_templates() -> dict[str, Any]:
     """
     logger.info("Processing recurring templates")
 
-    with SessionLocal() as db:
-        from app.services.finance.automation.recurring import recurring_service
+    from app.services.finance.automation.recurring import recurring_service
 
+    total = 0
+    succeeded = 0
+    failed = 0
+    for org_id in _list_orgs_with_due_recurring_templates():
         try:
-            logs: list[Any] = recurring_service.run_due_templates(db)
-            db.commit()
+            with session_for_org(org_id) as db:
+                logs: list[Any] = recurring_service.run_due_templates(db)
+                db.commit()
         except Exception:
-            logger.exception("Recurring template processing failed")
-            db.rollback()
-            return {"processed": 0, "succeeded": 0, "failed": 0, "error": True}
+            logger.exception("Recurring template processing failed for org %s", org_id)
+            failed += 1
+            continue
 
         # Extract counts inside session before ORM objects become detached
-        total: int = len(logs)
-        succeeded: int = sum(1 for log in logs if log.status.value == "SUCCESS")
-        failed: int = sum(1 for log in logs if log.status.value == "FAILED")
+        total += len(logs)
+        succeeded += sum(1 for log in logs if log.status.value == "SUCCESS")
+        failed += sum(1 for log in logs if log.status.value == "FAILED")
 
     logger.info(
         "Recurring templates: processed=%d, succeeded=%d, failed=%d",
@@ -139,13 +196,28 @@ def process_scheduled_workflow_rules() -> dict[str, Any]:
     """
     logger.info("Processing scheduled workflow rules")
 
-    with SessionLocal() as db:
-        from app.services.finance.automation.scheduled_evaluator import (
-            scheduled_evaluator,
-        )
+    from app.services.finance.automation.scheduled_evaluator import (
+        scheduled_evaluator,
+    )
 
-        results = scheduled_evaluator.evaluate_due_rules(db)
-        db.commit()
+    results: dict[str, Any] = {
+        "rules_checked": 0,
+        "rules_due": 0,
+        "actions_fired": 0,
+        "errors": [],
+    }
+    for org_id in _list_orgs_with_scheduled_workflow_rules():
+        try:
+            with session_for_org(org_id) as db:
+                org_results = scheduled_evaluator.evaluate_due_rules(db)
+                db.commit()
+            results["rules_checked"] += org_results["rules_checked"]
+            results["rules_due"] += org_results["rules_due"]
+            results["actions_fired"] += org_results["actions_fired"]
+            results["errors"].extend(org_results["errors"])
+        except Exception as exc:
+            logger.exception("Scheduled workflow evaluation failed for org %s", org_id)
+            results["errors"].append(str(exc))
 
     logger.info(
         "Scheduled rules: checked=%d, due=%d, fired=%d, errors=%d",
