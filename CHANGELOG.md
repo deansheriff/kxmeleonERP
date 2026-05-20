@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-20
+
+### Fixed
+- Suppressed FA1 application confirmation emails.
+- Fixed employee edit save toast feedback.
+- Fixed the version badge test fallback for release metadata.
+
 ## [1.1.0] - 2026-05-19
 
 ### Added

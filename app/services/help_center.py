@@ -1621,6 +1621,19 @@ GLOSSARY: list[dict[str, Any]] = [
 
 RELEASE_NOTES: list[dict[str, Any]] = [
     {
+        "version": "1.1.1",
+        "date": "20 May 2026",
+        "type": "patch",
+        "summary": "Patch release with application email, employee edit feedback, and release metadata fixes.",
+        "features": [],
+        "improvements": [],
+        "fixes": [
+            "Suppressed FA1 application confirmation emails.",
+            "Fixed employee edit save toast feedback.",
+            "Fixed the version badge test fallback for release metadata.",
+        ],
+    },
+    {
         "version": "2026.3",
         "date": "07 Mar 2026",
         "type": "minor",
