@@ -2,20 +2,18 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
+import app.models.audit  # noqa: F401
+import app.models.auth  # noqa: F401
+import app.models.domain_settings  # noqa: F401
+import app.models.finance  # noqa: F401
 import app.models.finance.ipsas  # noqa: F401
+import app.models.person  # noqa: F401
 import app.models.procurement  # noqa: F401
+import app.models.rbac  # noqa: F401
+import app.models.scheduler  # noqa: F401
 from alembic import context
 from app.config import settings
 from app.db import Base
-from app.models import (  # noqa: F401
-    audit,
-    auth,
-    domain_settings,
-    finance,
-    person,
-    rbac,
-    scheduler,
-)
 
 config = context.config
 
