@@ -3021,6 +3021,24 @@ class FixedAssetWebService:
         category = (
             db.get(AssetCategory, asset.category_id) if asset.category_id else None
         )
+        assigned_employee = None
+        if asset.custodian_employee_id:
+            from app.models.people.hr.employee import Employee
+            from app.models.person import Person
+
+            employee = db.scalar(
+                select(Employee).where(
+                    Employee.organization_id == org_id,
+                    Employee.employee_id == asset.custodian_employee_id,
+                )
+            )
+            if employee:
+                person = db.get(Person, employee.person_id)
+                assigned_employee = {
+                    "employee_id": employee.employee_id,
+                    "employee_code": employee.employee_code,
+                    "name": person.name if person else employee.employee_code,
+                }
 
         context = base_context(request, auth, "Asset Details", "fixed_assets")
         context.update(
@@ -3056,6 +3074,8 @@ class FixedAssetWebService:
                     "residual_value": _format_currency(
                         asset.residual_value, asset.currency_code
                     ),
+                    "assigned_employee": assigned_employee,
+                    "can_open_employee_profile": auth.has_module_access("people"),
                 },
             }
         )

@@ -371,6 +371,79 @@ class TestFAWebServiceAssetDetail:
         assert asset_view["impairment_loss"] == "USD 600.00"
         assert asset_view["net_book_value"] == "USD 3,600.00"
 
+    def test_asset_detail_includes_current_holder(self):
+        """Asset detail should expose the current custodian for display."""
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        mock_db = MagicMock()
+        org_id = uuid.uuid4()
+        asset_id = uuid.uuid4()
+        category_id = uuid.uuid4()
+        employee_id = uuid.uuid4()
+        person_id = uuid.uuid4()
+        asset = MockAsset(
+            asset_id=asset_id,
+            organization_id=org_id,
+            category_id=category_id,
+            custodian_employee_id=employee_id,
+        )
+        asset.accumulated_depreciation = Decimal("0.00")
+        asset.revalued_amount = Decimal("0.00")
+        asset.impairment_loss = Decimal("0.00")
+        asset.useful_life_months = 60
+        asset.residual_value = Decimal("0.00")
+        category = MockAssetCategory(
+            category_id=category_id,
+            organization_id=org_id,
+            category_name="ICT Equipment",
+        )
+        employee = SimpleNamespace(
+            employee_id=employee_id,
+            person_id=person_id,
+            employee_code="EMP-001",
+        )
+        person = SimpleNamespace(id=person_id, name="Ada Lovelace")
+        auth = WebAuthContext(
+            is_authenticated=True,
+            person_id=uuid.uuid4(),
+            organization_id=org_id,
+            user_name="Test User",
+            user_initials="TU",
+            roles=["admin"],
+        )
+        request = MagicMock()
+
+        mock_db.get.side_effect = [asset, category, person]
+        mock_db.scalar.return_value = employee
+
+        captured: dict[str, object] = {}
+
+        def _capture_template_response(_request, _template_name, context):
+            captured["context"] = context
+            return context
+
+        with (
+            patch("app.services.fixed_assets.web.base_context", return_value={}),
+            patch(
+                "app.services.fixed_assets.web.templates.TemplateResponse",
+                side_effect=_capture_template_response,
+            ),
+        ):
+            FixedAssetWebService().asset_detail_response(
+                request,
+                auth,
+                mock_db,
+                str(asset_id),
+            )
+
+        assigned_employee = captured["context"]["asset"]["assigned_employee"]
+        assert assigned_employee == {
+            "employee_id": employee_id,
+            "employee_code": "EMP-001",
+            "name": "Ada Lovelace",
+        }
+        assert captured["context"]["asset"]["can_open_employee_profile"] is True
+
 
 class TestFAWebServiceAssetCountSheets:
     """Tests for fixed asset count sheet reporting."""
@@ -1015,6 +1088,46 @@ class TestFAWebServiceRunDepreciation:
 
         assert "asset.location_id" in str(compiled)
         assert location_id in compiled.params.values()
+
+    def test_employee_assigned_assets_query_filters_current_custodian(self):
+        """Employee assigned assets query should use current custodian."""
+        from app.services.fixed_assets.asset_query import (
+            build_employee_assigned_assets_query,
+        )
+
+        org_id = uuid.uuid4()
+        employee_id = uuid.uuid4()
+
+        query = build_employee_assigned_assets_query(
+            organization_id=str(org_id),
+            employee_id=str(employee_id),
+        )
+        compiled = query.compile()
+        sql = str(compiled)
+
+        assert "asset.organization_id" in sql
+        assert "asset.custodian_employee_id" in sql
+        assert "asset.status" in sql
+        assert org_id in compiled.params.values()
+        assert employee_id in compiled.params.values()
+
+    def test_list_employee_assigned_assets_executes_query(self):
+        """Employee assigned assets helper should execute the scoped query."""
+        from app.services.fixed_assets.asset_query import list_employee_assigned_assets
+
+        mock_db = MagicMock()
+        org_id = uuid.uuid4()
+        employee_id = uuid.uuid4()
+        expected_asset = MockAsset(
+            organization_id=org_id,
+            custodian_employee_id=employee_id,
+        )
+        mock_db.scalars.return_value = [expected_asset]
+
+        result = list_employee_assigned_assets(mock_db, str(org_id), str(employee_id))
+
+        assert result == [expected_asset]
+        mock_db.scalars.assert_called_once()
 
 
 class TestFAWebServiceDepreciation:

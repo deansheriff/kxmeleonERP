@@ -432,6 +432,59 @@
     {% endif %}
     {% endif %}
 
+    {% if can_view_assigned_assets %}
+    <div class="card">
+        <div class="card-header px-6 pt-6 flex items-center justify-between">
+            <h3 class="font-medium text-slate-900 dark:text-white">Assigned Assets</h3>
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                {{ assigned_assets | length }} current
+            </span>
+        </div>
+        <div class="card-body px-6 pb-6">
+            {% if assigned_assets %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Asset</th>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Identifier</th>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</th>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Acquired</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                        {% for asset in assigned_assets %}
+                        <tr>
+                            <td class="px-3 py-3">
+                                <a href="/fixed-assets/assets/{{ asset.asset_id }}" class="font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300">
+                                    {{ asset.asset_name }}
+                                </a>
+                                <div class="text-xs text-slate-500 dark:text-slate-400">{{ asset.asset_number }}</div>
+                            </td>
+                            <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                {{ asset.serial_number or asset.barcode or '-' }}
+                            </td>
+                            <td class="px-3 py-3">
+                                {{ status_badge(asset.status.value, 'sm') }}
+                            </td>
+                            <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                {{ asset.acquisition_date | format_date if asset.acquisition_date else '-' }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-6">
+                {{ icon_svg("briefcase", "mx-auto h-10 w-10 text-slate-300 dark:text-slate-600") }}
+                <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">No current assigned assets</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     {# Details Grid #}
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {# Personal Information #}
