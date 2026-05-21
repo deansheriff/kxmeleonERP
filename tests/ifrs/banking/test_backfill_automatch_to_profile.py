@@ -8,6 +8,8 @@ integration tests at deploy time.
 from __future__ import annotations
 
 import importlib.util
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,11 @@ _MIGRATION_PATH = (
 
 
 def _load_migration_module():
+    if "alembic" not in sys.modules or not hasattr(sys.modules["alembic"], "op"):
+        alembic_stub = types.ModuleType("alembic")
+        alembic_stub.op = types.SimpleNamespace()
+        sys.modules["alembic"] = alembic_stub
+
     spec = importlib.util.spec_from_file_location("backfill_automatch", _MIGRATION_PATH)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 from app.models.finance.banking.reconciliation_policy import (
     ReconciliationPolicyProfile,
 )
-from app.services.finance.banking.auto_reconciliation import AutoMatchConfig
+from app.services.finance.banking.auto_reconciliation import AutoMatchDefaults
 from app.services.finance.banking.reconciliation_policy import (
     build_policy_from_config,
 )
@@ -23,7 +23,7 @@ def test_resolve_uses_legacy_compatibility_when_no_profile() -> None:
     policy = service.resolve(
         db,
         uuid.uuid4(),
-        legacy_config=AutoMatchConfig(),
+        legacy_config=AutoMatchDefaults(),
     )
 
     assert "gateway_payment_intent" in policy.enabled_provider_keys
@@ -34,7 +34,7 @@ def test_resolve_uses_legacy_compatibility_when_no_profile() -> None:
 
 def test_merge_profile_overrides_keywords_thresholds_and_mappings() -> None:
     base = ReconciliationPolicyService()._with_legacy_compatibility(
-        build_policy_from_config(AutoMatchConfig())
+        build_policy_from_config(AutoMatchDefaults())
     )
     profile = ReconciliationPolicyProfile(
         organization_id=uuid.uuid4(),

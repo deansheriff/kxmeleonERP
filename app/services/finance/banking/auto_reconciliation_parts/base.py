@@ -116,7 +116,7 @@ CONTRA_MIN_SCORE = 90
 
 
 @dataclass
-class AutoMatchConfig:
+class AutoMatchDefaults:
     """Runtime configuration loaded from DomainSettings (banking domain)."""
 
     pass_payment_intents_enabled: bool = True

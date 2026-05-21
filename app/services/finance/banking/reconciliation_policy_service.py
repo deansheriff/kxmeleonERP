@@ -11,7 +11,7 @@ from app.models.finance.banking.reconciliation_policy import (
     ReconciliationPolicyProfile,
 )
 from app.services.finance.banking.reconciliation_policy import (
-    AutoMatchConfigLike,
+    AutoMatchDefaultsLike,
     ReconciliationPolicy,
     build_policy_from_config,
 )
@@ -49,7 +49,7 @@ class ReconciliationPolicyService:
         db: Session,
         organization_id: UUID,
         *,
-        legacy_config: AutoMatchConfigLike,
+        legacy_config: AutoMatchDefaultsLike,
     ) -> ReconciliationPolicy:
         legacy = build_policy_from_config(legacy_config)
 

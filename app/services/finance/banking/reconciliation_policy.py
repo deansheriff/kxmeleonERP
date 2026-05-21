@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Protocol
 
 
-class AutoMatchConfigLike(Protocol):
+class AutoMatchDefaultsLike(Protocol):
     pass_payment_intents_enabled: bool
     pass_splynx_by_ref_enabled: bool
     pass_splynx_date_amount_enabled: bool
@@ -43,7 +43,7 @@ class ReconciliationPolicy:
         return source_type in self.enabled_source_types
 
 
-def build_policy_from_config(config: AutoMatchConfigLike) -> ReconciliationPolicy:
+def build_policy_from_config(config: AutoMatchDefaultsLike) -> ReconciliationPolicy:
     enabled_sources: set[str] = set()
     enabled_providers: set[str] = set()
     enabled_strategies: set[str] = set()
