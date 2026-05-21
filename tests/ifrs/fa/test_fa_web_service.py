@@ -1250,8 +1250,7 @@ class TestFAWebServiceDepreciation:
 
         assert result["posting_preview"]["can_post"] is False
         assert (
-            "Segregation of duties"
-            in result["posting_preview"]["cannot_post_reason"]
+            "Segregation of duties" in result["posting_preview"]["cannot_post_reason"]
         )
 
 
