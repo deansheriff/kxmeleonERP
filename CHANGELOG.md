@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-05-22
+
+### Fixed
+- Fixed AP invoice edit responses so invoice IDs are captured before commit and edit-page comment forms are no longer nested inside the invoice form.
+
 ## [1.1.4] - 2026-05-20
 
 ### Fixed
