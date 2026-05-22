@@ -1043,19 +1043,20 @@ class InvoiceWebService:
                 invoice_id=coerce_uuid(invoice_id),
                 input=input_data,
             )
+            updated_invoice_id = invoice.invoice_id
             db.commit()
 
             if "application/json" in content_type:
                 return JSONResponse(
                     content={
                         "success": True,
-                        "invoice_id": str(invoice.invoice_id),
-                        "redirect_url": f"/finance/ap/invoices/{invoice.invoice_id}",
+                        "invoice_id": str(updated_invoice_id),
+                        "redirect_url": f"/finance/ap/invoices/{updated_invoice_id}",
                     }
                 )
 
             return RedirectResponse(
-                url=f"/finance/ap/invoices/{invoice.invoice_id}?success=Invoice+updated+successfully",
+                url=f"/finance/ap/invoices/{updated_invoice_id}?success=Invoice+updated+successfully",
                 status_code=303,
             )
         except Exception as e:

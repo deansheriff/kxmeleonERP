@@ -75,6 +75,20 @@ def test_ap_invoice_form_uses_json_safe_duplicate_source_prefill() -> None:
     assert "{% if duplicate_source and duplicate_source.lines %}" not in template
 
 
+def test_ap_invoice_edit_form_does_not_nest_comment_form() -> None:
+    template = Path("templates/finance/ap/invoice_form.html").read_text()
+
+    invoice_form_start = template.index('<form id="ap-invoice-form"')
+    invoice_form_end = template.index("{% if invoice %}", invoice_form_start)
+    comment_form_start = template.index(
+        '<form action="/finance/ap/invoices/{{ invoice.invoice_id }}/comments"'
+    )
+
+    assert invoice_form_end < comment_form_start
+    assert template.count('<form id="ap-invoice-form"') == 1
+    assert '<button type="button" @click="submitForm" class="btn-primary"' in template
+
+
 def test_duplicate_invoice_context_renders_with_tojson() -> None:
     db = MagicMock()
     org_id = uuid4()

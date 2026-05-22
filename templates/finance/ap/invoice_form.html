@@ -505,7 +505,7 @@
 <div class="grain-overlay"></div>
 
 <div x-data="invoiceForm()" class="max-w-5xl mx-auto space-y-8">
-    <form @submit.prevent="submitForm" class="space-y-6">
+    <form id="ap-invoice-form" @submit.prevent="submitForm" class="space-y-6">
 
         <!-- Page Header -->
         <div class="fade-up">
@@ -925,6 +925,8 @@
             </div>
         </div>
 
+    </form>
+
         {% if invoice %}
         <!-- Comments (existing invoices only) -->
         <div class="form-card fade-up delay-3">
@@ -962,13 +964,12 @@
                 <button type="button" @click="saveAsDraft" class="btn-secondary" :disabled="isSubmitting" :class="{ 'opacity-60 cursor-not-allowed': isSubmitting }">
                     Save as Draft
                 </button>
-                <button type="submit" class="btn-primary" :disabled="isSubmitting" :class="{ 'opacity-60 cursor-not-allowed': isSubmitting }">
+                <button type="button" @click="submitForm" class="btn-primary" :disabled="isSubmitting" :class="{ 'opacity-60 cursor-not-allowed': isSubmitting }">
                     {{ icon_svg("check", "w-4 h-4") }}
                     <span x-text="isSubmitting ? 'Saving...' : '{{ "Save Invoice" if invoice else "Create Invoice" }}'"></span>
                 </button>
             </div>
         </div>
-    </form>
 </div>
 {% endblock %}
 

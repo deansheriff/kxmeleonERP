@@ -107,3 +107,44 @@ async def test_update_invoice_response_commits_on_success(monkeypatch):
     assert payload["redirect_url"].startswith("/finance/ap/invoices/")
     db.commit.assert_called_once()
     db.rollback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_invoice_response_does_not_read_invoice_after_commit(monkeypatch):
+    request = MagicMock()
+    request.headers = {"content-type": "application/json"}
+    request.json = AsyncMock(return_value={"supplier_id": str(uuid4()), "lines": []})
+    auth = SimpleNamespace(organization_id=uuid4())
+    db = MagicMock()
+
+    class ExpiringInvoice:
+        def __init__(self):
+            self._invoice_id = uuid4()
+            self.expired = False
+
+        @property
+        def invoice_id(self):
+            if self.expired:
+                raise RuntimeError("invoice was read after commit")
+            return self._invoice_id
+
+    invoice = ExpiringInvoice()
+    db.commit.side_effect = lambda: setattr(invoice, "expired", True)
+
+    monkeypatch.setattr(
+        InvoiceWebService,
+        "build_invoice_input",
+        staticmethod(lambda _db, _data, _org_id: object()),
+    )
+    monkeypatch.setattr(
+        "app.services.finance.ap.web.invoice_web.supplier_invoice_service.update_invoice",
+        lambda **_kwargs: invoice,
+    )
+
+    response = await InvoiceWebService().update_invoice_response(
+        request, auth, db, str(uuid4())
+    )
+
+    payload = json.loads(response.body)
+    assert payload["success"] is True
+    assert payload["invoice_id"] == str(invoice._invoice_id)
