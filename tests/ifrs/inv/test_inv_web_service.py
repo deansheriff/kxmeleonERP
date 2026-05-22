@@ -419,6 +419,8 @@ class TestInvTransactionWebService:
         assert txn_input.lot_certificate_of_analysis == "SLA-987"
         assert txn_input.lot_id is None
         assert response.status_code == 303
+        mock_db.commit.assert_called_once()
+        mock_db.rollback.assert_not_called()
 
     def test_create_transaction_response_auto_generates_receipt_serials(self):
         """Receipt adapter should generate serials when auto-generate is selected."""
@@ -477,6 +479,8 @@ class TestInvTransactionWebService:
             "LAPTOP-20260410-0002",
         ]
         assert response.status_code == 303
+        mock_db.commit.assert_called_once()
+        mock_db.rollback.assert_not_called()
 
     def test_create_transaction_response_rejects_manual_and_auto_serials(self):
         """Receipt adapter should not accept manual serials and auto-generation together."""
@@ -485,6 +489,7 @@ class TestInvTransactionWebService:
         mock_auth = MagicMock()
         mock_auth.organization_id = uuid.uuid4()
         mock_auth.user_id = uuid.uuid4()
+        mock_db = MagicMock()
 
         with patch(
             "app.services.inventory.transaction.InventoryTransactionService.create_receipt"
@@ -501,7 +506,7 @@ class TestInvTransactionWebService:
                 reference="REF-1",
                 notes=None,
                 lot_number=None,
-                db=MagicMock(),
+                db=mock_db,
                 serial_numbers="SN-001\nSN-002",
                 serial_auto_generate=True,
             )
@@ -511,6 +516,8 @@ class TestInvTransactionWebService:
         assert (
             "Use%20either%20manual%20serial%20numbers" in response.headers["location"]
         )
+        mock_db.commit.assert_not_called()
+        mock_db.rollback.assert_called_once()
 
     def test_create_transaction_response_resolves_issue_lot_number_to_lot_id(self):
         """Issue adapter should resolve a lot number to a warehouse-scoped lot id."""
@@ -567,6 +574,8 @@ class TestInvTransactionWebService:
         assert txn_input.lot_id == lot_id
         assert txn_input.lot_number == "LOT-APR-002"
         assert response.status_code == 303
+        mock_db.commit.assert_called_once()
+        mock_db.rollback.assert_not_called()
 
     def test_create_transfer_response_resolves_lot_number_from_source_warehouse(self):
         """Transfer adapter should resolve the entered lot against the source warehouse."""
@@ -628,4 +637,90 @@ class TestInvTransactionWebService:
         )
         assert txn_input.lot_id == lot_id
         assert txn_input.lot_number == "LOT-APR-003"
+        assert response.status_code == 303
+        mock_db.commit.assert_called_once()
+        mock_db.rollback.assert_not_called()
+
+    def test_create_transaction_response_rolls_back_on_error(self):
+        """Manual transaction adapter should roll back failed writes."""
+        from app.services.inventory.web import InventoryTransactionWebService
+
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        item_id = uuid.uuid4()
+        warehouse_id = uuid.uuid4()
+        fiscal_period_id = uuid.uuid4()
+
+        mock_auth = MagicMock()
+        mock_auth.organization_id = org_id
+        mock_auth.user_id = user_id
+
+        mock_db = MagicMock()
+        mock_fiscal_period = MagicMock()
+        mock_fiscal_period.fiscal_period_id = fiscal_period_id
+        mock_db.scalars.return_value.first.return_value = mock_fiscal_period
+
+        with patch(
+            "app.services.inventory.transaction.InventoryTransactionService.create_receipt",
+            side_effect=RuntimeError("receipt failed"),
+        ):
+            response = InventoryTransactionWebService.create_transaction_response(
+                request=MagicMock(),
+                auth=mock_auth,
+                transaction_type="RECEIPT",
+                item_id=str(item_id),
+                warehouse_id=str(warehouse_id),
+                quantity="5",
+                unit_cost="10",
+                transaction_date="2026-04-10",
+                reference="REF-1",
+                notes=None,
+                lot_number=None,
+                db=mock_db,
+            )
+
+        mock_db.commit.assert_not_called()
+        mock_db.rollback.assert_called_once()
+        assert response.status_code == 303
+        assert "receipt%20failed" in response.headers["location"]
+
+    def test_create_adjustment_response_commits_successful_write(self):
+        """Adjustment adapter should commit successful manual stock adjustments."""
+        from app.services.inventory.web import InventoryTransactionWebService
+
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        item_id = uuid.uuid4()
+        warehouse_id = uuid.uuid4()
+        fiscal_period_id = uuid.uuid4()
+
+        mock_auth = MagicMock()
+        mock_auth.organization_id = org_id
+        mock_auth.user_id = user_id
+
+        mock_db = MagicMock()
+        mock_fiscal_period = MagicMock()
+        mock_fiscal_period.fiscal_period_id = fiscal_period_id
+        mock_db.scalars.return_value.first.return_value = mock_fiscal_period
+
+        with patch(
+            "app.services.inventory.transaction.InventoryTransactionService.create_adjustment"
+        ) as mock_create_adjustment:
+            response = InventoryTransactionWebService.create_adjustment_response(
+                request=MagicMock(),
+                auth=mock_auth,
+                item_id=str(item_id),
+                warehouse_id=str(warehouse_id),
+                quantity="3",
+                unit_cost="12.50",
+                transaction_date="2026-04-10",
+                adjustment_type="INCREASE",
+                reason="COUNT",
+                reference="REF-4",
+                db=mock_db,
+            )
+
+        mock_create_adjustment.assert_called_once()
+        mock_db.commit.assert_called_once()
+        mock_db.rollback.assert_not_called()
         assert response.status_code == 303

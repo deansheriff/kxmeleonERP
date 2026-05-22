@@ -11,6 +11,7 @@ from app.models.domain_settings import (
     DomainSettingHistory,
     SettingChangeAction,
     SettingDomain,
+    SettingScope,
     SettingValueType,
 )
 from app.schemas.settings import DomainSettingCreate, DomainSettingUpdate
@@ -239,6 +240,13 @@ class DomainSettings(ListResponseMixin):
     ) -> DomainSetting:
         data = payload.model_dump()
         data["domain"] = self._resolve_domain(payload.domain)
+        if (
+            not data.get("organization_id")
+            and not db.info.get("allow_cross_org")
+            and db.info.get("organization_id")
+        ):
+            data["organization_id"] = db.info["organization_id"]
+            data["scope"] = SettingScope.ORG_SPECIFIC
         value_type = data.get("value_type") or SettingValueType.string
         value_text, value_json = _normalize_setting_values(
             value_type, data.get("value_text"), data.get("value_json")

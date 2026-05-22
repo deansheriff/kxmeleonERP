@@ -14,6 +14,8 @@ import sys
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.db.multi_tenant import MissingOrgContextError
+from app.db.session_context import allow_cross_org
 from app.services.finance.automation.workflow import (
     has_active_webhook_actions,
     webhook_allowlist_configured,
@@ -247,18 +249,19 @@ def warn_unconfigured_webhook_allowlist(db: Session | None = None) -> None:
         return
 
     try:
-        if webhook_allowlist_configured(db):
-            return
-        if has_active_webhook_actions(db):
-            logger.warning(
-                "SECURITY: Active webhook automation rules exist, but no webhook "
-                "allowlist is configured. Set WEBHOOK_ALLOWED_HOSTS and/or "
-                "WEBHOOK_ALLOWED_DOMAINS (or corresponding automation settings) "
-                "to constrain outbound webhook targets."
-            )
-    except SQLAlchemyError:
+        with allow_cross_org(db):
+            if webhook_allowlist_configured(db):
+                return
+            if has_active_webhook_actions(db):
+                logger.warning(
+                    "SECURITY: Active webhook automation rules exist, but no webhook "
+                    "allowlist is configured. Set WEBHOOK_ALLOWED_HOSTS and/or "
+                    "WEBHOOK_ALLOWED_DOMAINS (or corresponding automation settings) "
+                    "to constrain outbound webhook targets."
+                )
+    except (MissingOrgContextError, SQLAlchemyError):
         logger.debug(
-            "Skipping webhook allowlist startup warning check due to database error",
+            "Skipping webhook allowlist startup warning check due to database or tenant-context error",
             exc_info=True,
         )
 

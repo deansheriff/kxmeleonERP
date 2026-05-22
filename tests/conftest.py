@@ -269,6 +269,7 @@ class MockSettings:
     captcha_secret_key = None
     # App URL
     app_url = "http://localhost:8000"
+    app_version = "test"
     # CRM webhook secret
     crm_webhook_secret = None
     # SSO settings

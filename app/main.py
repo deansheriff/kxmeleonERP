@@ -6,6 +6,7 @@ from threading import Lock
 from time import monotonic
 from unittest.mock import Mock
 from urllib.parse import parse_qs, unquote_plus, urlparse
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -62,7 +63,9 @@ from app.api.settings import router as settings_router
 from app.api.support import router as support_router
 from app.api.sync.dotmac_crm import router as crm_sync_router
 from app.api.workflow_tasks import router as workflow_tasks_router
+from app.config import settings
 from app.db import SessionLocal
+from app.db.session_context import allow_cross_org, prime_tenant_context
 from app.errors import register_error_handlers
 from app.logging import configure_logging
 from app.middleware.csp import add_unsafe_eval_to_csp
@@ -165,7 +168,12 @@ async def lifespan(app: FastAPI):
         validate_startup(db, exit_on_failure=True)
 
         # Seed default settings for all domains
-        seed_all_settings(db)
+        if settings.default_organization_id:
+            prime_tenant_context(db, UUID(settings.default_organization_id))
+        if db.get_bind().dialect.name == "postgresql":
+            db.execute(text("SELECT pg_advisory_xact_lock(451002, 20260522)"))
+        with allow_cross_org(db):
+            seed_all_settings(db)
 
         # Register payroll lifecycle event handlers so posted runs/slips
         # can create notifications and queue payslip emails.
@@ -582,13 +590,16 @@ def _load_audit_settings(db: Session):
         "read_trigger_header": "x-audit-read",
         "read_trigger_query": "audit",
     }
-    rows = list(
-        db.scalars(
-            select(DomainSetting)
-            .where(DomainSetting.domain == SettingDomain.audit)
-            .where(DomainSetting.is_active.is_(True))
-        ).all()
-    )
+    if not db.info.get("organization_id") and settings.default_organization_id:
+        prime_tenant_context(db, UUID(settings.default_organization_id))
+    with allow_cross_org(db):
+        rows = list(
+            db.scalars(
+                select(DomainSetting)
+                .where(DomainSetting.domain == SettingDomain.audit)
+                .where(DomainSetting.is_active.is_(True))
+            ).all()
+        )
     if isinstance(rows, Mock):
         rows = []
     values = {row.key: row for row in rows}

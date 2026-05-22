@@ -56,6 +56,22 @@ poetry run pytest tests/ -x -q
 poetry run alembic upgrade head
 ```
 
+### Version bumps
+Use semantic versioning and keep all app version files in sync with
+`scripts/bump_version.py`.
+
+- `fix:`, `bug:`, `hotfix:`, `patch:` → PATCH (`1.1.9` → `1.1.10`)
+- `feat:`, `feature:` → MINOR (`1.1.10` → `1.2.0`)
+- `major:`, `breaking:`, `BREAKING CHANGE` → MAJOR (`1.2.0` → `2.0.0`)
+- Unlabeled changes default to PATCH.
+
+```bash
+python scripts/bump_version.py "fix: asset list not loading"
+python scripts/bump_version.py "feat: add depreciation report"
+python scripts/bump_version.py "major: change asset numbering contract"
+python scripts/bump_version.py --check
+```
+
 ### Docker containers
 - App: `dotmac_erp_app`
 - Worker: `dotmac_erp_worker`

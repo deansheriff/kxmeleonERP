@@ -26,7 +26,7 @@ templates = Jinja2Templates(directory="templates")
 templates.env.globals["now"] = datetime.now
 templates.env.globals["t"] = t  # Translation function
 templates.env.globals["_"] = t  # Alias for convenience
-templates.env.globals["app_version"] = getattr(settings, "app_version", "1.1.4")
+templates.env.globals["app_version"] = settings.app_version
 
 
 # Custom filters — delegate to service-layer formatters so that org-aware
