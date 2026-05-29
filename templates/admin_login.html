@@ -228,8 +228,9 @@ function adminLoginForm() {
         },
 
         async login() {
-            const response = await fetch('/auth/admin-login', {
+            const response = await this.fetchWithTimeout('/auth/admin-login', {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {
                     'Content-Type': 'application/json',
                     ...csrfHeaders,
@@ -240,7 +241,7 @@ function adminLoginForm() {
                 }),
             });
 
-            const data = await response.json();
+            const data = await this.readResponseData(response);
 
             if (!response.ok) {
                 if (response.status === 428) {
@@ -248,17 +249,7 @@ function adminLoginForm() {
                     window.location.href = '/reset-password-required';
                     return;
                 }
-                throw new Error(data.detail || data.message || 'Invalid credentials');
-            }
-
-            // Verify admin role from token
-            if (data.access_token) {
-                const hasAdminRole = await this.checkAdminRole(data.access_token);
-                if (!hasAdminRole) {
-                    throw new Error('Your account does not have administrator privileges');
-                }
-
-                // Access token cookie is set server-side (HttpOnly).
+                throw new Error(this.responseMessage(data, 'Invalid admin username or password'));
             }
 
             // Redirect to admin dashboard
@@ -267,20 +258,55 @@ function adminLoginForm() {
             window.location.href = next;
         },
 
-        async checkAdminRole(token) {
+        async fetchWithTimeout(url, options) {
+            const timeoutMs = 15000;
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            let timeoutId = null;
+
             try {
-                // Decode JWT payload (base64url decode)
-                const parts = token.split('.');
-                if (parts.length !== 3) return false;
+                const requestOptions = { ...options };
+                if (controller) {
+                    requestOptions.signal = controller.signal;
+                    timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+                }
 
-                const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-                const roles = payload.roles || [];
-
-                return roles.includes('admin');
-            } catch (e) {
-                console.error('Failed to decode token:', e);
-                return false;
+                return await fetch(url, requestOptions);
+            } catch (err) {
+                if (err && err.name === 'AbortError') {
+                    throw new Error('Login request timed out. Please try again.');
+                }
+                throw new Error('Could not reach the login server. Please try again.');
+            } finally {
+                if (timeoutId) {
+                    window.clearTimeout(timeoutId);
+                }
             }
+        },
+
+        async readResponseData(response) {
+            const text = await response.text();
+            if (!text) {
+                return {};
+            }
+            try {
+                return JSON.parse(text);
+            } catch (err) {
+                return { message: text };
+            }
+        },
+
+        responseMessage(data, fallback) {
+            const detail = data ? data.detail : null;
+            if (typeof detail === 'string') {
+                return detail;
+            }
+            if (detail && detail.message) {
+                return detail.message;
+            }
+            if (data && data.message) {
+                return data.message;
+            }
+            return fallback;
         },
 
     }
