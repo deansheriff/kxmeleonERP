@@ -4,6 +4,8 @@
 python -c "import logging_loki" 2>/dev/null || pip install -q python-logging-loki==0.3.1 rfc3339==6.2 2>/dev/null
 python -c "import sentry_sdk" 2>/dev/null || pip install -q "sentry-sdk[fastapi]>=2.0" 2>/dev/null
 
+APP_ROOT="${APP_ROOT:-/app}"
+
 is_web_command() {
   case "$1" in
     gunicorn|uvicorn)
@@ -22,7 +24,7 @@ seed_admin_user() {
 
   while [ "$attempt" -le "$retries" ]; do
     echo "Seeding admin user (attempt $attempt/$retries)..."
-    if python scripts/seed_admin.py; then
+    if python "$APP_ROOT/scripts/seed_admin.py"; then
       echo "Admin seed completed."
       return 0
     fi
