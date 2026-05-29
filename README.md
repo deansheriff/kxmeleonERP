@@ -245,7 +245,7 @@ Services:
    # Create E2E test user with admin role
    python scripts/setup_e2e_user.py
 
-   # Or create custom admin user
+   # Or create/repair the admin user
    python scripts/seed_admin.py --email admin@example.com \
      --first-name Admin --last-name User \
      --username admin --password YourPassword123
@@ -282,6 +282,11 @@ Services:
 | `JWT_REFRESH_TTL_DAYS` | Refresh token TTL | `30` |
 | `TOTP_ISSUER` | TOTP issuer name | `dotmac_erp` |
 | `TOTP_ENCRYPTION_KEY` | TOTP secret encryption key | Required |
+| `SEED_ADMIN_ON_START` | Run `scripts/seed_admin.py` before the web server starts | `true` |
+| `BOOTSTRAP_ADMIN_USERNAME` | Bootstrap admin username | `admin` |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Bootstrap admin password | `admin123` |
+| `BOOTSTRAP_ADMIN_EMAIL` | Bootstrap admin email | `admin@example.com` |
+| `BOOTSTRAP_ADMIN_PRESERVE_PASSWORD` | Keep an existing admin password instead of resetting it | `false` |
 | `BRAND_NAME` | Application brand name | `Kxmeleon ERP` |
 | `BRAND_TAGLINE` | Application tagline | `Unified ERP for finance, HR, and operations` |
 | `BRAND_MARK` | Two-letter brand mark override | - |
@@ -311,6 +316,11 @@ For development and testing:
 |----------|----------|------|
 | `admin` | `admin123` | admin |
 | `e2e_testuser` | `e2e_testpassword123` | admin |
+
+The container entrypoint also runs `scripts/seed_admin.py` by default for web
+processes, so a deployment can create or repair the admin login automatically.
+Set `BOOTSTRAP_ADMIN_USERNAME` and `BOOTSTRAP_ADMIN_PASSWORD` in production to
+choose credentials, or set `SEED_ADMIN_ON_START=false` to disable this behavior.
 
 ## Database Schemas
 

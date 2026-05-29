@@ -93,6 +93,7 @@ COPY --from=nuitka-compiler /app/gunicorn.conf.py ./gunicorn.conf.py
 COPY templates ./templates
 COPY alembic ./alembic
 COPY alembic.ini ./alembic.ini
+COPY scripts/seed_admin.py scripts/seed_rbac.py scripts/entrypoint-monitoring.sh ./scripts/
 
 # Copy compiled CSS from builder stage
 COPY --from=css-builder /build/static/css/app.css ./static/css/app.css
@@ -101,7 +102,7 @@ COPY --from=css-builder /build/static/css/app.css ./static/css/app.css
 COPY static ./static
 
 # Create license mount point
-RUN mkdir -p /app/license
+RUN mkdir -p /app/license && chmod +x /app/scripts/entrypoint-monitoring.sh
 
 # Default: license checks enabled (not dev mode)
 ENV DOTMAC_DEV_MODE=false
@@ -110,4 +111,5 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 EXPOSE 8001
 
+ENTRYPOINT ["/app/scripts/entrypoint-monitoring.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]

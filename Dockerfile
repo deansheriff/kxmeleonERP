@@ -41,6 +41,9 @@ COPY . .
 # Copy compiled CSS from builder stage
 COPY --from=css-builder /build/static/css/app.css ./static/css/app.css
 
+RUN chmod +x /app/scripts/entrypoint-monitoring.sh
+
 EXPOSE 8001
 
+ENTRYPOINT ["/app/scripts/entrypoint-monitoring.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
