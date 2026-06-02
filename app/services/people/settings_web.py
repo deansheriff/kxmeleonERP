@@ -5,15 +5,25 @@ Provides context and update functions for HR/People settings UI pages.
 """
 
 import logging
+import mimetypes
 import uuid
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
+from starlette.datastructures import UploadFile
 
 from app.models.finance.core_org import Organization
 from app.models.finance.core_org.location import Location
+from app.services.file_upload import FileUploadError, get_hr_invite_attachment_upload
+from app.services.people.hr.invite_attachment import (
+    clear_default_invite_attachment_metadata,
+    get_default_invite_attachment_metadata,
+    set_default_invite_attachment_metadata,
+)
 from app.rls import tenant_context
+from app.services.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +144,13 @@ class PeopleSettingsWebService:
             "geofence_summary": geofence_summary,
         }
 
+    def get_default_invite_attachment_context(
+        self,
+        db: Session,
+        organization_id: uuid.UUID,
+    ) -> dict[str, Any] | None:
+        return get_default_invite_attachment_metadata(db, organization_id)
+
     async def update_hr_settings(
         self,
         db: AsyncSession,
@@ -180,6 +197,68 @@ class PeopleSettingsWebService:
                     setattr(org, field, value)
 
             await db.commit()
+        return True, None
+
+    async def update_default_invite_attachment(
+        self,
+        db: Session,
+        organization_id: uuid.UUID,
+        *,
+        file: UploadFile | None,
+        remove_existing: bool = False,
+    ) -> tuple[bool, str | None]:
+        if not isinstance(file, UploadFile):
+            file = None
+        has_upload = bool(file and file.filename)
+        if not has_upload and not remove_existing:
+            return True, None
+
+        previous = get_default_invite_attachment_metadata(db, organization_id)
+        if remove_existing and not has_upload:
+            removed = clear_default_invite_attachment_metadata(db, organization_id)
+            db.commit()
+            if removed and removed.get("s3_key"):
+                get_storage().delete(str(removed["s3_key"]))
+            return True, None
+
+        if not file or not file.filename:
+            return True, None
+
+        content_type = (
+            file.content_type
+            or mimetypes.guess_type(file.filename or "")[0]
+            or "application/octet-stream"
+        )
+        data = await file.read()
+        if not data:
+            return False, "Choose a file to upload."
+
+        try:
+            result = get_hr_invite_attachment_upload().save(
+                data,
+                content_type=content_type,
+                subdirs=[str(organization_id)],
+                prefix="welcome_pack",
+                original_filename=file.filename,
+            )
+        except FileUploadError as exc:
+            return False, str(exc)
+
+        set_default_invite_attachment_metadata(
+            db,
+            organization_id,
+            {
+                "s3_key": result.s3_key,
+                "filename": file.filename,
+                "content_type": content_type,
+                "file_size": result.file_size,
+            },
+        )
+        db.commit()
+
+        if previous and previous.get("s3_key") and previous["s3_key"] != result.s3_key:
+            get_storage().delete(str(previous["s3_key"]))
+
         return True, None
 
     # ========== Organization Profile (read-only for HR) ==========

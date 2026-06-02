@@ -486,6 +486,7 @@ def send_password_reset_email(
     app_url: str | None = None,
     organization_id: UUID | None = None,
     next_url: str | None = None,
+    attachments: list[tuple[str, bytes, str]] | None = None,
 ) -> bool:
     name = person_name or "there"
     env_app_url = _env_value("APP_URL")
@@ -506,6 +507,7 @@ def send_password_reset_email(
         subject,
         body_html,
         body_text,
+        attachments=attachments,
         module=EmailModule.ADMIN,
         organization_id=organization_id,
     )

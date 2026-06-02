@@ -10,6 +10,9 @@ from app.services.admin.web import AdminWebService
 from app.services.auth_flow import verify_password
 from app.services.people.hr import EmployeeService
 from app.services.people.hr import employees as employee_module
+from app.services.people.hr.invite_attachment import (
+    set_default_invite_attachment_metadata,
+)
 
 
 def _ensure_employee_role(db_session):
@@ -159,16 +162,172 @@ def test_send_employee_access_invite_uses_password_reset_flow(
     )
     service.ensure_local_user_credentials_for_employee(uuid4())
 
-    sent = service.send_employee_access_invite(
+    result = service.send_employee_access_invite(
         uuid4(),
         app_url="https://erp.example.com",
+        attachments=[("welcome.pdf", b"welcome", "application/pdf")],
     )
 
-    assert sent is True
+    assert result.sent is True
+    assert result.recipient_email == person.email
+    assert result.recipient_kind == "work"
+    assert result.attempted_recipients == (person.email,)
     assert captured["to_email"] == person.email
     assert captured["person_name"] == (person.display_name or person.first_name)
     assert captured["app_url"] == "https://erp.example.com"
     assert captured["organization_id"] == person.organization_id
     assert captured["next_url"] == "/people/self/tax-info"
+    assert captured["attachments"] == [("welcome.pdf", b"welcome", "application/pdf")]
     assert isinstance(captured["reset_token"], str)
     assert captured["reset_token"]
+
+
+def test_send_employee_access_invite_sends_work_email_before_personal_email(
+    db_session, person, monkeypatch
+):
+    captured: list[dict[str, object]] = []
+
+    def _fake_send_password_reset_email(**kwargs):
+        captured.append(kwargs)
+        return True
+
+    monkeypatch.setattr(
+        employee_module,
+        "send_password_reset_email",
+        _fake_send_password_reset_email,
+    )
+
+    service = EmployeeService(db_session, person.organization_id)
+    monkeypatch.setattr(
+        service,
+        "get_employee",
+        lambda _employee_id: SimpleNamespace(
+            person_id=person.id,
+            personal_email="Personal.User@Example.com",
+        ),
+    )
+    service.ensure_local_user_credentials_for_employee(uuid4())
+
+    result = service.send_employee_access_invite(
+        uuid4(),
+        app_url="https://erp.example.com",
+    )
+
+    assert result.sent is True
+    assert result.recipient_email == person.email
+    assert result.recipient_kind == "work"
+    assert result.attempted_recipients == (
+        person.email,
+        "personal.user@example.com",
+    )
+    assert [item["to_email"] for item in captured] == [
+        person.email,
+        "personal.user@example.com",
+    ]
+    assert all(item["reset_token"] for item in captured)
+
+
+def test_send_employee_access_invite_attaches_default_welcome_pack(
+    db_session, person, monkeypatch
+):
+    captured: dict[str, object] = {}
+
+    set_default_invite_attachment_metadata(
+        db_session,
+        person.organization_id,
+        {
+            "s3_key": "hr_invites/org/welcome.pdf",
+            "filename": "welcome.pdf",
+            "content_type": "application/pdf",
+            "file_size": 12,
+        },
+    )
+    db_session.commit()
+
+    class _Storage:
+        def download(self, key):
+            assert key == "hr_invites/org/welcome.pdf"
+            return b"welcome pack"
+
+    def _fake_send_password_reset_email(**kwargs):
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(
+        "app.services.people.hr.invite_attachment.get_storage",
+        lambda: _Storage(),
+    )
+    monkeypatch.setattr(
+        employee_module,
+        "send_password_reset_email",
+        _fake_send_password_reset_email,
+    )
+
+    service = EmployeeService(db_session, person.organization_id)
+    monkeypatch.setattr(
+        service,
+        "get_employee",
+        lambda _employee_id: SimpleNamespace(person_id=person.id),
+    )
+    service.ensure_local_user_credentials_for_employee(uuid4())
+
+    result = service.send_employee_access_invite(
+        uuid4(),
+        app_url="https://erp.example.com",
+    )
+
+    assert result.sent is True
+    assert captured["attachments"] == [
+        ("welcome.pdf", b"welcome pack", "application/pdf")
+    ]
+
+
+def test_send_employee_access_invite_continues_when_default_attachment_missing(
+    db_session, person, monkeypatch
+):
+    captured: dict[str, object] = {}
+
+    set_default_invite_attachment_metadata(
+        db_session,
+        person.organization_id,
+        {
+            "s3_key": "hr_invites/org/missing.pdf",
+            "filename": "welcome.pdf",
+            "content_type": "application/pdf",
+        },
+    )
+    db_session.commit()
+
+    class _Storage:
+        def download(self, key):
+            raise FileNotFoundError(key)
+
+    def _fake_send_password_reset_email(**kwargs):
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(
+        "app.services.people.hr.invite_attachment.get_storage",
+        lambda: _Storage(),
+    )
+    monkeypatch.setattr(
+        employee_module,
+        "send_password_reset_email",
+        _fake_send_password_reset_email,
+    )
+
+    service = EmployeeService(db_session, person.organization_id)
+    monkeypatch.setattr(
+        service,
+        "get_employee",
+        lambda _employee_id: SimpleNamespace(person_id=person.id),
+    )
+    service.ensure_local_user_credentials_for_employee(uuid4())
+
+    result = service.send_employee_access_invite(
+        uuid4(),
+        app_url="https://erp.example.com",
+    )
+
+    assert result.sent is True
+    assert captured["attachments"] is None

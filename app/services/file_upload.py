@@ -695,6 +695,30 @@ def get_discipline_attachment_upload() -> FileUploadService:
     return FileUploadService(_discipline_attachment_config())
 
 
+def _hr_invite_attachment_config() -> FileUploadConfig:
+    return FileUploadConfig(
+        base_dir="/app/uploads/hr_invites",
+        allowed_content_types=frozenset(
+            {
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "text/plain",
+            }
+        ),
+        allowed_extensions=frozenset({".pdf", ".doc", ".docx", ".txt"}),
+        max_size_bytes=5 * 1024 * 1024,
+        compute_checksum=True,
+        require_magic_bytes=True,
+        s3_prefix="hr_invites",
+    )
+
+
+def get_hr_invite_attachment_upload() -> FileUploadService:
+    """Get HR default invite attachment upload service."""
+    return FileUploadService(_hr_invite_attachment_config())
+
+
 def _expense_receipt_config() -> FileUploadConfig:
     return FileUploadConfig(
         base_dir="/app/uploads/expense_receipts",

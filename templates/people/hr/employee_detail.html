@@ -31,6 +31,26 @@
 
 {% block content %}
 <div class="space-y-6">
+    {% if saved %}
+    {% if invite_status == "failed" %}
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <span>Employee saved, but the access invite was not sent. Check email settings or resend the invite.</span>
+        <form method="post" action="/people/hr/employees/{{ employee.employee_id }}/resend-invite">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="btn btn-secondary">Resend Invite</button>
+        </form>
+    </div>
+    {% elif invite_status == "queued" %}
+    <div class="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sky-800 dark:border-sky-800 dark:bg-sky-900/20 dark:text-sky-200">
+        Employee saved and the access invite is queued.
+    </div>
+    {% elif invite_status == "sent" %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200">
+        Employee saved and the access invite was sent{% if invite_recipient_email %} to {{ invite_recipient_email }}{% if invite_recipient_kind == "personal" %} (personal email){% elif invite_recipient_kind == "work" %} (work email){% endif %}{% endif %}.
+    </div>
+    {% endif %}
+    {% endif %}
+
     {# Employee Header Card #}
     <div class="card p-6">
         <div class="flex items-start gap-6">
@@ -268,6 +288,16 @@
             {% endif %}
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <form method="post" action="/people/hr/employees/{{ employee.employee_id }}/resend-invite" class="space-y-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label class="form-label">Access Invite</label>
+                    <p class="text-sm text-slate-500 dark:text-slate-400">Send a password setup link to the employee's work email.</p>
+                    <button type="submit" class="btn btn-primary" {% if not any_active_cred %}disabled{% endif %}>Resend Invite</button>
+                    {% if not any_active_cred %}
+                    <p class="text-xs text-amber-600 dark:text-amber-400">Enable or create local login credentials before sending an invite.</p>
+                    {% endif %}
+                </form>
+
                 <form method="post" action="/people/hr/employees/{{ employee.employee_id }}/user-credentials" class="space-y-2">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <label class="form-label">Create Local Login</label>

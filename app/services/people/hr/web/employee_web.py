@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timezone
 from html import escape
+from urllib.parse import urlencode
 
 try:
     from datetime import UTC  # type: ignore
@@ -68,7 +69,6 @@ from app.services.people.hr import (
 from app.services.people.hr.employee_filter_engine import (
     parse_employee_filter_payload_json,
 )
-from app.services.people.hr.employees import send_employee_access_invite_background
 from app.services.people.hr.org_resolver import OrgResolver
 from app.services.people.hr.web.constants import DEFAULT_PAGE_SIZE, DROPDOWN_LIMIT
 from app.services.recent_activity import get_recent_activity_for_record
@@ -785,20 +785,6 @@ class HRWebService:
         salary_mode_raw = self._form_str(form, "salary_mode")
         ctc = self._parse_decimal(ctc_raw)
         salary_mode = self._parse_salary_mode(salary_mode_raw)
-        ctc_raw = self._form_str(form, "ctc")
-        salary_mode_raw = self._form_str(form, "salary_mode")
-        ctc = self._parse_decimal(ctc_raw)
-        salary_mode = self._parse_salary_mode(salary_mode_raw)
-        ctc_raw = self._form_str(form, "ctc")
-        salary_mode_raw = self._form_str(form, "salary_mode")
-        ctc = self._parse_decimal(ctc_raw)
-        salary_mode = self._parse_salary_mode(salary_mode_raw)
-        ctc = self._parse_decimal(self._form_str(form, "ctc"))
-        salary_mode = self._parse_salary_mode(self._form_str(form, "salary_mode"))
-        ctc_raw = self._form_str(form, "ctc")
-        salary_mode_raw = self._form_str(form, "salary_mode")
-        ctc = self._parse_decimal(ctc_raw)
-        salary_mode = self._parse_salary_mode(salary_mode_raw)
 
         tin = self._form_str(form, "tin")
         tax_state = self._form_str(form, "tax_state")
@@ -1122,27 +1108,39 @@ class HRWebService:
         employee_id = employee.employee_id
         app_url = self._resolve_app_url(request)
         db.commit()
-        if background_tasks:
-            background_tasks.add_task(
-                send_employee_access_invite_background,
-                org_id,
+        invite_status = "sent"
+        invite_recipient_kind = ""
+        invite_recipient_email = ""
+        try:
+            invite_result = svc.send_employee_access_invite(
                 employee_id,
-                app_url,
+                app_url=app_url,
             )
-        else:
-            try:
-                invite_sent = svc.send_employee_access_invite(
-                    employee_id, app_url=app_url
+            invite_recipient_kind = invite_result.recipient_kind
+            invite_recipient_email = invite_result.recipient_email
+            if not invite_result:
+                invite_status = "failed"
+                logger.warning(
+                    "Employee access invite was not sent for %s", employee_id
                 )
-                if not invite_sent:
-                    logger.warning(
-                        "Employee access invite was not sent for %s", employee_id
-                    )
-            except ServiceError:
-                logger.exception("Employee access invite failed for %s", employee_id)
+        except ServiceError:
+            invite_status = "failed"
+            logger.exception("Employee access invite failed for %s", employee_id)
 
+        query = urlencode(
+            {
+                key: value
+                for key, value in {
+                    "saved": "1",
+                    "invite_status": invite_status,
+                    "invite_recipient_kind": invite_recipient_kind,
+                    "invite_recipient_email": invite_recipient_email,
+                }.items()
+                if value
+            }
+        )
         return RedirectResponse(
-            url=f"/people/hr/employees/{employee_id}?saved=1",
+            url=f"/people/hr/employees/{employee_id}?{query}",
             status_code=303,
         )
 
@@ -1419,6 +1417,47 @@ class HRWebService:
         db.commit()
         return RedirectResponse(
             url=f"/people/hr/employees/{employee_id}?saved=1", status_code=303
+        )
+
+    def resend_employee_invite_response(
+        self,
+        request: Request,
+        employee_id: UUID,
+        auth: WebAuthContext,
+        db: Session,
+    ) -> RedirectResponse:
+        """Resend the employee access invite and report the delivery attempt."""
+        org_id = coerce_uuid(auth.organization_id)
+        svc = EmployeeService(db, org_id)
+        app_url = self._resolve_app_url(request)
+        invite_status = "sent"
+        invite_recipient_kind = ""
+        invite_recipient_email = ""
+        try:
+            invite_result = svc.send_employee_access_invite(employee_id, app_url=app_url)
+            invite_recipient_kind = invite_result.recipient_kind
+            invite_recipient_email = invite_result.recipient_email
+            if not invite_result:
+                invite_status = "failed"
+        except ServiceError:
+            invite_status = "failed"
+            logger.exception("Employee access invite resend failed for %s", employee_id)
+
+        query = urlencode(
+            {
+                key: value
+                for key, value in {
+                    "saved": "1",
+                    "invite_status": invite_status,
+                    "invite_recipient_kind": invite_recipient_kind,
+                    "invite_recipient_email": invite_recipient_email,
+                }.items()
+                if value
+            }
+        )
+        return RedirectResponse(
+            url=f"/people/hr/employees/{employee_id}?{query}",
+            status_code=303,
         )
 
     async def suspend_employee_response(
@@ -1973,6 +2012,9 @@ class HRWebService:
         db: Session,
         employee_id: str,
         saved: bool = False,
+        invite_status: str | None = None,
+        invite_recipient_kind: str | None = None,
+        invite_recipient_email: str | None = None,
     ) -> HTMLResponse:
         """Render employee detail page."""
         org_id = coerce_uuid(auth.organization_id)
@@ -1990,6 +2032,9 @@ class HRWebService:
 
         context = self._employee_detail_context(request, auth, db, employee)
         context["saved"] = saved
+        context["invite_status"] = invite_status
+        context["invite_recipient_kind"] = invite_recipient_kind
+        context["invite_recipient_email"] = invite_recipient_email
 
         return templates.TemplateResponse(
             request,

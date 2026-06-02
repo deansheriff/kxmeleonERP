@@ -5,12 +5,18 @@ Configuration pages for HR/People module including employee ID formats,
 payroll settings, leave configuration, and attendance modes.
 """
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from app.services.people.hr.invite_attachment import (
+    get_default_invite_attachment_metadata,
+)
 from app.services.people.settings_web import people_settings_web_service
+from app.services.storage import get_storage
 from app.templates import templates
 from app.web.deps import (
     get_db_for_org,
@@ -75,6 +81,11 @@ async def hr_settings(
     result = await people_settings_web_service.get_hr_settings_context(
         db, auth.organization_id
     )
+    result["default_invite_attachment"] = (
+        people_settings_web_service.get_default_invite_attachment_context(
+            sync_db, auth.organization_id
+        )
+    )
 
     context = base_context(request, auth, "HR Settings", "settings", db=sync_db)
     context.update(result)
@@ -96,10 +107,22 @@ async def update_hr_settings(
     success, error = await people_settings_web_service.update_hr_settings(
         db, auth.organization_id, data
     )
+    if success:
+        success, error = await people_settings_web_service.update_default_invite_attachment(
+            sync_db,
+            auth.organization_id,
+            file=form_data.get("default_invite_attachment"),
+            remove_existing=form_data.get("remove_default_invite_attachment") == "on",
+        )
 
     if not success:
         result = await people_settings_web_service.get_hr_settings_context(
             db, auth.organization_id
+        )
+        result["default_invite_attachment"] = (
+            people_settings_web_service.get_default_invite_attachment_context(
+                sync_db, auth.organization_id
+            )
         )
         context = base_context(request, auth, "HR Settings", "settings", db=sync_db)
         context.update(result)
@@ -107,6 +130,26 @@ async def update_hr_settings(
         return templates.TemplateResponse(request, "people/settings/hr.html", context)
 
     return RedirectResponse(url="/people/settings/hr?saved=1", status_code=303)
+
+
+@router.get("/hr/default-invite-attachment/download")
+async def download_default_invite_attachment(
+    auth: WebAuthContext = Depends(require_hr_access),
+    db: Session = Depends(get_db_for_org),
+):
+    """Download the configured default employee invite attachment."""
+    metadata = get_default_invite_attachment_metadata(db, auth.organization_id)
+    if not metadata or not metadata.get("s3_key"):
+        return RedirectResponse(url="/people/settings/hr?error=Attachment+not+found")
+
+    filename = Path(str(metadata.get("filename") or "welcome-pack")).name
+    content_type = str(metadata.get("content_type") or "application/octet-stream")
+    data = get_storage().download(str(metadata["s3_key"]))
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/payroll", response_class=HTMLResponse)

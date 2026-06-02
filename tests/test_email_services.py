@@ -513,6 +513,33 @@ class TestSendPasswordResetEmail:
         assert captured_message is not None
         assert "next=/people/self/tax-info" in captured_message
 
+    def test_send_password_reset_email_includes_attachment(self, monkeypatch):
+        """Test password reset email can include an attachment."""
+        monkeypatch.setenv("APP_URL", "https://app.example.com")
+        monkeypatch.setenv("SMTP_USE_SSL", "false")
+
+        mock_smtp = MagicMock()
+        captured_message = None
+
+        def capture_sendmail(from_email, to_email, message):
+            nonlocal captured_message
+            captured_message = message
+
+        mock_smtp.sendmail.side_effect = capture_sendmail
+
+        with patch("app.services.email.smtplib.SMTP", return_value=mock_smtp):
+            send_password_reset_email(
+                None,
+                "user@example.com",
+                "my_reset_token",
+                "John",
+                attachments=[("welcome.pdf", b"%PDF-1.4", "application/pdf")],
+            )
+
+        assert captured_message is not None
+        assert "welcome.pdf" in captured_message
+        assert "application/pdf" in captured_message
+
 
 class TestEmailLogging:
     """Tests for email logging behavior."""

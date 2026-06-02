@@ -112,12 +112,22 @@ def view_employee(
     request: Request,
     employee_id: UUID,
     saved: str | None = None,
+    invite_status: str | None = None,
+    invite_recipient_kind: str | None = None,
+    invite_recipient_email: str | None = None,
     auth: WebAuthContext = Depends(require_hr_access),
     db: Session = Depends(get_db_for_org),
 ):
     """Employee detail page."""
     return hr_web_service.employee_detail_response(
-        request, auth, db, str(employee_id), saved=bool(saved)
+        request,
+        auth,
+        db,
+        str(employee_id),
+        saved=bool(saved),
+        invite_status=invite_status,
+        invite_recipient_kind=invite_recipient_kind,
+        invite_recipient_email=invite_recipient_email,
     )
 
 
@@ -158,6 +168,22 @@ def activate_employee(
 ):
     """Activate an employee."""
     return hr_web_service.activate_employee_response(
+        employee_id=employee_id,
+        auth=auth,
+        db=db,
+    )
+
+
+@router.post("/employees/{employee_id}/resend-invite")
+def resend_employee_invite(
+    request: Request,
+    employee_id: UUID,
+    auth: WebAuthContext = Depends(require_hr_access),
+    db: Session = Depends(get_db_for_org),
+):
+    """Resend employee access invite."""
+    return hr_web_service.resend_employee_invite_response(
+        request=request,
         employee_id=employee_id,
         auth=auth,
         db=db,

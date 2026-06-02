@@ -317,7 +317,11 @@ async def test_create_employee_response_passes_selected_position_id(
     )
     monkeypatch.setattr(
         "app.services.people.hr.web.employee_web.EmployeeService.send_employee_access_invite",
-        lambda self, employee_id, app_url: None,
+        lambda self, employee_id, app_url, attachments=None: SimpleNamespace(
+            sent=True,
+            recipient_kind="work",
+            recipient_email="user@example.com",
+        ),
     )
     monkeypatch.setattr(
         HRWebService,
@@ -360,7 +364,7 @@ async def test_create_employee_response_does_not_fail_when_invite_fails(
         ),
     )
 
-    def _raise_invite_error(self, employee_id, app_url):
+    def _raise_invite_error(self, employee_id, app_url, attachments=None):
         raise ValidationError("Employee user credentials are not ready for invite")
 
     monkeypatch.setattr(
@@ -388,7 +392,10 @@ async def test_create_employee_response_does_not_fail_when_invite_fails(
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == f"/people/hr/employees/{employee_id}?saved=1"
+    assert (
+        response.headers["location"]
+        == f"/people/hr/employees/{employee_id}?saved=1&invite_status=failed"
+    )
 
 
 def test_employee_new_form_does_not_load_position_options_initially(

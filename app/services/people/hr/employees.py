@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any, cast
 
@@ -48,6 +49,7 @@ from app.services.audit_dispatcher import fire_audit_event
 from app.services.auth_flow import hash_password, request_password_reset
 from app.services.common import PaginatedResult, PaginationParams, paginate
 from app.services.email import send_password_reset_email
+from app.services.people.hr.invite_attachment import load_default_invite_attachment
 from app.services.people.hr.org_resolver import OrgResolver
 
 from .employee_filter_contract import FilterExpression
@@ -72,10 +74,22 @@ from .errors import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class EmployeeInviteResult:
+    sent: bool
+    recipient_email: str
+    recipient_kind: str
+    attempted_recipients: tuple[str, ...] = ()
+
+    def __bool__(self) -> bool:
+        return self.sent
+
+
 def send_employee_access_invite_background(
     organization_id: uuid.UUID,
     employee_id: uuid.UUID,
     app_url: str | None,
+    attachments: list[tuple[str, bytes, str]] | None = None,
 ) -> None:
     """Send an employee access invite outside the create request."""
     try:
@@ -83,6 +97,7 @@ def send_employee_access_invite_background(
             sent = EmployeeService(db, organization_id).send_employee_access_invite(
                 employee_id,
                 app_url=app_url,
+                attachments=attachments,
             )
             if not sent:
                 logger.warning(
@@ -97,7 +112,7 @@ DEFAULT_NEW_LOCAL_PASSWORD = "Dotmac@123"  # noqa: S105  # nosec B105
 if TYPE_CHECKING:
     from app.auth import Principal
 
-__all__ = ["EmployeeService"]
+__all__ = ["EmployeeInviteResult", "EmployeeService"]
 
 
 def _employee_search_predicate(search_term: str):
@@ -880,7 +895,8 @@ class EmployeeService:
         employee_id: uuid.UUID,
         *,
         app_url: str | None = None,
-    ) -> bool:
+        attachments: list[tuple[str, bytes, str]] | None = None,
+    ) -> EmployeeInviteResult:
         """Send a password-setup invite using the standard reset-password flow."""
         employee = self.get_employee(employee_id)
         person = self.db.get(Person, employee.person_id)
@@ -890,19 +906,52 @@ class EmployeeService:
         email = (person.email or "").strip().lower()
         if not email:
             raise ValidationError("Employee user account requires a valid email")
+        personal_email = (getattr(employee, "personal_email", None) or "").strip().lower()
+        recipients = [email]
+        if personal_email and personal_email not in recipients:
+            recipients.append(personal_email)
+        to_email = email
+        recipient_kind = "work"
 
         invite = request_password_reset(self.db, email)
         if not invite:
             raise ValidationError("Employee user credentials are not ready for invite")
 
-        return send_password_reset_email(
-            db=self.db,
-            to_email=invite["email"],
-            reset_token=invite["token"],
-            person_name=invite["person_name"],
-            app_url=app_url,
-            organization_id=invite.get("organization_id"),
-            next_url="/people/self/tax-info",
+        if attachments is None:
+            try:
+                default_attachment = load_default_invite_attachment(
+                    self.db,
+                    self.organization_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Default employee invite attachment could not be loaded for org %s: %s",
+                    self.organization_id,
+                    exc,
+                )
+                default_attachment = None
+            attachments = [default_attachment] if default_attachment else None
+
+        sent = False
+        for recipient in recipients:
+            sent = (
+                send_password_reset_email(
+                    db=self.db,
+                    to_email=recipient,
+                    reset_token=invite["token"],
+                    person_name=invite["person_name"],
+                    app_url=app_url,
+                    organization_id=invite.get("organization_id"),
+                    next_url="/people/self/tax-info",
+                    attachments=attachments,
+                )
+                or sent
+            )
+        return EmployeeInviteResult(
+            sent=sent,
+            recipient_email=to_email,
+            recipient_kind=recipient_kind,
+            attempted_recipients=tuple(recipients),
         )
 
     def _ensure_default_employee_role(self, person_id: uuid.UUID) -> None:
