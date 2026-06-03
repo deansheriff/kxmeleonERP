@@ -10,7 +10,6 @@ from typing import Any, TypedDict, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
 from app.models.email_profile import EmailModule, EmailProfile, ModuleEmailRouting
@@ -831,71 +830,10 @@ class SettingsWebService:
         return True, None
 
     # ========== Banking Auto-Match Settings ==========
-
-    def get_auto_match_settings_context(
-        self, db: object, organization_id: uuid.UUID
-    ) -> dict[str, Any]:
-        """Get banking auto-match settings for the form."""
-        specs = list_specs(SettingDomain.banking)
-        settings: dict[str, dict[str, Any]] = {}
-
-        pass_keys: list[str] = []
-        param_keys: list[str] = []
-
-        for spec in specs:
-            value = resolve_value(db, SettingDomain.banking, spec.key)
-            settings[spec.key] = {
-                "value": value,
-                "default": spec.default,
-                "type": spec.value_type.value,
-                "min": spec.min_value,
-                "max": spec.max_value,
-                "label": spec.label or spec.key,
-                "description": spec.description or "",
-            }
-            if spec.key.startswith("automatch_pass_"):
-                pass_keys.append(spec.key)
-            else:
-                param_keys.append(spec.key)
-
-        return {
-            "settings": settings,
-            "pass_keys": pass_keys,
-            "param_keys": param_keys,
-        }
-
-    def update_auto_match_settings(
-        self, db: Session, organization_id: uuid.UUID, data: dict[str, Any]
-    ) -> tuple[bool, str | None]:
-        """Update banking auto-match settings."""
-        from app.services.settings_spec import coerce_value
-
-        service = DOMAIN_SETTINGS_SERVICE.get(SettingDomain.banking)
-        if not service:
-            return False, "Banking settings service not found"
-
-        # Ensure unchecked checkboxes are persisted as false
-        for spec in list_specs(SettingDomain.banking):
-            if spec.value_type.value == "boolean":
-                data.setdefault(spec.key, "false")
-
-        for key, value in data.items():
-            setting_spec = get_spec(SettingDomain.banking, key)
-            if not setting_spec:
-                continue
-
-            coerced, error = coerce_value(setting_spec, value)
-            if error:
-                return False, f"{setting_spec.label or key}: {error}"
-
-            payload = DomainSettingUpdate(
-                value_type=setting_spec.value_type,
-                value_text=str(coerced) if coerced is not None else None,
-            )
-            service.upsert_by_key(db, key, payload)
-
-        db.flush()
-        return True, None
+    # Removed on 2026-05-15.  The 11 banking.automatch_* DomainSettings
+    # keys were retired in favour of ``banking.reconciliation_policy_profile``
+    # (per-org canonical config).  See ReconciliationPolicyService for the
+    # current read path.
 
     # ========== Coach / AI Settings ==========
 

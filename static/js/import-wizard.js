@@ -89,6 +89,15 @@ window.importWizard = function importWizard(config) {
         },
 
         // ── File handling ───────────────────────────────────────
+        csrfToken() {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta && meta.getAttribute('content')) {
+                return meta.getAttribute('content');
+            }
+            const input = document.querySelector('input[name="csrf_token"]');
+            return input ? input.value : '';
+        },
+
         handleFile(file) {
             if (!file) return;
             const ext = file.name.split('.').pop().toLowerCase();
@@ -169,10 +178,13 @@ window.importWizard = function importWizard(config) {
                 try {
                     const formData = new FormData();
                     formData.append('file', this.$refs.fileInput.files[0]);
+                    const token = this.csrfToken();
+                    if (token) formData.append('csrf_token', token);
 
                     const resp = await fetch(config.previewUrl, {
                         method: 'POST',
                         body: formData,
+                        headers: token ? { 'X-CSRF-Token': token } : {},
                     });
                     const data = await resp.json();
                     if (!resp.ok) {
@@ -233,10 +245,13 @@ window.importWizard = function importWizard(config) {
                 formData.append('skip_duplicates', this.skipDuplicates);
                 formData.append('dry_run', this.dryRun);
                 formData.append('column_mapping', this.columnMappingJson);
+                const token = this.csrfToken();
+                if (token) formData.append('csrf_token', token);
 
                 const resp = await fetch(config.importUrl, {
                     method: 'POST',
                     body: formData,
+                    headers: token ? { 'X-CSRF-Token': token } : {},
                 });
                 const data = await resp.json();
                 if (!resp.ok) {

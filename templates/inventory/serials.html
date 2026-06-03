@@ -1,5 +1,5 @@
 {% extends "inventory/base_inventory.html" %}
-{% from "components/macros.html" import pagination, empty_state, status_badge, compact_filters, filter_custom_select_field, filter_select_field, icon_svg %}
+{% from "components/macros.html" import pagination, empty_state, status_badge, compact_filters, filter_custom_select_field, filter_select_field, icon_svg, error_banner %}
 
 {% block page_title %}Serial Numbers{% endblock %}
 
@@ -42,7 +42,36 @@
 {% endblock %}
 
 {% block content %}
-<div class="space-y-6 stagger-in">
+<div class="space-y-6 stagger-in"
+     x-data="{
+        serialModalOpen: false,
+        serialModal: {
+            itemId: '',
+            warehouseId: '',
+            itemCode: '',
+            itemName: '',
+            warehouseCode: '',
+            warehouseName: '',
+            missingCount: 0
+        },
+        openSerialModal(data) {
+            this.serialModal = data;
+            this.serialModalOpen = true;
+            this.$nextTick(() => {
+                if (this.$refs.serialNumbersInput) {
+                    this.$refs.serialNumbersInput.value = '';
+                    this.$refs.serialNumbersInput.focus();
+                }
+            });
+        },
+        closeSerialModal() {
+            this.serialModalOpen = false;
+        }
+     }">
+    {% if error %}
+    {{ error_banner(error) }}
+    {% endif %}
+
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <div class="card p-4">
             <div class="flex items-center gap-3">
@@ -99,17 +128,17 @@
                 </div>
             </div>
         </div>
-        <div class="card p-4">
+        <a href="/inventory/serials?status=missing_serials" class="card p-4 transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-amber-500 dark:hover:border-amber-700">
             <div class="flex items-center gap-3">
-                <div class="card-icon bg-zinc-50 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                    {{ icon_svg("ban") }}
+                <div class="card-icon bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400">
+                    {{ icon_svg("warning") }}
                 </div>
                 <div>
-                    <p class="text-2xl font-bold text-slate-900 dark:text-white font-display">{{ blocked_count | default(0) }}</p>
-                    <p class="text-xs text-slate-500 dark:text-slate-400">Not usable</p>
+                    <p class="text-2xl font-bold text-slate-900 dark:text-white font-display">{{ missing_serials_count | default(0) }}</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Missing Serials</p>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
 
     {% if selected_item %}
@@ -147,7 +176,8 @@
                 {"value": "damaged", "label": "Damaged"},
                 {"value": "transferred", "label": "Transferred"},
                 {"value": "inactive", "label": "Inactive"},
-                {"value": "blocked", "label": "Not usable"}
+                {"value": "blocked", "label": "Not usable"},
+                {"value": "missing_serials", "label": "Missing Serials"}
             ],
             filter_attrs
         ) }}
@@ -174,8 +204,19 @@
         <div class="card overflow-hidden">
             {% if serial_rows | default([]) | length > 0 %}
             <div class="table-container">
-                <table class="table-ledger">
+                <table class="table table-ledger min-w-[1100px]">
                     <thead>
+                        {% if status == "missing_serials" %}
+                        <tr>
+                            <th scope="col">Item</th>
+                            <th scope="col">Warehouse</th>
+                            <th scope="col">On Hand</th>
+                            <th scope="col">Serials Added</th>
+                            <th scope="col">Missing Serials</th>
+                            <th scope="col">Status</th>
+                            <th scope="col" class="w-48 text-xs font-semibold uppercase tracking-wider">Action</th>
+                        </tr>
+                        {% else %}
                         <tr>
                             <th scope="col">Serial Number</th>
                             <th scope="col">Item</th>
@@ -186,9 +227,56 @@
                             <th scope="col">Created</th>
                             <th scope="col" class="w-12 text-xs font-semibold uppercase tracking-wider"></th>
                         </tr>
+                        {% endif %}
                     </thead>
                     <tbody>
                         {% for row in serial_rows %}
+                        {% if row.row_type == "missing_serials" %}
+                        <tr class="hover:bg-amber-50/70 dark:hover:bg-amber-900/10">
+                            <td>
+                                <div class="flex flex-col min-w-0">
+                                    <span class="block max-w-[14rem] truncate text-xs font-mono text-slate-500" title="{{ row.item.item_code if row.item else '' }}">{{ row.item.item_code if row.item else '-' }}</span>
+                                    <span class="block max-w-[14rem] truncate" title="{{ row.item.item_name if row.item else '' }}">{{ row.item.item_name if row.item else '-' }}</span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="flex flex-col min-w-0">
+                                    <span class="block max-w-[12rem] truncate text-xs font-mono text-slate-500" title="{{ row.warehouse.warehouse_code if row.warehouse else '' }}">{{ row.warehouse.warehouse_code if row.warehouse else '-' }}</span>
+                                    <span class="block max-w-[12rem] truncate" title="{{ row.warehouse.warehouse_name if row.warehouse else '' }}">{{ row.warehouse.warehouse_name if row.warehouse else '-' }}</span>
+                                </div>
+                            </td>
+                            <td>{{ row.quantity_on_hand }}</td>
+                            <td>{{ row.serial_count }}</td>
+                            <td>
+                                <span class="font-semibold text-orange-700 dark:text-orange-300">{{ row.missing_count }}</span>
+                            </td>
+                            <td>
+                                <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Action needed</span>
+                            </td>
+                            <td>
+                                <div class="flex flex-wrap items-start gap-2">
+                                    <button type="button"
+                                            class="btn btn-secondary btn-sm px-2"
+                                            title="Add serials"
+                                            aria-label="Add serials"
+                                            @click='openSerialModal({
+                                                itemId: {{ (row.item.item_id | string if row.item else '') | tojson }},
+                                                warehouseId: {{ (row.warehouse.warehouse_id | string if row.warehouse else '') | tojson }},
+                                                itemCode: {{ (row.item.item_code if row.item else '') | tojson }},
+                                                itemName: {{ (row.item.item_name if row.item else '') | tojson }},
+                                                warehouseCode: {{ (row.warehouse.warehouse_code if row.warehouse else '') | tojson }},
+                                                warehouseName: {{ (row.warehouse.warehouse_name if row.warehouse else '') | tojson }},
+                                                missingCount: {{ (row.missing_count | string) | tojson }}
+                                            })'>
+                                        {{ icon_svg("plus", "h-4 w-4") }}
+                                    </button>
+                                    <a href="/inventory/items/{{ row.item.item_id if row.item else '' }}" class="btn btn-secondary btn-sm px-2" title="View item" aria-label="View item">
+                                        {{ icon_svg("eye", "h-4 w-4") }}
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
                         {% set serial = row.serial %}
                         <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer"
                             onclick="window.location='/inventory/serials/{{ serial.serial_id }}'">
@@ -222,10 +310,19 @@
                                 </a>
                             </td>
                         </tr>
+                        {% endif %}
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
+            {% else %}
+            {% if status == "missing_serials" %}
+            {{ empty_state(
+                title="No missing serial numbers",
+                description="Every serial-tracked item with stock on hand has matching serial records.",
+                action_url="/inventory/serials",
+                action_label="View Serials"
+            ) }}
             {% else %}
             {{ empty_state(
                 title="No serial numbers tracked yet",
@@ -234,11 +331,65 @@
                 action_label="View Items"
             ) }}
             {% endif %}
+            {% endif %}
         </div>
 
         {% if serial_rows | default([]) | length > 0 %}
         {{ pagination(page=page, total_pages=total_pages, total_count=filtered_total, limit=50, search=search, filters={"status": status, "warehouse": warehouse, "item": item, "lot": lot}) }}
         {% endif %}
+    </div>
+
+    <div x-show="serialModalOpen"
+         x-cloak
+         x-trap="serialModalOpen"
+         @keydown.escape.window="closeSerialModal()"
+         class="fixed inset-0 z-[1000]"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="missing-serial-modal-title">
+        <div class="fixed inset-0 bg-transparent" @click="closeSerialModal()"></div>
+        <div class="fixed left-1/2 top-1/2 z-[1010] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <form method="post" action="/inventory/serials/missing/add" class="space-y-5 p-5 sm:p-6">
+                {{ request.state.csrf_form | safe }}
+                <input type="hidden" name="item_id" :value="serialModal.itemId">
+                <input type="hidden" name="warehouse_id" :value="serialModal.warehouseId">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="min-w-0">
+                        <h2 id="missing-serial-modal-title" class="text-lg font-semibold text-slate-900 dark:text-white">
+                            Add <span x-text="serialModal.missingCount"></span> serial<span x-show="String(serialModal.missingCount) !== '1'">s</span>
+                        </h2>
+                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            <span class="font-mono" x-text="serialModal.itemCode"></span>
+                            <span x-show="serialModal.itemCode && serialModal.itemName"> - </span>
+                            <span x-text="serialModal.itemName"></span>
+                        </p>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            <span class="font-mono" x-text="serialModal.warehouseCode"></span>
+                            <span x-show="serialModal.warehouseCode && serialModal.warehouseName"> - </span>
+                            <span x-text="serialModal.warehouseName"></span>
+                        </p>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm px-2" title="Close" aria-label="Close" @click="closeSerialModal()">
+                        {{ icon_svg("x", "h-4 w-4") }}
+                    </button>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Enter a serial number for this warehouse. This row stays in Missing Serials until all missing serials are added.</p>
+                <div>
+                    <label class="form-label" for="missing-serial-numbers">Serial Numbers</label>
+                    <input id="missing-serial-numbers"
+                           x-ref="serialNumbersInput"
+                           type="text"
+                           name="serial_numbers"
+                           required
+                           class="form-input"
+                           placeholder="Serial number">
+                </div>
+                <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button type="button" class="btn btn-secondary" @click="closeSerialModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save serials</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 {% endblock %}

@@ -14,6 +14,56 @@
         </a>
     </div>
 
+    {% if request.query_params.get('activated') %}
+    <div
+        x-data="{ show: true }"
+        x-init="setTimeout(() => show = false, 5000)"
+        x-show="show"
+        x-transition
+        class="mb-6 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-4"
+    >
+        <div class="flex items-start gap-3">
+            {{ icon_svg("check-circle", "h-5 w-5 text-emerald-500 mt-0.5 flex-shrink-0") }}
+            <p class="text-sm text-emerald-700 dark:text-emerald-300">User account activated successfully.</p>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if user_data %}
+    <div class="admin-card p-6 mb-6">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-3">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white font-display">Account Status</h2>
+                    <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium {{ 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' if user_data.account_is_active else 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' }}">
+                        {{ user_data.account_status_label }}
+                    </span>
+                </div>
+                <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">{{ user_data.account_status_reason }}</p>
+                <dl class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                        <dt class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Failed attempts</dt>
+                        <dd class="mt-1 text-slate-800 dark:text-slate-100">{{ user_data.failed_login_attempts }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Username</dt>
+                        <dd class="mt-1 text-slate-800 dark:text-slate-100 truncate">{{ user_data.username or 'No local credential' }}</dd>
+                    </div>
+                </dl>
+            </div>
+            <form action="/admin/users/{{ user_data.id }}/activate" method="POST" class="sm:flex-shrink-0">
+                {{ request.state.csrf_form | safe }}
+                <button
+                    type="submit"
+                    class="btn btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+                    {% if not user_data.can_activate_account %}disabled aria-disabled="true"{% endif %}>
+                    Activate
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
     <form action="{{ '/admin/users/' ~ user_data.id ~ '/edit' if user_data else '/admin/users/new' }}" method="POST" class="space-y-6" x-data="userForm({{ 'true' if user_data else 'false' }})" {% if user_data %}x-init="password=''; passwordConfirm=''"{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <!-- Error Alert -->

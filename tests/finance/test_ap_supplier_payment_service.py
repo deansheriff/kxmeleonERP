@@ -241,6 +241,103 @@ def test_post_payment_applies_allocations_and_void():
     assert invoice.amount_paid == Decimal("0")
 
 
+def test_post_payment_does_not_auto_receipt_before_full_payment():
+    db = MagicMock()
+    org_id = uuid4()
+    payment = SimpleNamespace(
+        payment_id=uuid4(),
+        organization_id=org_id,
+        status=APPaymentStatus.APPROVED,
+        payment_date=date.today(),
+    )
+    invoice = SimpleNamespace(
+        invoice_id=uuid4(),
+        amount_paid=Decimal("0"),
+        total_amount=Decimal("100.00"),
+        status=SupplierInvoiceStatus.POSTED,
+    )
+    allocation = SimpleNamespace(
+        invoice_id=invoice.invoice_id, allocated_amount=Decimal("50.00")
+    )
+
+    def _get(model, _id):
+        if model.__name__ == "SupplierPayment":
+            return payment
+        if model.__name__ == "SupplierInvoice":
+            return invoice
+        return None
+
+    db.get.side_effect = _get
+    db.scalars.return_value.all.return_value = [allocation]
+
+    with (
+        patch(
+            "app.services.finance.ap.ap_posting_adapter.APPostingAdapter.post_payment"
+        ) as post_payment,
+        patch(
+            "app.services.finance.ap.auto_inventory_receipt.ap_invoice_auto_receipt_service.create_for_invoice"
+        ) as create_auto_receipt,
+    ):
+        post_payment.return_value = SimpleNamespace(
+            success=True, journal_entry_id=uuid4(), posting_batch_id=uuid4()
+        )
+        SupplierPaymentService.post_payment(
+            db, org_id, payment.payment_id, posted_by_user_id=uuid4()
+        )
+
+    assert invoice.status == SupplierInvoiceStatus.PARTIALLY_PAID
+    create_auto_receipt.assert_not_called()
+
+
+def test_post_payment_does_not_auto_receipt_after_full_payment():
+    db = MagicMock()
+    org_id = uuid4()
+    user_id = uuid4()
+    payment = SimpleNamespace(
+        payment_id=uuid4(),
+        organization_id=org_id,
+        status=APPaymentStatus.APPROVED,
+        payment_date=date.today(),
+    )
+    invoice = SimpleNamespace(
+        invoice_id=uuid4(),
+        amount_paid=Decimal("25.00"),
+        total_amount=Decimal("100.00"),
+        status=SupplierInvoiceStatus.PARTIALLY_PAID,
+    )
+    allocation = SimpleNamespace(
+        invoice_id=invoice.invoice_id, allocated_amount=Decimal("75.00")
+    )
+
+    def _get(model, _id):
+        if model.__name__ == "SupplierPayment":
+            return payment
+        if model.__name__ == "SupplierInvoice":
+            return invoice
+        return None
+
+    db.get.side_effect = _get
+    db.scalars.return_value.all.return_value = [allocation]
+
+    with (
+        patch(
+            "app.services.finance.ap.ap_posting_adapter.APPostingAdapter.post_payment"
+        ) as post_payment,
+        patch(
+            "app.services.finance.ap.auto_inventory_receipt.ap_invoice_auto_receipt_service.create_for_invoice"
+        ) as create_auto_receipt,
+    ):
+        post_payment.return_value = SimpleNamespace(
+            success=True, journal_entry_id=uuid4(), posting_batch_id=uuid4()
+        )
+        SupplierPaymentService.post_payment(
+            db, org_id, payment.payment_id, posted_by_user_id=user_id
+        )
+
+    assert invoice.status == SupplierInvoiceStatus.PAID
+    create_auto_receipt.assert_not_called()
+
+
 def test_mark_cleared_and_list():
     db = MagicMock()
     org_id = uuid4()

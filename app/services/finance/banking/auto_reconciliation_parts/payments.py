@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.services.finance.banking.auto_reconciliation_parts.base import (
     APPaymentStatus,
-    AutoMatchConfig,
+    AutoMatchDefaults,
     AutoMatchResult,
     BankAccount,
     BankStatement,
@@ -38,7 +38,7 @@ class AutoReconciliationPaymentService:
         result: AutoMatchResult,
         *,
         extra_gl_account_ids: set[UUID] | None = None,
-        config: AutoMatchConfig | None = None,
+        config: AutoMatchDefaults | None = None,
     ) -> None:
         """Match lines against COMPLETED PaymentIntent records."""
         from datetime import timedelta
@@ -269,7 +269,7 @@ class AutoReconciliationPaymentService:
         organization_id: UUID,
         statement: BankStatement,
         *,
-        config: AutoMatchConfig | None = None,
+        config: AutoMatchDefaults | None = None,
     ) -> list[CustomerPayment]:
         """Load eligible Splynx payments for the statement's bank account.
 
@@ -302,7 +302,7 @@ class AutoReconciliationPaymentService:
         organization_id: UUID,
         statement: BankStatement,
         *,
-        config: AutoMatchConfig | None = None,
+        config: AutoMatchDefaults | None = None,
     ) -> list[SupplierPayment]:
         """Load eligible AP supplier payments for the statement's bank account.
 
@@ -333,7 +333,7 @@ class AutoReconciliationPaymentService:
         organization_id: UUID,
         statement: BankStatement,
         *,
-        config: AutoMatchConfig | None = None,
+        config: AutoMatchDefaults | None = None,
     ) -> list[CustomerPayment]:
         """Load eligible non-Splynx AR payments for the statement's bank account.
 
@@ -386,7 +386,7 @@ class AutoReconciliationPaymentService:
         result: AutoMatchResult,
         *,
         extra_gl_account_ids: set[UUID] | None = None,
-        config: AutoMatchConfig | None = None,
+        config: AutoMatchDefaults | None = None,
     ) -> None:
         """Match lines against Splynx-originated CustomerPayments by reference.
 
@@ -610,7 +610,7 @@ class AutoReconciliationPaymentService:
         result: AutoMatchResult,
         *,
         extra_gl_account_ids: set[UUID] | None = None,
-        config: AutoMatchConfig | None = None,
+        config: AutoMatchDefaults | None = None,
     ) -> None:
         """Match debit bank lines against CLEARED AP supplier payments.
 
@@ -815,7 +815,7 @@ class AutoReconciliationPaymentService:
         result: AutoMatchResult,
         *,
         extra_gl_account_ids: set[UUID] | None = None,
-        config: AutoMatchConfig | None = None,
+        config: AutoMatchDefaults | None = None,
     ) -> None:
         """Match credit bank lines against non-Splynx AR customer payments.
 

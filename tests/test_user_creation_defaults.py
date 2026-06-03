@@ -13,6 +13,7 @@ from app.services.people.hr import employees as employee_module
 from app.services.people.hr.invite_attachment import (
     set_default_invite_attachment_metadata,
 )
+from app.services.people.hr.invite_email import set_employee_invite_email_template
 
 
 def _ensure_employee_role(db_session):
@@ -155,6 +156,14 @@ def test_send_employee_access_invite_uses_password_reset_flow(
     )
 
     service = EmployeeService(db_session, person.organization_id)
+    set_employee_invite_email_template(
+        db_session,
+        person.organization_id,
+        subject="Welcome to Dotmac",
+        body_html="<p>Hello {name}</p><p>{reset_link}</p>",
+        body_text="Hello {name}: {reset_link}",
+    )
+    db_session.commit()
     monkeypatch.setattr(
         service,
         "get_employee",
@@ -178,6 +187,11 @@ def test_send_employee_access_invite_uses_password_reset_flow(
     assert captured["organization_id"] == person.organization_id
     assert captured["next_url"] == "/people/self/tax-info"
     assert captured["attachments"] == [("welcome.pdf", b"welcome", "application/pdf")]
+    assert captured["email_template"] == {
+        "subject": "Welcome to Dotmac",
+        "body_html": "<p>Hello {name}</p><p>{reset_link}</p>",
+        "body_text": "Hello {name}: {reset_link}",
+    }
     assert isinstance(captured["reset_token"], str)
     assert captured["reset_token"]
 

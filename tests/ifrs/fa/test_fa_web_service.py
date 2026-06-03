@@ -371,6 +371,79 @@ class TestFAWebServiceAssetDetail:
         assert asset_view["impairment_loss"] == "USD 600.00"
         assert asset_view["net_book_value"] == "USD 3,600.00"
 
+    def test_asset_detail_includes_current_holder(self):
+        """Asset detail should expose the current custodian for display."""
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        mock_db = MagicMock()
+        org_id = uuid.uuid4()
+        asset_id = uuid.uuid4()
+        category_id = uuid.uuid4()
+        employee_id = uuid.uuid4()
+        person_id = uuid.uuid4()
+        asset = MockAsset(
+            asset_id=asset_id,
+            organization_id=org_id,
+            category_id=category_id,
+            custodian_employee_id=employee_id,
+        )
+        asset.accumulated_depreciation = Decimal("0.00")
+        asset.revalued_amount = Decimal("0.00")
+        asset.impairment_loss = Decimal("0.00")
+        asset.useful_life_months = 60
+        asset.residual_value = Decimal("0.00")
+        category = MockAssetCategory(
+            category_id=category_id,
+            organization_id=org_id,
+            category_name="ICT Equipment",
+        )
+        employee = SimpleNamespace(
+            employee_id=employee_id,
+            person_id=person_id,
+            employee_code="EMP-001",
+        )
+        person = SimpleNamespace(id=person_id, name="Ada Lovelace")
+        auth = WebAuthContext(
+            is_authenticated=True,
+            person_id=uuid.uuid4(),
+            organization_id=org_id,
+            user_name="Test User",
+            user_initials="TU",
+            roles=["admin"],
+        )
+        request = MagicMock()
+
+        mock_db.get.side_effect = [asset, category, person]
+        mock_db.scalar.return_value = employee
+
+        captured: dict[str, object] = {}
+
+        def _capture_template_response(_request, _template_name, context):
+            captured["context"] = context
+            return context
+
+        with (
+            patch("app.services.fixed_assets.web.base_context", return_value={}),
+            patch(
+                "app.services.fixed_assets.web.templates.TemplateResponse",
+                side_effect=_capture_template_response,
+            ),
+        ):
+            FixedAssetWebService().asset_detail_response(
+                request,
+                auth,
+                mock_db,
+                str(asset_id),
+            )
+
+        assigned_employee = captured["context"]["asset"]["assigned_employee"]
+        assert assigned_employee == {
+            "employee_id": employee_id,
+            "employee_code": "EMP-001",
+            "name": "Ada Lovelace",
+        }
+        assert captured["context"]["asset"]["can_open_employee_profile"] is True
+
 
 class TestFAWebServiceAssetCountSheets:
     """Tests for fixed asset count sheet reporting."""
@@ -1016,6 +1089,46 @@ class TestFAWebServiceRunDepreciation:
         assert "asset.location_id" in str(compiled)
         assert location_id in compiled.params.values()
 
+    def test_employee_assigned_assets_query_filters_current_custodian(self):
+        """Employee assigned assets query should use current custodian."""
+        from app.services.fixed_assets.asset_query import (
+            build_employee_assigned_assets_query,
+        )
+
+        org_id = uuid.uuid4()
+        employee_id = uuid.uuid4()
+
+        query = build_employee_assigned_assets_query(
+            organization_id=str(org_id),
+            employee_id=str(employee_id),
+        )
+        compiled = query.compile()
+        sql = str(compiled)
+
+        assert "asset.organization_id" in sql
+        assert "asset.custodian_employee_id" in sql
+        assert "asset.status" in sql
+        assert org_id in compiled.params.values()
+        assert employee_id in compiled.params.values()
+
+    def test_list_employee_assigned_assets_executes_query(self):
+        """Employee assigned assets helper should execute the scoped query."""
+        from app.services.fixed_assets.asset_query import list_employee_assigned_assets
+
+        mock_db = MagicMock()
+        org_id = uuid.uuid4()
+        employee_id = uuid.uuid4()
+        expected_asset = MockAsset(
+            organization_id=org_id,
+            custodian_employee_id=employee_id,
+        )
+        mock_db.scalars.return_value = [expected_asset]
+
+        result = list_employee_assigned_assets(mock_db, str(org_id), str(employee_id))
+
+        assert result == [expected_asset]
+        mock_db.scalars.assert_called_once()
+
 
 class TestFAWebServiceDepreciation:
     """Tests for depreciation_context method."""
@@ -1256,6 +1369,41 @@ class TestFAWebServiceDepreciation:
 
 class TestFAWebServiceGLReconciliation:
     """Tests for fixed asset to GL reconciliation context."""
+
+    def test_gl_reconciliation_uses_posted_depreciation_as_of_date(self):
+        """Register depreciation should be reconstructed for the report date."""
+        from sqlalchemy.dialects import postgresql
+
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        org_id = uuid.uuid4()
+        mock_db = MagicMock()
+        mock_db.execute.return_value.all.return_value = []
+
+        with patch(
+            "app.services.fixed_assets.web.get_currency_context",
+            return_value={
+                "presentation_currency_code": "NGN",
+                "currencies": [{"code": "NGN", "symbol": "NGN "}],
+            },
+        ):
+            FixedAssetWebService.gl_reconciliation_context(
+                mock_db,
+                str(org_id),
+                as_of=date(2026, 4, 30),
+            )
+
+        statement = mock_db.execute.call_args.args[0]
+        sql = str(statement.compile(dialect=postgresql.dialect()))
+
+        assert "fa.depreciation_schedule" in sql
+        assert "fa.depreciation_run" in sql
+        assert "accumulated_depreciation_closing" in sql
+        assert "net_book_value_closing" in sql
+        assert "row_number()" in sql
+        assert "gl.fiscal_period.end_date <= " in sql
+        assert "fa.asset.accumulated_depreciation" not in sql
+        assert "fa.asset.net_book_value" not in sql
 
     def test_gl_reconciliation_totals_count_shared_gl_accounts_once(self):
         """Summary totals should not duplicate GL balances for shared accounts."""
@@ -1784,3 +1932,178 @@ class TestFAWebServiceAssetCreate:
             )
 
         mock_db.rollback.assert_called_once()
+
+
+class TestFAWebServiceGLReconciliationPackages:
+    """Tests for FA GL reconciliation package web actions."""
+
+    def test_create_package_response_redirects_to_package_detail(self):
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        mock_db = MagicMock()
+        package = SimpleNamespace(run_id=run_id)
+
+        with patch(
+            "app.services.fixed_assets.reconciliation."
+            "FixedAssetGLReconciliationPackageService.create_package",
+            return_value=package,
+        ) as create_package:
+            response = FixedAssetWebService.create_gl_reconciliation_package_response(
+                mock_db,
+                str(org_id),
+                user_id,
+                as_of=date(2026, 4, 30),
+            )
+
+        assert response.status_code == 303
+        assert f"/fixed-assets/reports/gl-reconciliation/packages/{run_id}" in (
+            response.headers["location"]
+        )
+        create_package.assert_called_once_with(
+            mock_db,
+            org_id,
+            as_of=date(2026, 4, 30),
+            requested_by_user_id=user_id,
+            submit_for_approval=True,
+        )
+
+    def test_approve_package_response_uses_approval_workflow(self):
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        approval_request_id = uuid.uuid4()
+        run = SimpleNamespace(
+            run_id=run_id,
+            organization_id=org_id,
+            approval_request_id=approval_request_id,
+        )
+        mock_db = MagicMock()
+        mock_db.get.return_value = run
+
+        with patch(
+            "app.services.fixed_assets.web.ApprovalWorkflowService.approve"
+        ) as approve:
+            response = (
+                FixedAssetWebService.approve_gl_reconciliation_package_response(
+                    mock_db,
+                    str(org_id),
+                    str(run_id),
+                    user_id,
+                    comments="Reviewed",
+                )
+            )
+
+        assert response.status_code == 303
+        assert "success=Approval+recorded" in response.headers["location"]
+        approve.assert_called_once_with(
+            mock_db,
+            approval_request_id,
+            user_id,
+            comments="Reviewed",
+        )
+
+    def test_approve_package_response_redirects_with_error_when_not_eligible(self):
+        from fastapi import HTTPException
+
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        approval_request_id = uuid.uuid4()
+        run = SimpleNamespace(
+            run_id=run_id,
+            organization_id=org_id,
+            approval_request_id=approval_request_id,
+        )
+        mock_db = MagicMock()
+        mock_db.get.return_value = run
+
+        with patch(
+            "app.services.fixed_assets.web.ApprovalWorkflowService.approve",
+            side_effect=HTTPException(
+                status_code=403,
+                detail="User is not eligible to approve this level",
+            ),
+        ):
+            response = (
+                FixedAssetWebService.approve_gl_reconciliation_package_response(
+                    mock_db,
+                    str(org_id),
+                    str(run_id),
+                    user_id,
+                )
+            )
+
+        assert response.status_code == 303
+        assert f"/fixed-assets/reports/gl-reconciliation/packages/{run_id}" in (
+            response.headers["location"]
+        )
+        assert "User%20is%20not%20eligible%20to%20approve%20this%20level" in (
+            response.headers["location"]
+        )
+
+    def test_approval_current_level_label_uses_role_name(self):
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        role_id = uuid.uuid4()
+        mock_db = MagicMock()
+        mock_db.get.return_value = SimpleNamespace(name="finance_manager")
+        approval = SimpleNamespace(
+            current_level=1,
+            workflow=SimpleNamespace(
+                approval_levels=[
+                    {
+                        "approver_type": "ROLE",
+                        "approver_id": str(role_id),
+                    }
+                ]
+            ),
+        )
+
+        result = FixedAssetWebService._approval_current_level_label(
+            mock_db,
+            approval,
+        )
+
+        assert result == "Finance Manager"
+
+    def test_create_draft_journal_response_redirects_to_package_detail(self):
+        from app.services.fixed_assets.web import FixedAssetWebService
+
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        journal = SimpleNamespace(journal_number="JE-202604-0001")
+        mock_db = MagicMock()
+
+        with patch(
+            "app.services.fixed_assets.reconciliation."
+            "FixedAssetGLReconciliationPackageService."
+            "create_draft_correction_journal",
+            return_value=journal,
+        ) as create_draft:
+            response = (
+                FixedAssetWebService.create_gl_reconciliation_draft_journal_response(
+                    mock_db,
+                    str(org_id),
+                    str(run_id),
+                    user_id,
+                )
+            )
+
+        assert response.status_code == 303
+        assert f"/fixed-assets/reports/gl-reconciliation/packages/{run_id}" in (
+            response.headers["location"]
+        )
+        create_draft.assert_called_once_with(
+            mock_db,
+            org_id,
+            run_id,
+            created_by_user_id=user_id,
+        )

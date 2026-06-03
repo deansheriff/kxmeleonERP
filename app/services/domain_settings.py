@@ -1,16 +1,19 @@
 import builtins
 import logging
+from contextlib import nullcontext
 from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.db.session_context import allow_cross_org
 from app.models.domain_settings import (
     DomainSetting,
     DomainSettingHistory,
     SettingChangeAction,
     SettingDomain,
+    SettingScope,
     SettingValueType,
 )
 from app.schemas.settings import DomainSettingCreate, DomainSettingUpdate
@@ -239,6 +242,13 @@ class DomainSettings(ListResponseMixin):
     ) -> DomainSetting:
         data = payload.model_dump()
         data["domain"] = self._resolve_domain(payload.domain)
+        if (
+            not data.get("organization_id")
+            and not db.info.get("allow_cross_org")
+            and db.info.get("organization_id")
+        ):
+            data["organization_id"] = db.info["organization_id"]
+            data["scope"] = SettingScope.ORG_SPECIFIC
         value_type = data.get("value_type") or SettingValueType.string
         value_text, value_json = _normalize_setting_values(
             value_type, data.get("value_text"), data.get("value_json")
@@ -508,24 +518,30 @@ class DomainSettings(ListResponseMixin):
     ) -> DomainSetting:
         if not self.domain:
             raise HTTPException(status_code=400, detail="Setting domain is required")
-        existing = db.scalar(
-            select(DomainSetting).where(
-                DomainSetting.domain == self.domain,
-                DomainSetting.key == key,
+        tenant_context = (
+            nullcontext()
+            if db.info.get("organization_id") or db.info.get("allow_cross_org")
+            else allow_cross_org(db)
+        )
+        with tenant_context:
+            existing = db.scalar(
+                select(DomainSetting).where(
+                    DomainSetting.domain == self.domain,
+                    DomainSetting.key == key,
+                )
             )
-        )
-        if existing:
-            return existing
-        payload = DomainSettingCreate(
-            domain=self.domain,
-            key=key,
-            value_type=value_type,
-            value_text=value_text,
-            value_json=value_json,
-            is_secret=is_secret,
-            is_active=True,
-        )
-        return self.create(db, payload)
+            if existing:
+                return existing
+            payload = DomainSettingCreate(
+                domain=self.domain,
+                key=key,
+                value_type=value_type,
+                value_text=value_text,
+                value_json=value_json,
+                is_secret=is_secret,
+                is_active=True,
+            )
+            return self.create(db, payload)
 
     def delete(
         self,

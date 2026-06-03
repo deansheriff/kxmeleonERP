@@ -1,0 +1,105 @@
+{% extends "fixed_assets/base_fixed_assets.html" %}
+{% from "components/macros.html" import icon_svg, empty_state, status_badge %}
+
+{% block page_title %}GL Reconciliation Packages{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/fixed-assets" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Asset Management</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/fixed-assets/reports" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Reports</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/fixed-assets/reports/gl-reconciliation" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">GL Reconciliation</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">Packages</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block header_actions %}
+<div class="inline-flex flex-wrap items-center gap-2">
+    <form method="post" action="/fixed-assets/reports/gl-reconciliation/packages" class="inline-flex items-center gap-2">
+        {{ request.state.csrf_form | safe }}
+        <input aria-label="As of date" type="date" name="as_of" class="form-input h-10 w-40">
+        <button type="submit" class="btn btn-primary">
+            {{ icon_svg("plus", "h-4 w-4 mr-2") }}
+            Create Package
+        </button>
+    </form>
+    <a href="/fixed-assets/reports/gl-reconciliation" class="btn btn-secondary">
+        {{ icon_svg("scale", "h-4 w-4 mr-2") }}
+        Live Report
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+{% macro money(value) -%}
+    <span class="font-mono tabular-nums">{{ currency_prefix }}{{ "{:,.2f}".format(value or 0) }}</span>
+{%- endmacro %}
+
+<div class="space-y-6 stagger-in">
+    <div class="card p-5">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+                <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Reconciliation Packages</h2>
+                <p class="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-300">Captured evidence packages for fixed asset register to GL reconciliation variances.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card overflow-hidden">
+        {% if packages %}
+        <div class="overflow-x-auto">
+            <table class="w-full min-w-[1080px] divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-800/70">
+                    <tr>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">As Of</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Package</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Variance</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Exceptions</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Approval</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Draft Journal</th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                    {% for item in packages %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td class="px-4 py-3 align-top font-mono text-slate-700 dark:text-slate-200">{{ item.as_of_date }}</td>
+                        <td class="px-4 py-3 align-top">
+                            <div class="font-medium text-slate-900 dark:text-white">{{ status_badge(item.status, "sm") }}</div>
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ item.asset_count }} assets across {{ item.category_count }} mappings</p>
+                        </td>
+                        <td class="px-4 py-3 text-right align-top">{{ money(item.total_variance_abs) }}</td>
+                        <td class="px-4 py-3 text-right align-top font-mono">{{ item.exception_count }}</td>
+                        <td class="px-4 py-3 align-top">
+                            {% if item.approval_status %}
+                                {{ status_badge(item.approval_status, "sm") }}
+                            {% else %}
+                                <span class="text-slate-400">Not submitted</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 align-top">
+                            {% if item.journal_entry_id %}
+                                <a href="/finance/gl/journals/{{ item.journal_entry_id }}" class="font-mono text-teal-700 hover:text-teal-900 dark:text-teal-300 dark:hover:text-teal-100">{{ item.journal_number }}</a>
+                                <div class="mt-1">{{ status_badge(item.journal_status, "sm") }}</div>
+                            {% else %}
+                                <span class="text-slate-400">None</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right align-top">
+                            <a href="/fixed-assets/reports/gl-reconciliation/packages/{{ item.run_id }}" class="btn btn-secondary btn-sm">
+                                {{ icon_svg("eye", "h-4 w-4 mr-1") }}
+                                Review
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        {{ empty_state("No packages yet", "Create a package from the live reconciliation report to route variances for approval.", "clipboard-list") }}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

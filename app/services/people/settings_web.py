@@ -22,6 +22,12 @@ from app.services.people.hr.invite_attachment import (
     get_default_invite_attachment_metadata,
     set_default_invite_attachment_metadata,
 )
+from app.services.people.hr.invite_email import (
+    EMPLOYEE_INVITE_NEXT_URL,
+    default_employee_invite_email_template,
+    get_employee_invite_email_template,
+    set_employee_invite_email_template,
+)
 from app.rls import tenant_context
 from app.services.storage import get_storage
 
@@ -88,6 +94,46 @@ COMMON_TIMEZONES = [
 class PeopleSettingsWebService:
     """Service for People/HR Settings UI."""
 
+    def get_employee_invite_email_context(
+        self,
+        db: Session,
+        organization_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Return editable employee access invite email copy and delivery rules."""
+        sample_name = "New Employee"
+        sample_link = (
+            "https://your-erp-domain/reset-password?token=<secure-token>"
+            f"&next={EMPLOYEE_INVITE_NEXT_URL}"
+        )
+        template = get_employee_invite_email_template(db, organization_id)
+        defaults = default_employee_invite_email_template()
+        return {
+            **template,
+            "default_subject": defaults["subject"],
+            "default_body_html": defaults["body_html"],
+            "default_body_text": defaults["body_text"],
+            "sample_name": sample_name,
+            "sample_link": sample_link,
+            "link_pattern": (
+                "{app_url}/reset-password?token=<secure-token>"
+                f"&next={EMPLOYEE_INVITE_NEXT_URL}"
+            ),
+            "app_url_source": (
+                "APP_URL environment value when configured, otherwise the current "
+                "request scheme and host."
+            ),
+            "next_url": EMPLOYEE_INVITE_NEXT_URL,
+            "recipients": (
+                "Work email first. Personal email is also sent when it exists and "
+                "differs from the work email."
+            ),
+            "email_module": "ADMIN",
+            "attachment": (
+                "The configured welcome pack below is attached automatically. "
+                "If the file cannot be loaded, the invite still sends without it."
+            ),
+        }
+
     # ========== HR Settings ==========
 
     async def get_hr_settings_context(
@@ -150,6 +196,22 @@ class PeopleSettingsWebService:
         organization_id: uuid.UUID,
     ) -> dict[str, Any] | None:
         return get_default_invite_attachment_metadata(db, organization_id)
+
+    def update_employee_invite_email_template(
+        self,
+        db: Session,
+        organization_id: uuid.UUID,
+        data: dict[str, Any],
+    ) -> tuple[bool, str | None]:
+        set_employee_invite_email_template(
+            db,
+            organization_id,
+            subject=str(data.get("employee_invite_subject") or ""),
+            body_html=str(data.get("employee_invite_body_html") or ""),
+            body_text=str(data.get("employee_invite_body_text") or ""),
+        )
+        db.commit()
+        return True, None
 
     async def update_hr_settings(
         self,

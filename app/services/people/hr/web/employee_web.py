@@ -51,6 +51,7 @@ from app.net import get_request_host, get_request_scheme
 from app.schemas.person import PersonUpdate
 from app.services.common import PaginationParams, ServiceError, coerce_uuid
 from app.services.common_filters import build_active_filters
+from app.services.fixed_assets.asset_query import list_employee_assigned_assets
 from app.services.formatters import parse_bool
 from app.services.people.attendance.attendance_service import AttendanceService
 from app.services.people.hr import (
@@ -2233,6 +2234,13 @@ class HRWebService:
             org_id, employee.employee_id
         )
 
+        can_view_assigned_assets = auth.has_module_access("fixed_assets")
+        assigned_assets = (
+            list_employee_assigned_assets(db, org_id, employee.employee_id)
+            if can_view_assigned_assets
+            else []
+        )
+
         return {
             **base_context(request, auth, "Employee Details", "employees"),
             "employee": employee,
@@ -2254,6 +2262,8 @@ class HRWebService:
             "salary_assignments": salary_assignments,
             "tax_profile": tax_profile,
             "onboarding": onboarding,
+            "assigned_assets": assigned_assets,
+            "can_view_assigned_assets": can_view_assigned_assets,
             "can_manage_final_payroll": self._can_manage_final_payroll(auth),
         }
 

@@ -269,6 +269,7 @@ class MockSettings:
     captcha_secret_key = None
     # App URL
     app_url = "http://localhost:8000"
+    app_version = "test"
     # CRM webhook secret
     crm_webhook_secret = None
     # SSO settings
@@ -277,7 +278,7 @@ class MockSettings:
     sso_provider_url = None
     sso_jwt_secret = None
     sso_cookie_domain = None
-    # Multi-org session listener (Phase 1; default off in tests)
+    # Multi-org session listener defaults on; tests keep the same posture.
     enforce_org_filter = True
     # Coach / Intelligence Engine
     coach_enabled = False
@@ -328,6 +329,15 @@ mock_config_module.Settings = MockSettings
 sys.modules["app.config"] = mock_config_module
 sys.modules["app.db"] = mock_db_module
 sys.modules["app.rls"] = mock_rls_module
+
+# If the parent package has already been imported, make dotted patch targets
+# such as ``app.db.session_context.prime_session`` resolvable against the
+# mocked package module. ``sys.modules["app.db"]`` alone is not enough for
+# unittest.mock's attribute walk.
+import app as _app_package  # noqa: E402
+
+_app_package.db = mock_db_module
+_app_package.rls = mock_rls_module
 
 # Set environment variables
 os.environ["JWT_SECRET"] = "test-secret"

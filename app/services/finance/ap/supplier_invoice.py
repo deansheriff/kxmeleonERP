@@ -84,6 +84,10 @@ class InvoiceLineInput:
     project_id: UUID | None = None
     segment_id: UUID | None = None
     capitalize_flag: bool = False
+    receipt_warehouse_id: UUID | None = None
+    receipt_reference: str | None = None
+    receipt_serial_numbers: list[str] | None = None
+    receipt_auto_generate_serials: bool = False
 
 
 @dataclass
@@ -107,6 +111,7 @@ class SupplierInvoiceInput:
     intercompany_org_id: UUID | None = None
     correlation_id: str | None = None
     wht_code_id: UUID | None = None
+    auto_create_inventory_receipt: bool = False
 
 
 class SupplierInvoiceService(ListResponseMixin):
@@ -134,6 +139,27 @@ class SupplierInvoiceService(ListResponseMixin):
 
         lines_data = parse_json_list(payload.get("lines"), "Lines")
         lines: list[InvoiceLineInput] = []
+
+        def _parse_bool(value: object) -> bool:
+            if isinstance(value, bool):
+                return value
+            if value is None:
+                return False
+            return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+        def _parse_serial_numbers(value: object) -> list[str] | None:
+            if value in (None, ""):
+                return None
+            if isinstance(value, list):
+                serials = [str(serial).strip() for serial in value if str(serial).strip()]
+                return serials or None
+            serials = [
+                serial.strip()
+                for chunk in str(value).splitlines()
+                for serial in chunk.split(",")
+                if serial.strip()
+            ]
+            return serials or None
 
         for line in lines_data:
             if not line.get("expense_account_id") or not line.get("description"):
@@ -170,6 +196,17 @@ class SupplierInvoiceService(ListResponseMixin):
                     project_id=coerce_uuid(line.get("project_id"))
                     if line.get("project_id")
                     else None,
+                    receipt_warehouse_id=coerce_uuid(line.get("receipt_warehouse_id"))
+                    if line.get("receipt_warehouse_id")
+                    else None,
+                    receipt_reference=(line.get("receipt_reference") or "").strip()
+                    or None,
+                    receipt_serial_numbers=_parse_serial_numbers(
+                        line.get("receipt_serial_numbers")
+                    ),
+                    receipt_auto_generate_serials=_parse_bool(
+                        line.get("receipt_auto_generate_serials")
+                    ),
                 )
             )
 
@@ -213,6 +250,9 @@ class SupplierInvoiceService(ListResponseMixin):
             supplier_invoice_number=payload.get("invoice_number") or None,
             lines=lines,
             wht_code_id=wht_code_id,
+            auto_create_inventory_receipt=_parse_bool(
+                payload.get("auto_create_inventory_receipt")
+            ),
         )
 
     @staticmethod
@@ -457,6 +497,7 @@ class SupplierInvoiceService(ListResponseMixin):
             status=SupplierInvoiceStatus.DRAFT,
             ap_control_account_id=supplier.ap_control_account_id,
             is_prepayment=input.is_prepayment,
+            auto_create_inventory_receipt=input.auto_create_inventory_receipt,
             is_intercompany=input.is_intercompany,
             intercompany_org_id=input.intercompany_org_id,
             withholding_tax_amount=wht_amount,
@@ -514,6 +555,10 @@ class SupplierInvoiceService(ListResponseMixin):
                 project_id=line_input.project_id,
                 segment_id=line_input.segment_id,
                 capitalize_flag=line_input.capitalize_flag,
+                receipt_warehouse_id=line_input.receipt_warehouse_id,
+                receipt_reference=line_input.receipt_reference,
+                receipt_serial_numbers=line_input.receipt_serial_numbers,
+                receipt_auto_generate_serials=line_input.receipt_auto_generate_serials,
             )
             db.add(invoice_line)
             db.flush()  # Get line_id for tax records
@@ -684,6 +729,7 @@ class SupplierInvoiceService(ListResponseMixin):
         invoice.total_amount = total_amount
         invoice.functional_currency_amount = functional_amount
         invoice.is_prepayment = input.is_prepayment
+        invoice.auto_create_inventory_receipt = input.auto_create_inventory_receipt
         invoice.is_intercompany = input.is_intercompany
         invoice.intercompany_org_id = input.intercompany_org_id
 
@@ -766,6 +812,10 @@ class SupplierInvoiceService(ListResponseMixin):
                 project_id=line_input.project_id,
                 segment_id=line_input.segment_id,
                 capitalize_flag=line_input.capitalize_flag,
+                receipt_warehouse_id=line_input.receipt_warehouse_id,
+                receipt_reference=line_input.receipt_reference,
+                receipt_serial_numbers=line_input.receipt_serial_numbers,
+                receipt_auto_generate_serials=line_input.receipt_auto_generate_serials,
             )
             db.add(invoice_line)
             db.flush()
@@ -836,6 +886,18 @@ class SupplierInvoiceService(ListResponseMixin):
         invoice.status = SupplierInvoiceStatus.SUBMITTED
         invoice.submitted_by_user_id = user_id
         invoice.submitted_at = datetime.now(UTC)
+
+        if getattr(invoice, "auto_create_inventory_receipt", False):
+            from app.services.finance.ap.auto_inventory_receipt import (
+                ap_invoice_auto_receipt_service,
+            )
+
+            ap_invoice_auto_receipt_service.create_for_invoice(
+                db=db,
+                organization_id=org_id,
+                invoice_id=inv_id,
+                created_by_user_id=user_id,
+            )
 
         try:
             from app.services.finance.automation.event_dispatcher import (

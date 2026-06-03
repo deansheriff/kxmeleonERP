@@ -166,6 +166,11 @@ def journal_entry_view(entry: JournalEntry) -> dict:
         "description": entry.description,
         "reference": entry.reference,
         "status": entry.status.value,
+        "source_module": entry.source_module,
+        "source_document_type": entry.source_document_type,
+        "source_document_id": str(entry.source_document_id)
+        if entry.source_document_id
+        else "",
         "total_debit": float(entry.total_debit)
         if entry.total_debit is not None
         else 0.0,

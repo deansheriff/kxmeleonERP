@@ -14,6 +14,10 @@ from app.models.fixed_assets.depreciation_run import (
     DepreciationRunStatus,
 )
 from app.models.fixed_assets.depreciation_schedule import DepreciationSchedule
+from app.models.fixed_assets.gl_reconciliation import (
+    FixedAssetGLReconciliationException,
+    FixedAssetGLReconciliationRun,
+)
 from app.models.fixed_assets.maintenance_request import (
     MaintenancePriority,
     MaintenanceRequest,
@@ -35,6 +39,8 @@ __all__ = [
     "DepreciationRun",
     "DepreciationRunStatus",
     "DepreciationSchedule",
+    "FixedAssetGLReconciliationException",
+    "FixedAssetGLReconciliationRun",
     "AssetRevaluation",
     "CashGeneratingUnit",
     "AssetImpairment",

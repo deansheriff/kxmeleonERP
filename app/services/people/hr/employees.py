@@ -49,6 +49,10 @@ from app.services.audit_dispatcher import fire_audit_event
 from app.services.auth_flow import hash_password, request_password_reset
 from app.services.common import PaginatedResult, PaginationParams, paginate
 from app.services.email import send_password_reset_email
+from app.services.people.hr.invite_email import (
+    EMPLOYEE_INVITE_NEXT_URL,
+    get_employee_invite_email_template,
+)
 from app.services.people.hr.invite_attachment import load_default_invite_attachment
 from app.services.people.hr.org_resolver import OrgResolver
 
@@ -934,6 +938,10 @@ class EmployeeService:
                 default_attachment = None
             attachments = [default_attachment] if default_attachment else None
 
+        email_template = get_employee_invite_email_template(
+            self.db,
+            self.organization_id,
+        )
         sent = False
         for recipient in recipients:
             sent = (
@@ -944,8 +952,9 @@ class EmployeeService:
                     person_name=invite["person_name"],
                     app_url=app_url,
                     organization_id=invite.get("organization_id"),
-                    next_url="/people/self/tax-info",
+                    next_url=EMPLOYEE_INVITE_NEXT_URL,
                     attachments=attachments,
+                    email_template=email_template,
                 )
                 or sent
             )

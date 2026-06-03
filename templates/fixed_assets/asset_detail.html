@@ -90,6 +90,27 @@
                 <span class="font-semibold text-slate-900 dark:text-white">{{ asset.net_book_value or "-" }}</span>
             </div>
         </div>
+
+        <div class="card p-6 space-y-3">
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Assignment</h3>
+            <div class="flex items-center justify-between gap-4 text-sm">
+                <span class="text-slate-500 dark:text-slate-400">Current Holder</span>
+                <span class="text-right text-slate-900 dark:text-white">
+                    {% if asset.assigned_employee %}
+                        {% if asset.can_open_employee_profile %}
+                        <a href="/people/hr/employees/{{ asset.assigned_employee.employee_id }}" class="font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300">
+                            {{ asset.assigned_employee.name }}
+                        </a>
+                        {% else %}
+                        {{ asset.assigned_employee.name }}
+                        {% endif %}
+                        <span class="block text-xs text-slate-500 dark:text-slate-400">{{ asset.assigned_employee.employee_code }}</span>
+                    {% else %}
+                    -
+                    {% endif %}
+                </span>
+            </div>
+        </div>
     </div>
 
     <div class="card p-6">

@@ -31,6 +31,12 @@ from app.models.finance.gl.account import Account
 from app.models.finance.gl.fiscal_period import FiscalPeriod, PeriodStatus
 from app.models.finance.gl.journal_entry import JournalEntry, JournalStatus
 from app.models.finance.gl.journal_entry_line import JournalEntryLine
+from app.models.finance.audit.approval_request import ApprovalRequest
+from app.models.finance.audit.approval_decision import ApprovalDecision
+from app.models.fixed_assets.gl_reconciliation import (
+    FixedAssetGLReconciliationException,
+    FixedAssetGLReconciliationRun,
+)
 from app.models.fixed_assets.asset import Asset, AssetStatus
 from app.models.fixed_assets.asset_category import AssetCategory, DepreciationMethod
 from app.models.fixed_assets.maintenance_request import (
@@ -51,6 +57,7 @@ from app.services.common import coerce_uuid
 from app.services.common_filters import build_active_filters
 from app.services.finance.platform.currency_context import get_currency_context
 from app.services.finance.platform.org_context import org_context_service
+from app.services.finance.platform.approval_workflow import ApprovalWorkflowService
 from app.services.fixed_assets.asset import (
     AssetCategoryInput,
     AssetInput,
@@ -293,6 +300,50 @@ class FixedAssetWebService:
         report_date = as_of or date.today()
         tolerance = Decimal("0.01")
 
+        posted_depreciation_candidates = (
+            select(
+                DepreciationSchedule.asset_id.label("asset_id"),
+                DepreciationSchedule.accumulated_depreciation_closing.label(
+                    "as_of_accumulated_depreciation"
+                ),
+                DepreciationSchedule.net_book_value_closing.label("as_of_nbv"),
+                func.row_number()
+                .over(
+                    partition_by=DepreciationSchedule.asset_id,
+                    order_by=(
+                        FiscalPeriod.end_date.desc(),
+                        DepreciationSchedule.created_at.desc(),
+                        DepreciationSchedule.schedule_id.desc(),
+                    ),
+                )
+                .label("row_number"),
+            )
+            .join(
+                DepreciationRun,
+                DepreciationRun.run_id == DepreciationSchedule.run_id,
+            )
+            .join(
+                FiscalPeriod,
+                FiscalPeriod.fiscal_period_id == DepreciationRun.fiscal_period_id,
+            )
+            .where(
+                DepreciationRun.organization_id == org_id,
+                DepreciationRun.status == DepreciationRunStatus.POSTED,
+                FiscalPeriod.organization_id == org_id,
+                FiscalPeriod.end_date <= report_date,
+            )
+            .subquery()
+        )
+        posted_depreciation = (
+            select(
+                posted_depreciation_candidates.c.asset_id,
+                posted_depreciation_candidates.c.as_of_accumulated_depreciation,
+                posted_depreciation_candidates.c.as_of_nbv,
+            )
+            .where(posted_depreciation_candidates.c.row_number == 1)
+            .subquery()
+        )
+
         category_rows = db.execute(
             select(
                 AssetCategory.asset_account_id,
@@ -312,10 +363,24 @@ class FixedAssetWebService:
                 func.coalesce(func.sum(Asset.functional_currency_cost), 0).label(
                     "register_cost"
                 ),
-                func.coalesce(func.sum(Asset.accumulated_depreciation), 0).label(
-                    "register_accumulated_depreciation"
-                ),
-                func.coalesce(func.sum(Asset.net_book_value), 0).label("register_nbv"),
+                func.coalesce(
+                    func.sum(
+                        func.coalesce(
+                            posted_depreciation.c.as_of_accumulated_depreciation,
+                            0,
+                        )
+                    ),
+                    0,
+                ).label("register_accumulated_depreciation"),
+                func.coalesce(
+                    func.sum(
+                        func.coalesce(
+                            posted_depreciation.c.as_of_nbv,
+                            Asset.functional_currency_cost,
+                        )
+                    ),
+                    0,
+                ).label("register_nbv"),
             )
             .outerjoin(
                 Asset,
@@ -328,6 +393,10 @@ class FixedAssetWebService:
                         | (Asset.disposal_date > report_date)
                     ),
                 ),
+            )
+            .outerjoin(
+                posted_depreciation,
+                posted_depreciation.c.asset_id == Asset.asset_id,
             )
             .where(AssetCategory.organization_id == org_id)
             .where(AssetCategory.is_active.is_(True))
@@ -548,6 +617,406 @@ class FixedAssetWebService:
             "is_balanced": total_variance_abs <= tolerance,
             "currency_prefix": currency_prefix,
         }
+
+    @staticmethod
+    def gl_reconciliation_packages_context(
+        db: Session,
+        organization_id: str,
+    ) -> dict[str, object]:
+        """Build context for persisted FA GL reconciliation packages."""
+        org_id = coerce_uuid(organization_id)
+        currency_context = get_currency_context(db, str(org_id))
+        currency_code = currency_context.get("presentation_currency_code") or (
+            currency_context.get("default_currency_code") or ""
+        )
+        currency_prefix = next(
+            (
+                currency.get("symbol") or ""
+                for currency in currency_context.get("currencies", [])
+                if currency.get("code") == currency_code
+            ),
+            "",
+        )
+
+        rows = db.execute(
+            select(
+                FixedAssetGLReconciliationRun,
+                ApprovalRequest.status.label("approval_status"),
+                JournalEntry.journal_number.label("journal_number"),
+                JournalEntry.status.label("journal_status"),
+                func.count(FixedAssetGLReconciliationException.exception_id).label(
+                    "exception_count"
+                ),
+            )
+            .outerjoin(
+                ApprovalRequest,
+                ApprovalRequest.request_id
+                == FixedAssetGLReconciliationRun.approval_request_id,
+            )
+            .outerjoin(
+                JournalEntry,
+                JournalEntry.journal_entry_id
+                == FixedAssetGLReconciliationRun.proposed_journal_entry_id,
+            )
+            .outerjoin(
+                FixedAssetGLReconciliationException,
+                FixedAssetGLReconciliationException.run_id
+                == FixedAssetGLReconciliationRun.run_id,
+            )
+            .where(FixedAssetGLReconciliationRun.organization_id == org_id)
+            .group_by(
+                FixedAssetGLReconciliationRun.run_id,
+                ApprovalRequest.status,
+                JournalEntry.journal_number,
+                JournalEntry.status,
+            )
+            .order_by(FixedAssetGLReconciliationRun.created_at.desc())
+            .limit(50)
+        ).all()
+
+        packages = []
+        for row in rows:
+            run = row[0]
+            packages.append(
+                {
+                    "run_id": str(run.run_id),
+                    "as_of_date": run.as_of_date,
+                    "status": run.status,
+                    "approval_status": FixedAssetWebService._enum_value(
+                        row.approval_status
+                    ),
+                    "approval_request_id": (
+                        str(run.approval_request_id)
+                        if run.approval_request_id
+                        else None
+                    ),
+                    "journal_entry_id": (
+                        str(run.proposed_journal_entry_id)
+                        if run.proposed_journal_entry_id
+                        else None
+                    ),
+                    "journal_number": row.journal_number,
+                    "journal_status": FixedAssetWebService._enum_value(
+                        row.journal_status
+                    ),
+                    "category_count": run.category_count,
+                    "asset_count": run.asset_count,
+                    "exception_count": int(row.exception_count or 0),
+                    "total_variance_abs": run.total_variance_abs,
+                    "nbv_variance": run.nbv_variance,
+                    "created_at": run.created_at,
+                }
+            )
+
+        return {
+            "packages": packages,
+            "currency_prefix": currency_prefix,
+        }
+
+    @staticmethod
+    def gl_reconciliation_package_detail_context(
+        db: Session,
+        organization_id: str,
+        run_id: str,
+        *,
+        current_user_id: UUID | None = None,
+    ) -> dict[str, object]:
+        """Build context for a persisted FA GL reconciliation package."""
+        org_id = coerce_uuid(organization_id)
+        r_id = coerce_uuid(run_id)
+        run = db.get(FixedAssetGLReconciliationRun, r_id)
+        if not run or run.organization_id != org_id:
+            raise HTTPException(
+                status_code=404,
+                detail="Fixed asset GL reconciliation package not found",
+            )
+
+        approval = (
+            db.get(ApprovalRequest, run.approval_request_id)
+            if run.approval_request_id
+            else None
+        )
+        journal = (
+            db.get(JournalEntry, run.proposed_journal_entry_id)
+            if run.proposed_journal_entry_id
+            else None
+        )
+        exceptions = list(
+            db.scalars(
+                select(FixedAssetGLReconciliationException)
+                .where(
+                    FixedAssetGLReconciliationException.organization_id == org_id,
+                    FixedAssetGLReconciliationException.run_id == run.run_id,
+                )
+                .order_by(FixedAssetGLReconciliationException.created_at.asc())
+            ).all()
+        )
+        decisions = []
+        if approval:
+            decisions = list(
+                db.scalars(
+                    select(ApprovalDecision)
+                    .where(ApprovalDecision.request_id == approval.request_id)
+                    .order_by(ApprovalDecision.decided_at.asc())
+                ).all()
+            )
+
+        can_approve = False
+        approval_block_reason = None
+        current_approver_label = None
+        approval_detail = None
+        if approval and current_user_id:
+            try:
+                approval_detail = ApprovalWorkflowService.get_approval_status(
+                    db,
+                    approval.request_id,
+                )
+                current_approver_label = (
+                    FixedAssetWebService._approval_current_level_label(db, approval)
+                )
+                if approval_detail.can_approve:
+                    can_approve, approval_block_reason = (
+                        ApprovalWorkflowService._is_user_allowed_for_request(
+                            db,
+                            approval,
+                            current_user_id,
+                        )
+                    )
+            except HTTPException:
+                can_approve = False
+
+        currency_context = get_currency_context(db, str(org_id))
+        currency_code = currency_context.get("presentation_currency_code") or (
+            currency_context.get("default_currency_code") or ""
+        )
+        currency_prefix = next(
+            (
+                currency.get("symbol") or ""
+                for currency in currency_context.get("currencies", [])
+                if currency.get("code") == currency_code
+            ),
+            "",
+        )
+
+        return {
+            "package": run,
+            "approval": approval,
+            "approval_detail": approval_detail,
+            "journal": journal,
+            "exceptions": exceptions,
+            "decisions": decisions,
+            "can_approve": can_approve,
+            "approval_block_reason": approval_block_reason,
+            "current_approver_label": current_approver_label,
+            "currency_prefix": currency_prefix,
+        }
+
+    @staticmethod
+    def _approval_current_level_label(
+        db: Session,
+        approval: ApprovalRequest,
+    ) -> str | None:
+        """Return a human-readable label for the current approval level."""
+        workflow = approval.workflow
+        if not workflow or not workflow.approval_levels:
+            return None
+        if approval.current_level < 1 or approval.current_level > len(
+            workflow.approval_levels
+        ):
+            return None
+
+        level_config = workflow.approval_levels[approval.current_level - 1]
+        approver_type = level_config.get("approver_type")
+        approver_id = level_config.get("approver_id")
+        if approver_type == "ROLE" and approver_id:
+            from app.models.rbac import Role
+
+            role = db.get(Role, coerce_uuid(approver_id))
+            if role:
+                return role.name.replace("_", " ").title()
+        if approver_type == "USER":
+            return "Configured Approver"
+        return None
+
+    @staticmethod
+    def create_gl_reconciliation_package_response(
+        db: Session,
+        organization_id: str,
+        current_user_id: UUID,
+        as_of: date | None = None,
+    ) -> RedirectResponse:
+        """Create a reconciliation package and redirect to its detail page."""
+        from app.services.fixed_assets.reconciliation import (
+            FixedAssetGLReconciliationPackageService,
+        )
+
+        try:
+            package = FixedAssetGLReconciliationPackageService.create_package(
+                db,
+                coerce_uuid(organization_id),
+                as_of=as_of,
+                requested_by_user_id=current_user_id,
+                submit_for_approval=True,
+            )
+            return RedirectResponse(
+                url=(
+                    "/fixed-assets/reports/gl-reconciliation/packages/"
+                    f"{package.run_id}?success=Package+created"
+                ),
+                status_code=303,
+            )
+        except HTTPException as exc:
+            return RedirectResponse(
+                url=(
+                    "/fixed-assets/reports/gl-reconciliation/packages"
+                    f"?error={quote(str(exc.detail))}"
+                ),
+                status_code=303,
+            )
+
+    @staticmethod
+    def approve_gl_reconciliation_package_response(
+        db: Session,
+        organization_id: str,
+        run_id: str,
+        current_user_id: UUID,
+        comments: str | None = None,
+    ) -> RedirectResponse:
+        """Approve one level of a reconciliation package approval request."""
+        try:
+            run = FixedAssetWebService._get_reconciliation_run(
+                db,
+                organization_id,
+                run_id,
+            )
+            if not run.approval_request_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Package has no approval request",
+                )
+            ApprovalWorkflowService.approve(
+                db,
+                run.approval_request_id,
+                current_user_id,
+                comments=comments,
+            )
+            return RedirectResponse(
+                url=(
+                    "/fixed-assets/reports/gl-reconciliation/packages/"
+                    f"{run.run_id}?success=Approval+recorded"
+                ),
+                status_code=303,
+            )
+        except HTTPException as exc:
+            return RedirectResponse(
+                url=(
+                    "/fixed-assets/reports/gl-reconciliation/packages/"
+                    f"{run_id}?error={quote(str(exc.detail))}"
+                ),
+                status_code=303,
+            )
+
+    @staticmethod
+    def reject_gl_reconciliation_package_response(
+        db: Session,
+        organization_id: str,
+        run_id: str,
+        current_user_id: UUID,
+        comments: str,
+    ) -> RedirectResponse:
+        """Reject a reconciliation package approval request."""
+        try:
+            run = FixedAssetWebService._get_reconciliation_run(
+                db,
+                organization_id,
+                run_id,
+            )
+            if not run.approval_request_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Package has no approval request",
+                )
+            ApprovalWorkflowService.reject(
+                db,
+                run.approval_request_id,
+                current_user_id,
+                comments=comments,
+            )
+            return RedirectResponse(
+                url=(
+                    "/fixed-assets/reports/gl-reconciliation/packages/"
+                    f"{run.run_id}?success=Package+rejected"
+                ),
+                status_code=303,
+            )
+        except HTTPException as exc:
+            return RedirectResponse(
+                url=(
+                    "/fixed-assets/reports/gl-reconciliation/packages/"
+                    f"{run_id}?error={quote(str(exc.detail))}"
+                ),
+                status_code=303,
+            )
+
+    @staticmethod
+    def create_gl_reconciliation_draft_journal_response(
+        db: Session,
+        organization_id: str,
+        run_id: str,
+        current_user_id: UUID,
+    ) -> RedirectResponse:
+        """Create a draft correction journal for an approved package."""
+        from app.services.fixed_assets.reconciliation import (
+            FixedAssetGLReconciliationPackageService,
+        )
+
+        try:
+            journal = (
+                FixedAssetGLReconciliationPackageService
+                .create_draft_correction_journal(
+                    db,
+                    coerce_uuid(organization_id),
+                    coerce_uuid(run_id),
+                    created_by_user_id=current_user_id,
+                )
+            )
+            return RedirectResponse(
+                url=(
+                    "/fixed-assets/reports/gl-reconciliation/packages/"
+                    f"{run_id}?success=Draft+journal+{quote(journal.journal_number)}+created"
+                ),
+                status_code=303,
+            )
+        except HTTPException as exc:
+            return RedirectResponse(
+                url=(
+                    "/fixed-assets/reports/gl-reconciliation/packages/"
+                    f"{run_id}?error={quote(str(exc.detail))}"
+                ),
+                status_code=303,
+            )
+
+    @staticmethod
+    def _get_reconciliation_run(
+        db: Session,
+        organization_id: str,
+        run_id: str,
+    ) -> FixedAssetGLReconciliationRun:
+        org_id = coerce_uuid(organization_id)
+        run = db.get(FixedAssetGLReconciliationRun, coerce_uuid(run_id))
+        if not run or run.organization_id != org_id:
+            raise HTTPException(
+                status_code=404,
+                detail="Fixed asset GL reconciliation package not found",
+            )
+        return run
+
+    @staticmethod
+    def _enum_value(value: object) -> str | None:
+        if value is None:
+            return None
+        enum_value = getattr(value, "value", None)
+        return str(enum_value or value)
 
     @staticmethod
     def export_gl_reconciliation_csv_response(
@@ -3021,6 +3490,24 @@ class FixedAssetWebService:
         category = (
             db.get(AssetCategory, asset.category_id) if asset.category_id else None
         )
+        assigned_employee = None
+        if asset.custodian_employee_id:
+            from app.models.people.hr.employee import Employee
+            from app.models.person import Person
+
+            employee = db.scalar(
+                select(Employee).where(
+                    Employee.organization_id == org_id,
+                    Employee.employee_id == asset.custodian_employee_id,
+                )
+            )
+            if employee:
+                person = db.get(Person, employee.person_id)
+                assigned_employee = {
+                    "employee_id": employee.employee_id,
+                    "employee_code": employee.employee_code,
+                    "name": person.name if person else employee.employee_code,
+                }
 
         context = base_context(request, auth, "Asset Details", "fixed_assets")
         context.update(
@@ -3056,6 +3543,8 @@ class FixedAssetWebService:
                     "residual_value": _format_currency(
                         asset.residual_value, asset.currency_code
                     ),
+                    "assigned_employee": assigned_employee,
+                    "can_open_employee_profile": auth.has_module_access("people"),
                 },
             }
         )

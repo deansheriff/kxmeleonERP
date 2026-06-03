@@ -376,8 +376,8 @@ def atomic_operation(db: Session) -> Generator[Session, None, None]:
         raise
 
 
-# Phase 1: org-filter listener is registered only when the env flag is on.
-# Default is OFF — no behavior change. See:
+# Org-filter listener is registered by default. Set ENFORCE_ORG_FILTER=false
+# before import to opt out during an emergency rollback. See:
 #   docs/superpowers/specs/2026-05-10-multi-org-listener-design.md (D5)
 from app.config import settings as _app_settings
 

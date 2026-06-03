@@ -8,10 +8,10 @@ Both API and Web routes can use this service layer.
 import logging
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import UploadFile
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models.finance.banking.bank_account import BankAccount
@@ -102,6 +102,80 @@ class ImportWebService:
         return result[0].account_id if result else None
 
     @staticmethod
+    def _find_account_by_name_patterns(
+        db: Session,
+        org_id: UUID,
+        patterns: list[str],
+    ) -> UUID | None:
+        """Find a deterministic active posting account by name patterns."""
+        if not patterns:
+            return None
+        account = (
+            db.execute(
+                select(Account)
+                .where(
+                    Account.organization_id == org_id,
+                    Account.is_active.is_(True),
+                    or_(
+                        *[
+                            Account.account_name.ilike(f"%{pattern}%")
+                            for pattern in patterns
+                        ]
+                    ),
+                )
+                .order_by(
+                    Account.is_posting_allowed.desc(),
+                    Account.account_code.asc(),
+                )
+            )
+            .scalars()
+            .first()
+        )
+        return account.account_id if account else None
+
+    @staticmethod
+    def _get_item_import_accounts(
+        db: Session,
+        org_id: UUID,
+    ) -> tuple[UUID, UUID, UUID, UUID]:
+        """Resolve default accounts required for imported item categories."""
+        inventory_account = ImportWebService._find_account_by_type(
+            db, org_id, "INVENTORY"
+        ) or ImportWebService._find_account_by_name_patterns(
+            db, org_id, ["inventory", "stock"]
+        )
+        cogs_account = ImportWebService._find_account_by_name_patterns(
+            db, org_id, ["cost of goods", "cost of sales", "cogs"]
+        )
+        revenue_account = ImportWebService._find_account_by_name_patterns(
+            db, org_id, ["sales revenue", "revenue", "sales"]
+        )
+        adjustment_account = ImportWebService._find_account_by_name_patterns(
+            db, org_id, ["inventory adjustment", "stock adjustment", "adjustment"]
+        )
+
+        missing = []
+        if not inventory_account:
+            missing.append("inventory")
+        if not cogs_account:
+            missing.append("COGS")
+        if not revenue_account:
+            missing.append("revenue")
+        if not adjustment_account:
+            missing.append("inventory adjustment")
+        if missing:
+            raise ValueError(
+                "Inventory import requires configured default accounts for: "
+                f"{', '.join(missing)}. Configure accounts or import chart of accounts first."
+            )
+
+        assert inventory_account is not None
+        assert cogs_account is not None
+        assert revenue_account is not None
+        assert adjustment_account is not None
+        return inventory_account, cogs_account, revenue_account, adjustment_account
+
+    @staticmethod
     def _get_importer(entity_type: str, db: Session, config: ImportConfig):
         """Get the appropriate importer for the entity type."""
         org_id = config.organization_id
@@ -130,17 +204,19 @@ class ImportWebService:
             return SupplierImporter(db, config, ap_control_id)
 
         elif entity_type == "items":
-            inv_account = ImportWebService._find_account_by_type(
-                db, org_id, "INVENTORY"
-            )
-            if not inv_account:
-                inv_account = ImportWebService._find_account_by_name_pattern(
-                    db, org_id, "inventory"
-                )
-            if not inv_account:
-                raise ValueError("No inventory account found. Import accounts first.")
+            (
+                inv_account,
+                cogs_account,
+                revenue_account,
+                adjustment_account,
+            ) = ImportWebService._get_item_import_accounts(db, org_id)
             return ItemImporter(
-                db, config, inv_account, inv_account, inv_account, inv_account
+                db,
+                config,
+                inv_account,
+                cogs_account,
+                revenue_account,
+                adjustment_account,
             )
 
         elif entity_type == "assets":
@@ -253,8 +329,19 @@ class ImportWebService:
             try:
                 importer = ImportWebService._get_importer(entity_type, db, config)
             except ValueError:
-                # If we can't get full importer (missing accounts), use AccountImporter for preview
-                importer = AccountImporter(db, config)
+                if entity_type == "items":
+                    placeholder_account = uuid4()
+                    importer = ItemImporter(
+                        db,
+                        config,
+                        placeholder_account,
+                        placeholder_account,
+                        placeholder_account,
+                        placeholder_account,
+                    )
+                else:
+                    # If we can't get full importer, use AccountImporter for preview.
+                    importer = AccountImporter(db, config)
 
             # Use the format-aware preview method
             preview_result: PreviewResult = importer.preview_any_file(

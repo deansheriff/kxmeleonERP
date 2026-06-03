@@ -111,6 +111,7 @@ def test_trends_report_excludes_leave_days_from_monthly_and_average_percentages(
 ):
     service, db = _make_service()
     db.get.return_value = SimpleNamespace(timezone="UTC")
+    service.get_org_today = lambda _org_id: date(2026, 5, 15)  # type: ignore[method-assign]
     db.execute.return_value.all.return_value = [
         SimpleNamespace(
             month=datetime(2026, 4, 1),

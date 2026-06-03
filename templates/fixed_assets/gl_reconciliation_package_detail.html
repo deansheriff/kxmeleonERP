@@ -1,0 +1,205 @@
+{% extends "fixed_assets/base_fixed_assets.html" %}
+{% from "components/macros.html" import icon_svg, empty_state, status_badge %}
+
+{% block page_title %}GL Reconciliation Package{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/fixed-assets" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Asset Management</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/fixed-assets/reports" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Reports</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <a href="/fixed-assets/reports/gl-reconciliation/packages" class="hover:text-teal-600 dark:hover:text-teal-400 transition-colors">Packages</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">{{ package.as_of_date }}</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block header_actions %}
+<div class="inline-flex flex-wrap items-center gap-2">
+    <a href="/fixed-assets/reports/gl-reconciliation/packages" class="btn btn-secondary">
+        {{ icon_svg("arrow-left", "h-4 w-4 mr-2") }}
+        Packages
+    </a>
+    {% if approval and approval.status.value == "APPROVED" and not package.proposed_journal_entry_id %}
+    <form method="post" action="/fixed-assets/reports/gl-reconciliation/packages/{{ package.run_id }}/draft-journal" class="inline-flex">
+        {{ request.state.csrf_form | safe }}
+        <button type="submit" class="btn btn-primary">
+            {{ icon_svg("file-plus", "h-4 w-4 mr-2") }}
+            Create Draft Journal
+        </button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+{% macro money(value) -%}
+    <span class="font-mono tabular-nums">{{ currency_prefix }}{{ "{:,.2f}".format(value or 0) }}</span>
+{%- endmacro %}
+
+{% set approval_status = approval.status.value if approval and approval.status.value is defined else (approval.status if approval else None) %}
+
+<div class="space-y-6 stagger-in">
+    <div class="card p-5">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+                <div class="flex flex-wrap items-center gap-3">
+                    <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Package {{ package.as_of_date }}</h2>
+                    {{ status_badge(package.status, "sm") }}
+                    {% if approval_status %}{{ status_badge(approval_status, "sm") }}{% endif %}
+                </div>
+                <p class="mt-2 max-w-3xl text-sm text-slate-600 dark:text-slate-300">Approval package for fixed asset register to GL reconciliation variances.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Total Variance</p>
+            <p class="mt-1 text-2xl font-semibold text-slate-900 dark:text-white">{{ money(package.total_variance_abs) }}</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">NBV Variance</p>
+            <p class="mt-1 text-2xl font-semibold text-slate-900 dark:text-white">{{ money(package.nbv_variance) }}</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Accumulated Depreciation Variance</p>
+            <p class="mt-1 text-2xl font-semibold text-slate-900 dark:text-white">{{ money(package.accumulated_depreciation_variance) }}</p>
+        </div>
+        <div class="card p-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Assets</p>
+            <p class="mt-1 text-2xl font-semibold text-slate-900 dark:text-white">{{ package.asset_count }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ package.category_count }} GL mappings</p>
+        </div>
+    </div>
+
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div class="card overflow-hidden">
+            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <h3 class="font-semibold text-slate-900 dark:text-white">Variance Exceptions</h3>
+            </div>
+            {% if exceptions %}
+            <div class="overflow-x-auto">
+                <table class="w-full min-w-[980px] divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                    <thead class="bg-slate-50 dark:bg-slate-800/70">
+                        <tr>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Categories</th>
+                            <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Variance</th>
+                            <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">AD Variance</th>
+                            <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">NBV Variance</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                        {% for item in exceptions %}
+                        {% set evidence = item.evidence_payload or {} %}
+                        <tr>
+                            <td class="px-4 py-3 align-top">
+                                <p class="font-medium text-slate-900 dark:text-white">{{ evidence.get("category_code", "Multiple categories") }}</p>
+                                <p class="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400" title="{{ item.category_codes }}">{{ item.category_codes }}</p>
+                            </td>
+                            <td class="px-4 py-3 text-right align-top">{{ money(item.variance_amount) }}</td>
+                            <td class="px-4 py-3 text-right align-top font-mono">{{ evidence.get("accumulated_depreciation_variance", "0") }}</td>
+                            <td class="px-4 py-3 text-right align-top font-mono">{{ evidence.get("nbv_variance", "0") }}</td>
+                            <td class="px-4 py-3 align-top">{{ status_badge(item.status, "sm") }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            {{ empty_state("No exceptions", "This package has no reconciliation exceptions.", "check-circle") }}
+            {% endif %}
+        </div>
+
+        <div class="space-y-6">
+            <div class="card p-5">
+                <h3 class="font-semibold text-slate-900 dark:text-white">Approval</h3>
+                {% if approval %}
+                <dl class="mt-4 space-y-3 text-sm">
+                    <div class="flex items-center justify-between gap-3">
+                        <dt class="text-slate-500 dark:text-slate-400">Status</dt>
+                        <dd>{{ status_badge(approval_status, "sm") }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <dt class="text-slate-500 dark:text-slate-400">Level</dt>
+                        <dd class="font-mono text-slate-900 dark:text-white">{{ approval.current_level }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <dt class="text-slate-500 dark:text-slate-400">Request</dt>
+                        <dd class="max-w-[180px] truncate font-mono text-xs text-slate-700 dark:text-slate-300">{{ approval.request_id }}</dd>
+                    </div>
+                </dl>
+                {% if approval_status == "PENDING" and can_approve %}
+                <div class="mt-5 space-y-3">
+                    <form method="post" action="/fixed-assets/reports/gl-reconciliation/packages/{{ package.run_id }}/approve" class="space-y-2">
+                        {{ request.state.csrf_form | safe }}
+                        <input aria-label="Approval comment" type="text" name="comments" class="form-input w-full" placeholder="Optional comment">
+                        <button type="submit" class="btn btn-primary w-full">
+                            {{ icon_svg("check-circle", "h-4 w-4 mr-2") }}
+                            Approve
+                        </button>
+                    </form>
+                    <form method="post" action="/fixed-assets/reports/gl-reconciliation/packages/{{ package.run_id }}/reject" class="space-y-2">
+                        {{ request.state.csrf_form | safe }}
+                        <input aria-label="Rejection reason" type="text" name="comments" class="form-input w-full" required placeholder="Rejection reason">
+                        <button type="submit" class="btn btn-secondary w-full">
+                            {{ icon_svg("x-circle", "h-4 w-4 mr-2") }}
+                            Reject
+                        </button>
+                    </form>
+                </div>
+                {% elif approval_status == "PENDING" %}
+                <div class="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                    Waiting for {{ current_approver_label or "the configured approver" }} approval.
+                    {% if approval_block_reason %}
+                    <span class="block text-xs text-amber-700 dark:text-amber-300">{{ approval_block_reason }}</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% else %}
+                <p class="mt-3 text-sm text-slate-500 dark:text-slate-400">No approval request is linked to this package.</p>
+                {% endif %}
+            </div>
+
+            <div class="card p-5">
+                <h3 class="font-semibold text-slate-900 dark:text-white">Draft Journal</h3>
+                {% if journal %}
+                <a href="/finance/gl/journals/{{ journal.journal_entry_id }}" class="mt-4 inline-flex font-mono text-teal-700 hover:text-teal-900 dark:text-teal-300 dark:hover:text-teal-100">{{ journal.journal_number }}</a>
+                <div class="mt-2">{{ status_badge(journal.status.value if journal.status.value is defined else journal.status, "sm") }}</div>
+                <p class="mt-3 text-sm text-slate-500 dark:text-slate-400">Created for finance review. Posting still follows the normal GL journal controls.</p>
+                {% elif approval_status == "APPROVED" %}
+                <form method="post" action="/fixed-assets/reports/gl-reconciliation/packages/{{ package.run_id }}/draft-journal" class="mt-4">
+                    {{ request.state.csrf_form | safe }}
+                    <button type="submit" class="btn btn-primary w-full">
+                        {{ icon_svg("file-plus", "h-4 w-4 mr-2") }}
+                        Create Draft Journal
+                    </button>
+                </form>
+                {% else %}
+                <p class="mt-3 text-sm text-slate-500 dark:text-slate-400">Available after final approval.</p>
+                {% endif %}
+            </div>
+
+            {% if decisions %}
+            <div class="card p-5">
+                <h3 class="font-semibold text-slate-900 dark:text-white">Decision History</h3>
+                <div class="mt-4 space-y-3">
+                    {% for decision in decisions %}
+                    <div class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                        <div class="flex items-center justify-between gap-3">
+                            <span>{{ status_badge(decision.action.value if decision.action.value is defined else decision.action, "sm") }}</span>
+                            <span class="text-xs text-slate-500 dark:text-slate-400">Level {{ decision.level }}</span>
+                        </div>
+                        {% if decision.comments %}
+                        <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">{{ decision.comments }}</p>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

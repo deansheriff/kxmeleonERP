@@ -122,6 +122,103 @@
             </div>
         </div>
 
+        <!-- Employee Invite Email Template -->
+        {% if employee_invite_email %}
+        <div class="card p-6">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Employee Access Invite Email</h2>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                        Edit the automatic email sent when a new employee account is created or an invite is resent.
+                    </p>
+                </div>
+                <a href="/admin/settings/email" class="btn btn-secondary">Email Settings</a>
+            </div>
+
+            <div class="mt-5 space-y-5">
+                <div>
+                    <label for="employee_invite_subject" class="form-label">Subject</label>
+                    <input type="text" id="employee_invite_subject" name="employee_invite_subject"
+                           value="{{ employee_invite_email.subject }}"
+                           class="form-input"
+                           maxlength="180">
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Default: {{ employee_invite_email.default_subject }}
+                    </p>
+                </div>
+
+                <div>
+                    <label for="employee_invite_body_html" class="form-label">HTML Body</label>
+                    <textarea id="employee_invite_body_html" name="employee_invite_body_html"
+                              rows="6"
+                              class="form-input font-mono text-sm">{{ employee_invite_email.body_html }}</textarea>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Supports simple HTML. Use <code>{name}</code> and <code>{reset_link}</code> placeholders.
+                    </p>
+                </div>
+
+                <div>
+                    <label for="employee_invite_body_text" class="form-label">Plain Text Body</label>
+                    <textarea id="employee_invite_body_text" name="employee_invite_body_text"
+                              rows="4"
+                              class="form-input font-mono text-sm">{{ employee_invite_email.body_text }}</textarea>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Fallback for email clients that do not render HTML.
+                    </p>
+                </div>
+
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+                    <p class="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Sample values</p>
+                    <div class="mt-2 grid gap-2 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-2">
+                        <p><code>{name}</code> = {{ employee_invite_email.sample_name }}</p>
+                        <p><code>{reset_link}</code> = {{ employee_invite_email.sample_link }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-5 grid gap-3 md:grid-cols-2">
+                <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                    <div class="flex items-start gap-3">
+                        {{ icon_svg("mail", "h-5 w-5 text-violet-600 dark:text-violet-400 mt-0.5") }}
+                        <div>
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">Recipients</p>
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ employee_invite_email.recipients }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                    <div class="flex items-start gap-3">
+                        {{ icon_svg("link", "h-5 w-5 text-violet-600 dark:text-violet-400 mt-0.5") }}
+                        <div>
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">Reset link</p>
+                            <code class="mt-1 block break-all text-xs text-slate-500 dark:text-slate-400">{{ employee_invite_email.link_pattern }}</code>
+                        </div>
+                    </div>
+                </div>
+                <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                    <div class="flex items-start gap-3">
+                        {{ icon_svg("paperclip", "h-5 w-5 text-violet-600 dark:text-violet-400 mt-0.5") }}
+                        <div>
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">Attachment</p>
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ employee_invite_email.attachment }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                    <div class="flex items-start gap-3">
+                        {{ icon_svg("desktop-computer", "h-5 w-5 text-violet-600 dark:text-violet-400 mt-0.5") }}
+                        <div>
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">Delivery</p>
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                Sent through the {{ employee_invite_email.email_module }} email module. {{ employee_invite_email.app_url_source }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Probation Settings -->
         <div class="card p-6">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Probation Settings</h2>

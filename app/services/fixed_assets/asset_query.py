@@ -82,3 +82,38 @@ def build_asset_query(
         )
 
     return query
+
+
+def build_employee_assigned_assets_query(
+    organization_id: str | UUID,
+    employee_id: str | UUID,
+) -> Select:
+    """
+    Build a tenant-scoped query for assets currently assigned to an employee.
+    """
+    org_id = coerce_uuid(organization_id)
+    custodian_id = coerce_uuid(employee_id)
+
+    return (
+        select(Asset)
+        .join(AssetCategory, Asset.category_id == AssetCategory.category_id)
+        .outerjoin(Location, Asset.location_id == Location.location_id)
+        .where(
+            Asset.organization_id == org_id,
+            Asset.custodian_employee_id == custodian_id,
+            Asset.status != AssetStatus.RETIRED,
+        )
+        .order_by(Asset.asset_number.asc())
+    )
+
+
+def list_employee_assigned_assets(
+    db: Session,
+    organization_id: str | UUID,
+    employee_id: str | UUID,
+) -> list[Asset]:
+    """
+    Return assets currently held by an employee in one organization.
+    """
+    query = build_employee_assigned_assets_query(organization_id, employee_id)
+    return list(db.scalars(query))

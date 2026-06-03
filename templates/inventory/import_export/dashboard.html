@@ -1,0 +1,43 @@
+{% extends "inventory/base_inventory.html" %}
+{% from "components/macros.html" import icon_svg %}
+
+{% block page_title %}Import Inventory{% endblock %}
+
+{% block breadcrumbs %}
+<nav class="text-sm text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <ol class="flex items-center gap-2">
+        <li><a href="/dashboard" class="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Dashboard</a></li>
+        <li><a href="/inventory" class="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Inventory</a></li>
+        <li class="flex items-center gap-2">{{ icon_svg("chevron-right", "h-4 w-4") }} <span class="font-medium text-slate-900 dark:text-white" aria-current="page">Import</span></li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6 page-enter">
+    <div class="card p-6">
+        <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Import Inventory Data</h2>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            Import inventory item masters, categories, units, costing, pricing, and stock settings.
+        </p>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {% for entity in entity_types %}
+        <a href="/inventory/import/{{ entity.id }}"
+           class="card p-5 transition-colors hover:border-emerald-200 hover:bg-emerald-50/40 dark:hover:border-emerald-800 dark:hover:bg-emerald-900/20">
+            <div class="flex items-start gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                    {{ icon_svg("cloud-upload", "h-5 w-5") }}
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-emerald-600 dark:text-emerald-400">Step {{ entity.order }}</p>
+                    <h3 class="mt-1 text-base font-semibold text-slate-900 dark:text-white">{{ entity.name }}</h3>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ entity.description }}</p>
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

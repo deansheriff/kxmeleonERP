@@ -206,6 +206,7 @@ class AuthWebService:
                 "title": "Login",
                 "brand": brand,
                 "next": safe_next_url,
+                "app_version": settings.app_version,
             },
         )
         return _apply_no_cache_headers(response)
@@ -238,6 +239,7 @@ class AuthWebService:
                 "title": "Admin Login",
                 "brand": brand,
                 "next": safe_next_url,
+                "app_version": settings.app_version,
                 "is_authenticated": auth.is_authenticated,
                 "has_admin_role": "admin" in auth.roles
                 if auth.is_authenticated
@@ -375,6 +377,7 @@ class AuthWebService:
             {
                 "title": "Forgot Password",
                 "brand": brand_context(),
+                "app_version": settings.app_version,
             },
         )
 
@@ -403,6 +406,7 @@ class AuthWebService:
                 "brand": brand_context(),
                 "token": token,
                 "login_href": login_href,
+                "app_version": settings.app_version,
             },
         )
 
@@ -420,6 +424,7 @@ class AuthWebService:
             {
                 "title": "Reset Password",
                 "brand": brand_context(),
+                "app_version": settings.app_version,
             },
         )
 

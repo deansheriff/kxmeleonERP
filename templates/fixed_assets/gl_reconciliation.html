@@ -17,6 +17,18 @@
 {% set export_params = "" %}
 {% if as_of %}{% set export_params = export_params ~ "&as_of=" ~ (as_of | urlencode) %}{% endif %}
 <div class="inline-flex flex-wrap items-center gap-2">
+    <a href="/fixed-assets/reports/gl-reconciliation/packages" class="btn btn-secondary">
+        {{ icon_svg("clipboard-list", "h-4 w-4 mr-2") }}
+        Packages
+    </a>
+    <form method="post" action="/fixed-assets/reports/gl-reconciliation/packages" class="inline-flex">
+        {{ request.state.csrf_form | safe }}
+        {% if as_of %}<input type="hidden" name="as_of" value="{{ as_of }}">{% endif %}
+        <button type="submit" class="btn btn-primary">
+            {{ icon_svg("plus", "h-4 w-4 mr-2") }}
+            Create Package
+        </button>
+    </form>
     <a href="/fixed-assets/reports/gl-reconciliation/export?format=csv{{ export_params }}" class="btn btn-secondary">
         {{ icon_svg("download", "h-4 w-4 mr-2") }}
         Export CSV

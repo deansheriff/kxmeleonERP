@@ -57,7 +57,12 @@
     }
 
     .line-table-wrap {
+        overflow-x: auto;
         overflow-y: visible;
+    }
+
+    .line-table-wrap:has(.line-item-cell[data-open="true"]) {
+        overflow: visible;
     }
 
     .form-card::before {
@@ -213,6 +218,15 @@
         color: #ffffff;
     }
 
+    .dark .bulk-tax-select,
+    .dark .bulk-tax-select option,
+    .dark .wht-select,
+    .dark .wht-select option {
+        background-color: #1a1f36;
+        color: #ffffff;
+        -webkit-text-fill-color: #ffffff;
+    }
+
     /* Help text */
     .form-help {
         font-size: 0.75rem;
@@ -261,6 +275,10 @@
 
     .lines-table td.line-item-cell[data-open="true"] {
         z-index: 70;
+    }
+
+    .item-dropdown-menu {
+        z-index: 200;
     }
 
     .dark .lines-table td {
@@ -727,7 +745,7 @@
             {# Bulk apply tax to all lines #}
             <div class="mt-4 flex items-center gap-3">
                 <label class="text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">Apply tax to all lines:</label>
-                <select aria-label="Apply tax to all lines:" @change="applyTaxToAllLines($event.target.value); $event.target.value = ''" class="form-select form-select-sm max-w-[240px]">
+                <select aria-label="Apply tax to all lines:" @change="applyTaxToAllLines($event.target.value); $event.target.value = ''" class="form-select form-select-sm bulk-tax-select max-w-[240px]">
                     <option value="">Select tax code...</option>
                     {% for tax in tax_codes %}
                     <option value="{{ tax.tax_code_id }}">{{ tax.tax_code }} ({{ tax.rate_display }}%){% if tax.is_inclusive %} — Price Inclusive{% endif %}</option>
@@ -777,15 +795,17 @@
                                         <div x-cloak
                                              x-show="line.item_open"
                                              x-transition
-                                             class="absolute mt-1 w-full max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
-                                             style="z-index: 200;"
+                                             class="item-dropdown-menu absolute mt-1 w-full max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
                                              role="listbox">
                                             <template x-for="item in filteredItems(line.item_search)" :key="item.item_id">
                                                 <button type="button"
                                                         class="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
                                                         @click="selectItem(line, item, index)">
                                                     <span x-text="item.item_code + ' - ' + item.item_name"></span>
-                                                    <span class="text-xs text-slate-400" x-text="item.unit_price ? formatCurrency(item.unit_price) : ''"></span>
+                                                    <span class="flex items-center gap-2">
+                                                        <span x-show="item.track_inventory" class="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">Stock</span>
+                                                        <span class="text-xs text-slate-400" x-text="item.unit_price ? formatCurrency(item.unit_price) : ''"></span>
+                                                    </span>
                                                 </button>
                                             </template>
                                             <div x-show="filteredItems(line.item_search).length === 0" class="px-3 py-2 text-sm text-slate-500">
@@ -863,6 +883,101 @@
                 </table>
             </div>
 
+            <div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+                <label class="flex items-start gap-3">
+                    <input type="checkbox"
+                           class="mt-1 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                           x-model="form.auto_create_inventory_receipt">
+                    <span>
+                        <span class="block text-sm font-semibold text-slate-900 dark:text-white">Create inventory receipt automatically on submission</span>
+                        <span class="block text-xs text-slate-500 dark:text-slate-400">Applies only to stock-tracked items in the invoice lines.</span>
+                    </span>
+                </label>
+            </div>
+
+            <div class="mt-6 rounded-xl border border-teal-200 bg-teal-50/60 p-5 dark:border-teal-900/60 dark:bg-teal-900/20"
+                 x-show="form.auto_create_inventory_receipt"
+                 x-cloak>
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Inventory Receipt Details</h3>
+                        <p class="mt-1 text-xs text-slate-600 dark:text-slate-300">These fields are used when the invoice is submitted for approval.</p>
+                    </div>
+                    <span class="rounded-full bg-white px-3 py-1 text-xs font-medium text-teal-700 dark:bg-slate-900/60 dark:text-teal-300"
+                                            x-text="stockReceiptLineCount + ' stock line' + (stockReceiptLineCount === 1 ? '' : 's')"></span>
+                </div>
+
+                <template x-if="stockReceiptLineCount === 0">
+                    <div class="mt-4 rounded-lg border border-dashed border-teal-200 bg-white/70 px-4 py-3 text-sm text-slate-600 dark:border-teal-900/60 dark:bg-slate-900/30 dark:text-slate-300">
+                        <p>Select a stock-tracked item in the invoice lines to enter receipt details.</p>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Stock items are marked with a Stock badge in the item dropdown.</p>
+                    </div>
+                </template>
+
+                <div class="mt-4 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50"
+                     x-show="stockReceiptLineCount > 0"
+                     x-cloak>
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label class="form-label">Warehouse</label>
+                            <select aria-label="Receipt warehouse"
+                                    x-model="form.receipt_warehouse_id"
+                                    @change="applySharedReceiptDetailsToStockLines()"
+                                    class="form-input">
+                                <option value="">Select receiving warehouse for all stock items</option>
+                                <template x-for="warehouse in warehouses" :key="warehouse.warehouse_id">
+                                    <option :value="warehouse.warehouse_id" x-text="warehouse.warehouse_code + ' - ' + warehouse.warehouse_name"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="form-label">Receipt Reference</label>
+                            <input aria-label="Receipt reference"
+                                   type="text"
+                                   x-model="form.receipt_reference"
+                                   @input="applySharedReceiptDetailsToStockLines()"
+                                   maxlength="100"
+                                   placeholder="Supplier invoice, delivery note, or reference"
+                                   class="form-input">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4 space-y-4">
+                    <template x-for="(line, index) in form.lines" :key="'receipt-' + index">
+                        <div class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50"
+                             x-show="isStockLine(line) && lineTracksSerials(line)"
+                             x-cloak>
+                            <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-semibold text-slate-900 dark:text-white">
+                                        <span x-text="'Line ' + (index + 1)"></span>
+                                        <span class="font-normal text-slate-500 dark:text-slate-400" x-text="line.description ? ' - ' + line.description : ''"></span>
+                                    </p>
+                                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400" x-text="selectedItem(line)?.item_code || ''"></p>
+                                </div>
+                                <span class="rounded-full bg-teal-100 px-2.5 py-1 text-xs font-medium text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">Serial tracked</span>
+                            </div>
+
+                            <div class="grid gap-4">
+                                <div class="sm:col-span-2">
+                                    <label class="inline-flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+                                        <input type="checkbox"
+                                               class="mt-1 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                               x-model="line.receipt_auto_generate_serials">
+                                        <span>
+                                            <span class="block text-sm font-medium text-slate-900 dark:text-white">Auto-generate serial numbers</span>
+                                            <span class="block text-xs text-slate-500 dark:text-slate-400">Use this when the items do not already have manufacturer serial numbers.</span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
             <!-- Totals -->
             <div class="mt-8 flex justify-end">
                 <div class="w-80 totals-section">
@@ -890,7 +1005,7 @@
                             <label class="text-xs font-medium text-slate-600 dark:text-slate-400">WHT</label>
                             <select aria-label="WHT" name="wht_code_id" x-model="form.wht_code_id"
                                     @change="calculateWht()"
-                                    class="form-select form-select-sm ml-2 max-w-[160px] inline-block">
+                                    class="form-select form-select-sm wht-select ml-2 max-w-[160px] inline-block">
                                 <option value="">None</option>
                                 {% for wht in wht_codes %}
                                 <option value="{{ wht.tax_code_id }}"
@@ -994,10 +1109,12 @@ function invoiceForm() {
     const selectedPO = {{ selected_po | tojson | safe if selected_po else 'null' }};
     const poLines = {{ po_lines | tojson | safe if po_lines else '[]' }};
     const items = {{ items_list | tojson | safe if items_list else '[]' }};
+    const warehouses = {{ warehouses_list | tojson | safe if warehouses_list else '[]' }};
     const duplicateSource = {{ duplicate_source | tojson | safe if duplicate_source else 'null' }};
 
     return {
         items,
+        warehouses,
         isSubmitting: false,
         form: {
             invoice_id: '{{ invoice.invoice_id if invoice else "" }}',
@@ -1013,8 +1130,11 @@ function invoiceForm() {
             exchange_rate: '{{ invoice.exchange_rate if invoice and invoice.exchange_rate else "1" }}',
             po_id: selectedPO?.po_id || '',
             lines: [
-                { item_id: '', item_search: '', item_open: false, expense_account_id: '', description: '', quantity: 1, unit_price: 0, amount: 0, tax_code_id: '', tax_amount: 0 }
+                { item_id: '', item_search: '', item_open: false, track_inventory: false, track_serial_numbers: false, expense_account_id: '', description: '', quantity: 1, unit_price: 0, amount: 0, tax_code_id: '', tax_amount: 0 }
             ],
+            receipt_warehouse_id: '',
+            receipt_reference: '',
+            auto_create_inventory_receipt: {{ 'true' if invoice and invoice.auto_create_inventory_receipt else 'false' }},
             wht_code_id: '',
         },
         whtAmount: 0,
@@ -1035,13 +1155,19 @@ function invoiceForm() {
                 {% for line in invoice.lines %}
                 {
                     item_id: '{{ line.item_id or "" }}',
+                    track_inventory: false,
+                    track_serial_numbers: false,
                     expense_account_id: '{{ line.expense_account_id }}',
                     description: '{{ line.description }}',
                     quantity: {{ line.quantity }},
                     unit_price: {{ line.unit_price }},
                     amount: {{ line.quantity * line.unit_price }},
                     tax_code_id: '{{ line.tax_code_id or "" }}',
-                    tax_amount: {{ line.tax_amount or 0 }}
+                    tax_amount: {{ line.tax_amount or 0 }},
+                    receipt_warehouse_id: '{{ line.receipt_warehouse_id or "" }}',
+                    receipt_reference: {{ (line.receipt_reference or "") | tojson }},
+                    receipt_serial_numbers: {{ (line.receipt_serial_numbers or []) | join('\n') | tojson }},
+                    receipt_auto_generate_serials: {{ 'true' if line.receipt_auto_generate_serials else 'false' }}
                 },
                 {% endfor %}
             ];
@@ -1054,6 +1180,8 @@ function invoiceForm() {
                 this.form.purpose = duplicateSource.purpose || '';
                 this.form.lines = duplicateSource.lines.map((line) => ({
                     item_id: line.item_id || '',
+                    track_inventory: Boolean(line.track_inventory),
+                    track_serial_numbers: Boolean(line.track_serial_numbers),
                     expense_account_id: line.expense_account_id || '',
                     description: line.description || '',
                     quantity: line.quantity,
@@ -1061,23 +1189,35 @@ function invoiceForm() {
                     amount: (line.quantity || 0) * (line.unit_price || 0),
                     tax_code_id: line.tax_code_id || '',
                     tax_amount: line.tax_amount || 0,
+                    receipt_warehouse_id: line.receipt_warehouse_id || '',
+                    receipt_reference: line.receipt_reference || '',
+                    receipt_serial_numbers: Array.isArray(line.receipt_serial_numbers) ? line.receipt_serial_numbers.join('\n') : (line.receipt_serial_numbers || ''),
+                    receipt_auto_generate_serials: Boolean(line.receipt_auto_generate_serials),
                 }));
             }
             // Pre-populate lines from PO if available
             if (poLines && poLines.length > 0) {
                 this.form.lines = poLines.map(line => ({
                     item_id: line.item_id || '',
+                    track_inventory: false,
+                    track_serial_numbers: false,
                     expense_account_id: line.expense_account_id || '',
                     description: line.description,
                     quantity: line.quantity,
                     unit_price: line.unit_price,
                     amount: line.amount,
                     tax_code_id: '',
-                    tax_amount: 0
+                    tax_amount: 0,
+                    receipt_warehouse_id: '',
+                    receipt_reference: '',
+                    receipt_serial_numbers: '',
+                    receipt_auto_generate_serials: false
                 }));
             }
             {% endif %}
             this.form.lines = this.form.lines.map((line) => this.normalizeLine(line));
+            this.syncSharedReceiptDetailsFromLines();
+            this.applySharedReceiptDetailsToStockLines();
         },
 
         get subtotal() {
@@ -1122,6 +1262,10 @@ function invoiceForm() {
             return parseFloat((this.total - this.whtAmount).toFixed(2));
         },
 
+        get stockReceiptLineCount() {
+            return this.form.lines.filter((line) => this.isStockLine(line)).length;
+        },
+
         calculateWht() {
             if (!this.form.wht_code_id) {
                 this.whtAmount = 0;
@@ -1142,6 +1286,40 @@ function invoiceForm() {
                 style: 'currency',
                 currency: currency
             }).format(amount || 0);
+        },
+
+        selectedItem(line) {
+            if (!line || !line.item_id) return null;
+            const selectedId = String(line.item_id);
+            return this.items.find((item) => String(item.item_id) === selectedId) || null;
+        },
+
+        isStockLine(line) {
+            const item = this.selectedItem(line);
+            return Boolean((line.track_inventory || (item && item.track_inventory)) && Number(line.quantity || 0) > 0);
+        },
+
+        lineTracksSerials(line) {
+            const item = this.selectedItem(line);
+            return Boolean(line.track_serial_numbers || (item && item.track_serial_numbers));
+        },
+
+        syncSharedReceiptDetailsFromLines() {
+            const firstStockLineWithReceiptDetails = this.form.lines.find((line) => this.isStockLine(line) && (line.receipt_warehouse_id || line.receipt_reference));
+            this.form.receipt_warehouse_id = firstStockLineWithReceiptDetails?.receipt_warehouse_id || '';
+            this.form.receipt_reference = firstStockLineWithReceiptDetails?.receipt_reference || '';
+        },
+
+        applySharedReceiptDetailsToStockLines() {
+            this.form.lines.forEach((line) => {
+                if (this.isStockLine(line)) {
+                    line.receipt_warehouse_id = this.form.receipt_warehouse_id || '';
+                    line.receipt_reference = this.form.receipt_reference || '';
+                } else {
+                    line.receipt_warehouse_id = '';
+                    line.receipt_reference = '';
+                }
+            });
         },
 
         onSupplierSelected() {
@@ -1193,13 +1371,19 @@ function invoiceForm() {
                 item_id: '',
                 item_search: '',
                 item_open: false,
+                track_inventory: false,
+                track_serial_numbers: false,
                 expense_account_id: '',
                 description: '',
                 quantity: 1,
                 unit_price: 0,
                 amount: 0,
                 tax_code_id: '',
-                tax_amount: 0
+                tax_amount: 0,
+                receipt_warehouse_id: '',
+                receipt_reference: '',
+                receipt_serial_numbers: '',
+                receipt_auto_generate_serials: false
             });
         },
 
@@ -1217,13 +1401,25 @@ function invoiceForm() {
                 item_id: '',
                 item_search: '',
                 item_open: false,
+                track_inventory: false,
+                track_serial_numbers: false,
+                receipt_warehouse_id: '',
+                receipt_reference: '',
+                receipt_serial_numbers: '',
+                receipt_auto_generate_serials: false,
                 ...line,
             };
 
+            if (Array.isArray(normalized.receipt_serial_numbers)) {
+                normalized.receipt_serial_numbers = normalized.receipt_serial_numbers.join('\n');
+            }
+
             if (normalized.item_id) {
-                const item = this.items.find(i => i.item_id === normalized.item_id);
+                const item = this.items.find(i => String(i.item_id) === String(normalized.item_id));
                 if (item) {
                     normalized.item_search = `${item.item_code} - ${item.item_name}`;
+                    normalized.track_inventory = Boolean(item.track_inventory);
+                    normalized.track_serial_numbers = Boolean(item.track_serial_numbers);
                 }
             }
 
@@ -1244,16 +1440,33 @@ function invoiceForm() {
         onItemSearch(line) {
             line.item_open = true;
             line.item_id = '';
+            line.track_inventory = false;
+            line.track_serial_numbers = false;
         },
 
         selectItem(line, item, index) {
             line.item_id = item.item_id;
+            line.track_inventory = Boolean(item.track_inventory);
+            line.track_serial_numbers = Boolean(item.track_serial_numbers);
             line.item_search = `${item.item_code} - ${item.item_name}`;
             if (!line.description) {
                 line.description = item.item_name;
             }
             if (!line.unit_price || line.unit_price === 0) {
                 line.unit_price = parseFloat(item.unit_price) || 0;
+            }
+            if (!item.track_inventory) {
+                line.receipt_warehouse_id = '';
+                line.receipt_reference = '';
+                line.receipt_serial_numbers = '';
+                line.receipt_auto_generate_serials = false;
+            } else {
+                line.receipt_warehouse_id = this.form.receipt_warehouse_id || '';
+                line.receipt_reference = this.form.receipt_reference || '';
+            }
+            if (!item.track_serial_numbers) {
+                line.receipt_serial_numbers = '';
+                line.receipt_auto_generate_serials = false;
             }
             line.item_open = false;
             this.calculateLineAmount(index);
@@ -1262,6 +1475,7 @@ function invoiceForm() {
         removeLine(index) {
             if (this.form.lines.length > 1) {
                 this.form.lines.splice(index, 1);
+                this.applySharedReceiptDetailsToStockLines();
             }
         },
 
@@ -1318,6 +1532,8 @@ function invoiceForm() {
                 }));
                 return;
             }
+
+            this.applySharedReceiptDetailsToStockLines();
 
             // True by default so error/non-2xx/exception paths re-enable the button via finally;
             // the redirect path flips it false to keep the button disabled through the 1s setTimeout.

@@ -339,6 +339,16 @@ def _derive_display_name(
     return base_name or None
 
 
+def _datetime_after(value: datetime | None, compare_to: datetime) -> bool:
+    if value is None:
+        return False
+    if value.tzinfo is None and compare_to.tzinfo is not None:
+        compare_to = compare_to.replace(tzinfo=None)
+    elif value.tzinfo is not None and compare_to.tzinfo is None:
+        value = value.replace(tzinfo=None)
+    return value > compare_to
+
+
 def _parse_person_status(value: str | None) -> PersonStatus | None:
     if not value:
         return None
@@ -517,6 +527,7 @@ class AdminWebService:
         """Get context for users list page."""
         _, PersonRole, Role, _ = _rbac_models()
         offset = (page - 1) * limit
+        now = datetime.now(UTC)
 
         conditions = []
 
@@ -552,10 +563,11 @@ class AdminWebService:
             ).all()
         )
 
-        # Get roles and last active for each user
+        # Get roles, last active sessions, and local account state for each user
         person_ids = [p.id for p in persons]
         person_roles_map: dict = {}
         last_active_map: dict = {}
+        credential_map: dict = {}
 
         if person_ids:
             # Get roles
@@ -582,6 +594,29 @@ class AdminWebService:
                 if last_seen:
                     last_active_map[person_id] = _format_relative_time(last_seen)
 
+            credentials = db.execute(
+                select(
+                    UserCredential.person_id,
+                    UserCredential.is_active,
+                    UserCredential.failed_login_attempts,
+                    UserCredential.locked_until,
+                ).where(
+                    UserCredential.person_id.in_(person_ids),
+                    UserCredential.provider == AuthProvider.local,
+                )
+            ).all()
+            for (
+                person_id,
+                credential_is_active,
+                failed_login_attempts,
+                locked_until,
+            ) in credentials:
+                credential_map[person_id] = {
+                    "is_active": credential_is_active,
+                    "failed_login_attempts": failed_login_attempts or 0,
+                    "locked_until": locked_until,
+                }
+
         # Format users
         users = []
         for person in persons:
@@ -589,6 +624,34 @@ class AdminWebService:
             initials = (
                 "".join(word[0].upper() for word in name.split()[:2]) if name else "?"
             )
+            credential = credential_map.get(person.id)
+            locked_until = credential.get("locked_until") if credential else None
+            failed_login_attempts = (
+                credential.get("failed_login_attempts") if credential else 0
+            )
+            credential_active = bool(credential and credential.get("is_active"))
+            is_locked = bool(
+                _datetime_after(locked_until, now) or failed_login_attempts >= 5
+            )
+            person_active = (
+                person.status == PersonStatus.active and bool(person.is_active)
+            )
+            account_is_active = person_active and credential_active and not is_locked
+            if account_is_active:
+                account_status_label = "Active"
+                account_status_reason = "Account can sign in"
+            elif is_locked:
+                account_status_label = "Inactive"
+                account_status_reason = "Locked after failed login attempts"
+            elif not credential:
+                account_status_label = "Inactive"
+                account_status_reason = "No local login credential"
+            elif not credential_active:
+                account_status_label = "Inactive"
+                account_status_reason = "Login credential is inactive"
+            else:
+                account_status_label = "Inactive"
+                account_status_reason = "User profile is inactive"
             users.append(
                 {
                     "id": str(person.id),
@@ -598,6 +661,17 @@ class AdminWebService:
                     "initials": initials,
                     "email_verified": person.email_verified,
                     "status": person.status.value if person.status else "active",
+                    "account_is_active": account_is_active,
+                    "account_status_label": account_status_label,
+                    "account_status_reason": account_status_reason,
+                    "can_activate_account": bool(
+                        credential
+                        and not account_is_active
+                        and person.status != PersonStatus.archived
+                    ),
+                    "failed_login_attempts": credential.get("failed_login_attempts")
+                    if credential
+                    else 0,
                     "roles": person_roles_map.get(person.id, []),
                     "last_active": last_active_map.get(person.id),
                     "created_at": person.created_at.strftime("%b %d, %Y")
@@ -657,6 +731,32 @@ class AdminWebService:
                     UserCredential.provider == AuthProvider.local,
                 )
             )
+            now = datetime.now(UTC)
+            failed_login_attempts = credential.failed_login_attempts if credential else 0
+            locked_until = credential.locked_until if credential else None
+            credential_active = bool(credential and credential.is_active)
+            is_locked = bool(
+                _datetime_after(locked_until, now) or failed_login_attempts >= 5
+            )
+            person_active = (
+                person.status == PersonStatus.active and bool(person.is_active)
+            )
+            account_is_active = person_active and credential_active and not is_locked
+            if account_is_active:
+                account_status_label = "Active"
+                account_status_reason = "Account can sign in"
+            elif is_locked:
+                account_status_label = "Inactive"
+                account_status_reason = "Locked after failed login attempts"
+            elif not credential:
+                account_status_label = "Inactive"
+                account_status_reason = "No local login credential"
+            elif not credential_active:
+                account_status_label = "Inactive"
+                account_status_reason = "Login credential is inactive"
+            else:
+                account_status_label = "Inactive"
+                account_status_reason = "User profile is inactive"
 
             # Get user roles
             user_roles = list(
@@ -683,6 +783,16 @@ class AdminWebService:
                 "must_change_password": credential.must_change_password
                 if credential
                 else False,
+                "account_is_active": account_is_active,
+                "account_status_label": account_status_label,
+                "account_status_reason": account_status_reason,
+                "can_activate_account": bool(
+                    credential
+                    and not account_is_active
+                    and person.status != PersonStatus.archived
+                ),
+                "failed_login_attempts": failed_login_attempts,
+                "locked_until": locked_until,
                 "role_ids": [str(role.id) for role in user_roles],
             }
 
@@ -710,6 +820,14 @@ class AdminWebService:
             "organization_id": payload.get("organization_id"),
             "username": payload.get("username"),
             "must_change_password": _parse_flag(payload.get("must_change_password")),
+            "account_is_active": payload.get("account_is_active", False),
+            "account_status_label": payload.get("account_status_label", "Inactive"),
+            "account_status_reason": payload.get(
+                "account_status_reason", "Account status unavailable"
+            ),
+            "can_activate_account": payload.get("can_activate_account", False),
+            "failed_login_attempts": payload.get("failed_login_attempts", 0),
+            "locked_until": payload.get("locked_until"),
             "role_ids": role_ids,
         }
 
@@ -1029,6 +1147,49 @@ class AdminWebService:
         except Exception as e:
             db.rollback()
             return f"Failed to delete user: {str(e)}"
+
+    @staticmethod
+    def activate_user_account(db: Session, user_id: str) -> str | None:
+        """Reactivate a user profile and clear recoverable local credential locks."""
+        person = db.get(Person, coerce_uuid(user_id))
+        if not person:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        try:
+            person.status = PersonStatus.active
+            person.is_active = True
+
+            credential = db.scalar(
+                select(UserCredential).where(
+                    UserCredential.person_id == person.id,
+                    UserCredential.provider == AuthProvider.local,
+                )
+            )
+            if credential:
+                credential.is_active = True
+                credential.failed_login_attempts = 0
+                credential.locked_until = None
+
+            db.commit()
+
+            fire_audit_event(
+                db=db,
+                organization_id=person.organization_id,
+                table_schema="auth",
+                table_name="user",
+                record_id=str(person.id),
+                action=AuditAction.UPDATE,
+                new_values={
+                    "status": PersonStatus.active.value,
+                    "is_active": True,
+                    "credential_unlocked": bool(credential),
+                },
+            )
+            return None
+
+        except Exception as e:
+            db.rollback()
+            return f"Failed to activate user: {str(e)}"
 
     @staticmethod
     def roles_context(
@@ -3388,6 +3549,25 @@ class AdminWebService:
                 status_code=302,
             )
         return RedirectResponse(url="/admin/users?deleted=1", status_code=302)
+
+    def users_activate_response(
+        self,
+        request: Request,
+        db: Session,
+        auth: WebAuthContext,
+        user_id: str,
+    ) -> RedirectResponse:
+        auth_or_redirect = self._require_admin_web_auth(request, auth)
+        if isinstance(auth_or_redirect, RedirectResponse):
+            return auth_or_redirect
+
+        error = self.activate_user_account(db, user_id)
+        if error:
+            return RedirectResponse(
+                url=f"/admin/users?{urlencode({'error': error})}",
+                status_code=302,
+            )
+        return RedirectResponse(url=f"/admin/users/{user_id}?activated=1", status_code=302)
 
     def roles_response(
         self,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -23,6 +23,8 @@ from app.services.finance.banking.mono_client import (
     MonoExchangeResult,
     MonoTransaction,
 )
+
+UTC = timezone.utc
 from app.services.finance.banking.mono_sync import (
     MonoSyncResult,
     MonoSyncService,

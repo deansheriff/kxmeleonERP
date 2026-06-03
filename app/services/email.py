@@ -19,6 +19,10 @@ from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
 from app.models.email_profile import EmailModule
+from app.services.people.hr.invite_email import (
+    default_employee_invite_email_template,
+    render_employee_invite_email_template,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -487,6 +491,7 @@ def send_password_reset_email(
     organization_id: UUID | None = None,
     next_url: str | None = None,
     attachments: list[tuple[str, bytes, str]] | None = None,
+    email_template: dict[str, str] | None = None,
 ) -> bool:
     name = person_name or "there"
     env_app_url = _env_value("APP_URL")
@@ -494,19 +499,17 @@ def send_password_reset_email(
     reset_link = f"{resolved_app_url.rstrip('/')}/reset-password?token={reset_token}"
     if next_url:
         reset_link = f"{reset_link}&next={quote(next_url, safe='/')}"
-    subject = "Reset your password"
-    body_html = (
-        f"<p>Hi {name},</p>"
-        "<p>Use the link below to reset your password:</p>"
-        f'<p><a href="{reset_link}">Reset password</a></p>'
+    rendered = render_employee_invite_email_template(
+        email_template or default_employee_invite_email_template(),
+        name=name,
+        reset_link=reset_link,
     )
-    body_text = f"Hi {name}, use this link to reset your password: {reset_link}"
     return send_email(
         db,
         to_email,
-        subject,
-        body_html,
-        body_text,
+        rendered["subject"],
+        rendered["body_html"],
+        rendered["body_text"],
         attachments=attachments,
         module=EmailModule.ADMIN,
         organization_id=organization_id,

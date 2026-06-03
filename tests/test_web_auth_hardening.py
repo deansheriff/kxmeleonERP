@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import uuid
 
 try:
     from datetime import UTC  # type: ignore
@@ -6,6 +7,7 @@ except ImportError:  # pragma: no cover
     UTC = timezone.utc
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
 
 from starlette.requests import Request
@@ -15,6 +17,31 @@ from app.models.auth import SessionStatus
 from app.services.auth_flow import AuthFlow, hash_session_token
 from app.services.auth_web import auth_web_service
 from app.web.deps import require_web_auth
+
+
+def test_web_session_person_lookup_uses_cross_org_without_default_org(monkeypatch):
+    import app.web.deps as web_deps
+
+    person_id = uuid.uuid4()
+    db = MagicMock()
+    db.info = {}
+    person = SimpleNamespace(id=person_id)
+    events = []
+
+    class FakeCrossOrg:
+        def __enter__(self):
+            events.append("enter")
+
+        def __exit__(self, exc_type, exc, tb):
+            events.append("exit")
+
+    monkeypatch.setattr(web_deps.settings, "default_organization_id", None)
+    monkeypatch.setattr(web_deps, "allow_cross_org", lambda session: FakeCrossOrg())
+    db.get.return_value = person
+
+    assert web_deps._get_person_for_web_session(db, person_id) is person
+    db.get.assert_called_once_with(web_deps.Person, person_id)
+    assert events == ["enter", "exit"]
 
 
 def _request(path: str, headers: list[tuple[bytes, bytes]] | None = None) -> Request:

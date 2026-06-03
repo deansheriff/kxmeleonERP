@@ -32,58 +32,10 @@ def banking_landing(
     return templates.TemplateResponse(request, "finance/banking/index.html", context)
 
 
-@router.get("/settings", response_class=HTMLResponse)
-def auto_match_settings(
-    request: Request,
-    auth: WebAuthContext = Depends(require_finance_access),
-    db: Session = Depends(get_db_for_org),
-) -> HTMLResponse:
-    """Auto-match rules settings page."""
-    from app.services.finance.settings_web import settings_web_service
-    from app.web.deps import base_context, templates
-
-    context = base_context(request, auth, "Auto-Match Rules", "banking", db=db)
-    context.update(
-        settings_web_service.get_auto_match_settings_context(db, auth.organization_id)
-    )
-    if request.query_params.get("saved"):
-        context["saved"] = True
-    return templates.TemplateResponse(
-        request, "finance/banking/auto_match_settings.html", context
-    )
-
-
-@router.post("/settings")
-async def update_auto_match_settings(
-    request: Request,
-    auth: WebAuthContext = Depends(require_finance_access),
-    db: Session = Depends(get_db_for_org),
-) -> Response:
-    """Save auto-match rules settings."""
-    from app.services.finance.settings_web import settings_web_service
-    from app.web.deps import base_context, templates
-
-    form = await request.form()
-    data = dict(form)
-
-    ok, error = settings_web_service.update_auto_match_settings(
-        db, auth.organization_id, data
-    )
-    if ok:
-        db.commit()
-        return RedirectResponse(
-            url="/finance/banking/settings?saved=1", status_code=303
-        )
-
-    # Re-render with error
-    context = base_context(request, auth, "Auto-Match Rules", "banking", db=db)
-    context.update(
-        settings_web_service.get_auto_match_settings_context(db, auth.organization_id)
-    )
-    context["error"] = error
-    return templates.TemplateResponse(
-        request, "finance/banking/auto_match_settings.html", context
-    )
+# Auto-match rules settings page was removed on 2026-05-15 when the
+# banking.automatch_* DomainSettings keys were sunset.  The canonical
+# config now lives on ``banking.reconciliation_policy_profile``; a future
+# admin UI for that will live elsewhere.
 
 
 @router.get("/dashboard", response_class=HTMLResponse)

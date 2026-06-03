@@ -286,6 +286,7 @@ class InvoiceWebService:
         from app.models.finance.tax.tax_code import TaxCode
         from app.models.fixed_assets.asset_category import AssetCategory
         from app.models.inventory.item import Item
+        from app.models.inventory.warehouse import Warehouse
 
         logger.debug(
             "invoice_form_context: org=%s supplier_id=%s po_id=%s",
@@ -400,15 +401,35 @@ class InvoiceWebService:
                 if item.last_purchase_cost
                 else 0,
                 "uom": item.base_uom,
+                "track_inventory": bool(item.track_inventory),
+                "track_lots": bool(item.track_lots),
+                "track_serial_numbers": bool(item.track_serial_numbers),
             }
             for item in db.scalars(
                 select(Item)
                 .where(
                     Item.organization_id == org_id,
-                    Item.is_active == True,
-                    Item.is_purchaseable == True,
+                    Item.is_active.is_(True),
+                    Item.is_purchaseable.is_(True),
                 )
                 .order_by(Item.item_code)
+            ).all()
+        ]
+
+        warehouses_list = [
+            {
+                "warehouse_id": str(warehouse.warehouse_id),
+                "warehouse_code": warehouse.warehouse_code,
+                "warehouse_name": warehouse.warehouse_name,
+            }
+            for warehouse in db.scalars(
+                select(Warehouse)
+                .where(
+                    Warehouse.organization_id == org_id,
+                    Warehouse.is_active.is_(True),
+                    Warehouse.is_receiving.is_(True),
+                )
+                .order_by(Warehouse.warehouse_code)
             ).all()
         ]
 
@@ -458,6 +479,7 @@ class InvoiceWebService:
             "expense_accounts": expense_accounts,
             "asset_accounts": asset_accounts,
             "items_list": items_list,
+            "warehouses_list": warehouses_list,
             "tax_codes": tax_codes,
             "wht_codes": wht_codes,
             "asset_categories": asset_categories,
@@ -940,11 +962,16 @@ class InvoiceWebService:
                     "unit_price": line.unit_price,
                     "tax_code_id": line.tax_code_id,
                     "tax_amount": line.tax_amount,
+                    "receipt_warehouse_id": line.receipt_warehouse_id,
+                    "receipt_reference": line.receipt_reference,
+                    "receipt_serial_numbers": line.receipt_serial_numbers,
+                    "receipt_auto_generate_serials": line.receipt_auto_generate_serials,
                     "cost_center_id": line.cost_center_id,
                     "project_id": line.project_id,
                 }
                 for line in lines
             ],
+            "auto_create_inventory_receipt": invoice.auto_create_inventory_receipt,
         }
 
         return templates.TemplateResponse(

@@ -319,6 +319,35 @@ def test_submit_approve_post_void_hold_release_record_payment():
     assert paid.status == SupplierInvoiceStatus.PARTIALLY_PAID
 
 
+def test_submit_invoice_creates_auto_receipt_when_enabled():
+    db = MagicMock()
+    org_id = uuid4()
+    user_id = uuid4()
+    invoice = SimpleNamespace(
+        invoice_id=uuid4(),
+        organization_id=org_id,
+        status=SupplierInvoiceStatus.DRAFT,
+        auto_create_inventory_receipt=True,
+    )
+    db.get.return_value = invoice
+
+    with patch(
+        "app.services.finance.ap.auto_inventory_receipt."
+        "ap_invoice_auto_receipt_service.create_for_invoice"
+    ) as create_auto_receipt:
+        submitted = SupplierInvoiceService.submit_invoice(
+            db, org_id, invoice.invoice_id, submitted_by_user_id=user_id
+        )
+
+    assert submitted.status == SupplierInvoiceStatus.SUBMITTED
+    create_auto_receipt.assert_called_once_with(
+        db=db,
+        organization_id=org_id,
+        invoice_id=invoice.invoice_id,
+        created_by_user_id=user_id,
+    )
+
+
 def test_list_overdue_requires_filters():
     db = MagicMock()
     org_id = uuid4()

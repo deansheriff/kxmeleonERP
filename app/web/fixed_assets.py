@@ -120,6 +120,131 @@ def fa_gl_reconciliation_report(
     )
 
 
+@router.get("/reports/gl-reconciliation/packages", response_class=HTMLResponse)
+def fa_gl_reconciliation_packages(
+    request: Request,
+    auth: WebAuthContext = Depends(require_fixed_assets_access),
+    db: Session = Depends(get_db_for_org),
+):
+    """Persisted fixed asset GL reconciliation packages."""
+    context = base_context(
+        request,
+        auth,
+        "Asset GL Reconciliation Packages",
+        "reports",
+        db=db,
+    )
+    context.update(
+        fa_web_service.gl_reconciliation_packages_context(
+            db,
+            str(auth.organization_id),
+        )
+    )
+    return templates.TemplateResponse(
+        request,
+        "fixed_assets/gl_reconciliation_packages.html",
+        context,
+    )
+
+
+@router.post("/reports/gl-reconciliation/packages")
+def create_fa_gl_reconciliation_package(
+    auth: WebAuthContext = Depends(require_fixed_assets_access),
+    db: Session = Depends(get_db_for_org),
+    as_of: str | None = Form(default=None),
+):
+    """Create a fixed asset GL reconciliation approval package."""
+    report_date = date.fromisoformat(as_of) if as_of else None
+    return fa_web_service.create_gl_reconciliation_package_response(
+        db,
+        str(auth.organization_id),
+        auth.user_id,
+        as_of=report_date,
+    )
+
+
+@router.get(
+    "/reports/gl-reconciliation/packages/{run_id}",
+    response_class=HTMLResponse,
+)
+def fa_gl_reconciliation_package_detail(
+    run_id: str,
+    request: Request,
+    auth: WebAuthContext = Depends(require_fixed_assets_access),
+    db: Session = Depends(get_db_for_org),
+):
+    """Fixed asset GL reconciliation package detail."""
+    context = base_context(
+        request,
+        auth,
+        "Asset GL Reconciliation Package",
+        "reports",
+        db=db,
+    )
+    context.update(
+        fa_web_service.gl_reconciliation_package_detail_context(
+            db,
+            str(auth.organization_id),
+            run_id,
+            current_user_id=auth.user_id,
+        )
+    )
+    return templates.TemplateResponse(
+        request,
+        "fixed_assets/gl_reconciliation_package_detail.html",
+        context,
+    )
+
+
+@router.post("/reports/gl-reconciliation/packages/{run_id}/approve")
+def approve_fa_gl_reconciliation_package(
+    run_id: str,
+    auth: WebAuthContext = Depends(require_fixed_assets_access),
+    db: Session = Depends(get_db_for_org),
+    comments: str | None = Form(default=None),
+):
+    """Approve one level of a fixed asset GL reconciliation package."""
+    return fa_web_service.approve_gl_reconciliation_package_response(
+        db,
+        str(auth.organization_id),
+        run_id,
+        auth.user_id,
+        comments=comments,
+    )
+
+
+@router.post("/reports/gl-reconciliation/packages/{run_id}/reject")
+def reject_fa_gl_reconciliation_package(
+    run_id: str,
+    auth: WebAuthContext = Depends(require_fixed_assets_access),
+    db: Session = Depends(get_db_for_org),
+    comments: str = Form(...),
+):
+    """Reject a fixed asset GL reconciliation package."""
+    return fa_web_service.reject_gl_reconciliation_package_response(
+        db,
+        str(auth.organization_id),
+        run_id,
+        auth.user_id,
+        comments=comments,
+    )
+
+
+@router.post("/reports/gl-reconciliation/packages/{run_id}/draft-journal")
+def create_fa_gl_reconciliation_draft_journal(
+    run_id: str,
+    auth: WebAuthContext = Depends(require_fixed_assets_access),
+    db: Session = Depends(get_db_for_org),
+):
+    """Create a draft correction journal for an approved package."""
+    return fa_web_service.create_gl_reconciliation_draft_journal_response(
+        db,
+        str(auth.organization_id),
+        run_id,
+        auth.user_id,
+    )
+
+
 @router.get("/reports/count-sheets/export")
 def export_fa_count_sheets_report(
     auth: WebAuthContext = Depends(require_fixed_assets_access),

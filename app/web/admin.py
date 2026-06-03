@@ -208,6 +208,17 @@ def admin_users_delete(
     return admin_web_service.users_delete_response(request, db, auth, user_id)
 
 
+@router.post("/users/{user_id}/activate")
+def admin_users_activate(
+    request: Request,
+    user_id: str,
+    db: Session = Depends(get_db),
+    auth: WebAuthContext = Depends(optional_web_auth),
+):
+    """Reactivate a user account."""
+    return admin_web_service.users_activate_response(request, db, auth, user_id)
+
+
 @router.get("/roles", response_class=HTMLResponse)
 def admin_roles(
     request: Request,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.services.finance.banking.auto_reconciliation_parts.base import (
-    AutoMatchConfig,
+    AutoMatchDefaults,
     AutoMatchResult,
     BankAccount,
     BankStatement,
@@ -34,7 +34,7 @@ class AutoReconciliationSpecialService:
         matched_line_ids: set[UUID],
         result: AutoMatchResult,
         *,
-        config: AutoMatchConfig | None = None,
+        config: AutoMatchDefaults | None = None,
     ) -> None:
         """Create GL journals for Paystack fee lines and auto-match them.
 
@@ -216,7 +216,7 @@ class AutoReconciliationSpecialService:
         matched_line_ids: set[UUID],
         result: AutoMatchResult,
         *,
-        config: AutoMatchConfig | None = None,
+        config: AutoMatchDefaults | None = None,
     ) -> None:
         """Match Paystack settlement debits to deposits on receiving banks.
 

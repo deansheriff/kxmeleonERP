@@ -2178,12 +2178,15 @@ class InventoryTransactionWebService:
             else:
                 InventoryTransactionService.create_issue(db, org_id, txn_input, user_id)
 
+            db.commit()
+
             return RedirectResponse(
                 url="/inventory/transactions?success=Record+saved+successfully",
                 status_code=303,
             )
 
         except Exception as e:
+            db.rollback()
             return RedirectResponse(
                 url=f"/inventory/transactions?error={str(e)}", status_code=303
             )
@@ -2271,12 +2274,15 @@ class InventoryTransactionWebService:
                 created_by_user_id=user_id,
             )
 
+            db.commit()
+
             return RedirectResponse(
                 url="/inventory/transactions?success=Record+saved+successfully",
                 status_code=303,
             )
 
         except Exception as e:
+            db.rollback()
             return RedirectResponse(
                 url=f"/inventory/transactions?error={str(e)}", status_code=303
             )
@@ -2350,12 +2356,15 @@ class InventoryTransactionWebService:
                 db, org_id, txn_input, user_id
             )
 
+            db.commit()
+
             return RedirectResponse(
                 url="/inventory/transactions?success=Record+saved+successfully",
                 status_code=303,
             )
 
         except Exception as e:
+            db.rollback()
             return RedirectResponse(
                 url=f"/inventory/transactions?error={str(e)}", status_code=303
             )

@@ -14,6 +14,10 @@
 
 {% block header_actions %}
 <div class="flex items-center gap-2">
+    <a href="/inventory/import/items" class="btn btn-secondary">
+        {{ icon_svg("cloud-upload", "h-4 w-4 mr-1.5") }}
+        Import
+    </a>
     <button onclick="exportAll('/inventory/items/export')" class="btn btn-secondary">
         {{ icon_svg("document-download", "h-4 w-4 mr-1.5") }}
         Export

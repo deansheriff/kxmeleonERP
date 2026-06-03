@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from app.services.finance.banking.auto_reconciliation_parts.base import (
     AMOUNT_TOLERANCE,
-    AutoMatchConfig,
+    AutoMatchDefaults,
     AutoMatchResult,
     BankAccount,
     BankStatement,
     BankStatementLine,
     CONTRA_DATE_WINDOW_DAYS,
     CONTRA_MIN_SCORE,
-    Decimal,
     PostingResult,
     ProgrammaticReconciliationEngine,
     ReconciliationRunContext,
@@ -95,63 +94,6 @@ class AutoReconciliationCoreService:
 
         return result
 
-    # ── Configuration ──────────────────────────────────────────────
-    @staticmethod
-    def _load_config(db: Session, organization_id: UUID) -> AutoMatchConfig:
-        """Load auto-match configuration from DomainSettings with fallbacks."""
-        from app.models.domain_settings import SettingDomain
-        from app.services.settings_spec import resolve_value
-
-        def _bool(key: str, default: bool) -> bool:
-            val = resolve_value(db, SettingDomain.banking, key)
-            if val is None:
-                return default
-            if isinstance(val, bool):
-                return val
-            return str(val).strip().lower() in {"1", "true", "yes", "on"}
-
-        def _int(key: str, default: int) -> int:
-            val = resolve_value(db, SettingDomain.banking, key)
-            if val is None:
-                return default
-            try:
-                return int(str(val))
-            except (TypeError, ValueError):
-                return default
-
-        def _str(key: str, default: str) -> str:
-            val = resolve_value(db, SettingDomain.banking, key)
-            if val is None:
-                return default
-            return str(val)
-
-        cents = _int("automatch_amount_tolerance_cents", 1)
-        tolerance = Decimal(cents) / Decimal(100)
-
-        return AutoMatchConfig(
-            pass_payment_intents_enabled=_bool(
-                "automatch_pass_payment_intents_enabled", True
-            ),
-            pass_splynx_by_ref_enabled=_bool(
-                "automatch_pass_splynx_by_ref_enabled", True
-            ),
-            pass_splynx_date_amount_enabled=_bool(
-                "automatch_pass_splynx_date_amount_enabled", True
-            ),
-            pass_ap_payments_enabled=_bool("automatch_pass_ap_payments_enabled", True),
-            pass_ar_payments_enabled=_bool("automatch_pass_ar_payments_enabled", True),
-            pass_bank_fees_enabled=_bool("automatch_pass_bank_fees_enabled", True),
-            pass_settlements_enabled=_bool("automatch_pass_settlements_enabled", True),
-            amount_tolerance=tolerance,
-            date_buffer_days=_int("automatch_date_buffer_days", 7),
-            settlement_date_window_days=_int(
-                "automatch_settlement_date_window_days", 10
-            ),
-            finance_cost_account_code=_str(
-                "automatch_finance_cost_account_code", "6080"
-            ),
-        )
-
     # ── Public API ──────────────────────────────────────────────────
     def auto_match_statement(
         self,
@@ -184,8 +126,12 @@ class AutoReconciliationCoreService:
         """
         result = AutoMatchResult()
 
-        # Load runtime configuration from DomainSettings
-        config = self._load_config(db, organization_id)
+        # Runtime configuration is resolved from ``ReconciliationPolicyProfile``.
+        # The transient ``AutoMatchDefaults`` supplies dataclass defaults (all
+        # passes enabled, 1¢ tolerance, etc.) so the policy layer's
+        # profile-override logic keeps working when individual profile columns
+        # are NULL.  No DomainSettings round-trip happens here anymore.
+        config = AutoMatchDefaults()
         policy = reconciliation_policy_service.resolve(
             db,
             organization_id,

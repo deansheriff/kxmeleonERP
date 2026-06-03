@@ -35,6 +35,71 @@ def _make_request(user_agent: str = "pytest"):
     return Request(scope)
 
 
+def test_login_reports_wrong_username(db_session):
+    with pytest.raises(HTTPException) as exc:
+        AuthFlow.login(
+            db_session, _unique_username(), "wrong-password", _make_request(), None
+        )
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Wrong username"
+
+
+def test_login_reports_wrong_password_and_tracks_failed_attempt(
+    db_session, person
+):
+    username = _unique_username()
+    credential = UserCredential(
+        person_id=person.id,
+        provider=AuthProvider.local,
+        username=username,
+        password_hash=hash_password("secret"),
+        is_active=True,
+    )
+    db_session.add(credential)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        AuthFlow.login(
+            db_session, username, "wrong-password", _make_request(), None
+        )
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Wrong password"
+
+    db_session.refresh(credential)
+    assert credential.failed_login_attempts == 1
+
+
+def test_login_warns_on_third_failed_password_attempt(db_session, person):
+    username = _unique_username()
+    credential = UserCredential(
+        person_id=person.id,
+        provider=AuthProvider.local,
+        username=username,
+        password_hash=hash_password("secret"),
+        failed_login_attempts=2,
+        is_active=True,
+    )
+    db_session.add(credential)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        AuthFlow.login(
+            db_session, username, "wrong-password", _make_request(), None
+        )
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == (
+        "Wrong password. This is your third failed attempt. "
+        "You have 2 more attempts before your account is locked."
+    )
+
+    db_session.refresh(credential)
+    assert credential.failed_login_attempts == 3
+    assert credential.locked_until is None
+
+
 def test_login_and_refresh_reuse_detection(db_session, person, monkeypatch):
     username = _unique_username()
     credential = UserCredential(

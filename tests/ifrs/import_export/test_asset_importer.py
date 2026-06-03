@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -57,25 +59,66 @@ def test_asset_importer_generates_sequence_number_ignoring_file_value(
     assert asset.asset_name == "Workstation"
 
 
-def test_asset_importer_duplicate_check_uses_serial_number(import_config, mock_db):
-    existing = MagicMock()
-    mock_db.execute.return_value.scalar_one_or_none.return_value = existing
+def test_asset_importer_duplicate_check_uses_asset_fingerprint(
+    import_config, mock_db
+):
+    existing = SimpleNamespace(
+        serial_number="8CC9491MB2",
+        asset_name="Workstation",
+        acquisition_date=date(2024, 1, 31),
+        acquisition_cost=Decimal("125000.00"),
+    )
+    mock_db.execute.return_value.scalars.return_value.all.return_value = [existing]
 
     importer = _make_importer(mock_db, import_config)
 
-    result = importer.check_duplicate({"Serial Number": "8CC9491MB2"})
+    result = importer.check_duplicate(
+        {
+            "Serial Number": "8CC9491MB2",
+            "Asset Name": "Workstation",
+            "Acquisition Date": "2024-01-31",
+            "Acquisition Cost": "125,000",
+        }
+    )
 
     assert result == existing
 
 
-def test_asset_importer_duplicate_check_is_case_insensitive(import_config, mock_db):
+def test_asset_importer_same_file_duplicate_check_uses_full_fingerprint(
+    import_config, mock_db
+):
+    mock_db.execute.return_value.scalars.return_value.all.return_value = []
     importer = _make_importer(mock_db, import_config)
 
-    importer.check_duplicate({"Serial Number": "8CC9491MB2"})
-    result = importer.check_duplicate({"Serial": " 8cc9491mb2 "})
+    first = importer.check_duplicate(
+        {
+            "Serial Number": "8CC9491MB2",
+            "Asset Name": "Workstation",
+            "Acquisition Date": "2024-01-31",
+            "Acquisition Cost": "125000",
+        }
+    )
+    repeated_serial_different_asset = importer.check_duplicate(
+        {
+            "Serial": " 8cc9491mb2 ",
+            "Asset Name": "Monitor",
+            "Acquisition Date": "2024-01-31",
+            "Acquisition Cost": "75000",
+        }
+    )
+    exact_duplicate = importer.check_duplicate(
+        {
+            "Serial": " 8cc9491mb2 ",
+            "Asset Name": " workstation ",
+            "Acquisition Date": "31/01/2024",
+            "Acquisition Cost": "125,000.00",
+        }
+    )
 
-    assert result is not None
-    assert mock_db.execute.call_count == 1
+    assert first is None
+    assert repeated_serial_different_asset is None
+    assert exact_duplicate is not None
+    assert mock_db.execute.call_count == 2
 
 
 def test_asset_importer_duplicate_check_ignores_placeholder_serials(

@@ -253,7 +253,7 @@ class AssetImporter(BaseImporter[Asset]):
             gain_loss_disposal_account_id,
         )
         self._location_cache: dict[str, UUID | None] = {}
-        self._seen_serial_numbers: set[str] = set()
+        self._seen_asset_fingerprints: set[tuple[str, str, str, str]] = set()
         self._department_lookup_loaded = False
         self._department_by_id: dict[str, tuple[UUID, str]] = {}
         self._department_by_code: dict[str, tuple[UUID, str]] = {}
@@ -440,11 +440,96 @@ class AssetImporter(BaseImporter[Asset]):
         ]
 
     def get_unique_key(self, row: dict[str, Any]) -> str:
-        """Unique key is serial number when present."""
-        serial = _normalize_asset_serial(_get_row_value(row, "Serial Number", "Serial"))
-        if serial:
+        """Human-readable duplicate key shown in import warnings."""
+        serial = _normalize_asset_serial(
+            _get_row_value(row, "Serial Number", "serial_number", "Serial")
+        )
+        if not serial:
+            return ""
+
+        fingerprint = self._row_duplicate_fingerprint(row)
+        if not fingerprint:
             return serial.casefold()
-        return ""
+
+        _, asset_name, acquisition_date, acquisition_cost = fingerprint
+        details = [
+            part for part in (asset_name, acquisition_date, acquisition_cost) if part
+        ]
+        suffix = f" | {' | '.join(details)}" if details else ""
+        return f"{serial.casefold()}{suffix}"
+
+    def _row_duplicate_fingerprint(
+        self, row: dict[str, Any]
+    ) -> tuple[str, str, str, str] | None:
+        """Build a duplicate fingerprint that allows repeated serials."""
+        serial = _normalize_asset_serial(
+            _get_row_value(row, "Serial Number", "serial_number", "Serial")
+        )
+        if not serial:
+            return None
+
+        asset_name = _get_row_value(
+            row,
+            "Asset Name",
+            "asset_name",
+            "Name",
+            "Description",
+            "description",
+        )
+        acquisition_date = _get_row_value(
+            row,
+            "Acquisition Date",
+            "acquisition_date",
+            "Purchase Date",
+            "Date Acquired",
+        )
+        acquisition_cost = _get_row_value(
+            row,
+            "Acquisition Cost",
+            "acquisition_cost",
+            "Cost",
+            "Purchase Price",
+        )
+
+        return (
+            serial.casefold(),
+            _normalize_match_text(asset_name),
+            self._normalize_duplicate_date(acquisition_date),
+            self._normalize_duplicate_amount(acquisition_cost),
+        )
+
+    def _asset_duplicate_fingerprint(
+        self, asset: Asset
+    ) -> tuple[str, str, str, str] | None:
+        serial = _normalize_asset_serial(getattr(asset, "serial_number", None))
+        if not serial:
+            return None
+        return (
+            serial.casefold(),
+            _normalize_match_text(getattr(asset, "asset_name", None)),
+            self._normalize_duplicate_date(getattr(asset, "acquisition_date", None)),
+            self._normalize_duplicate_amount(getattr(asset, "acquisition_cost", None)),
+        )
+
+    def _normalize_duplicate_date(self, value: Any) -> str:
+        if value in (None, ""):
+            return ""
+        try:
+            parsed = self.parse_date(value)
+        except Exception:
+            return str(value).strip().casefold()
+        return parsed.isoformat() if parsed else ""
+
+    def _normalize_duplicate_amount(self, value: Any) -> str:
+        if value in (None, ""):
+            return ""
+        try:
+            amount = self.parse_decimal(value)
+        except Exception:
+            return str(value).strip().casefold()
+        if amount is None:
+            return ""
+        return str(self._round_currency(amount))
 
     def _normalize_source_row(self, row: dict[str, Any]) -> dict[str, Any]:
         """Canonicalize known source headers so import mapping is case-insensitive."""
@@ -467,23 +552,31 @@ class AssetImporter(BaseImporter[Asset]):
         return [self._normalize_source_row(row) for row in rows]
 
     def check_duplicate(self, row: dict[str, Any]) -> Asset | None:
-        """Check if asset already exists by serial number."""
-        key = self.get_unique_key(row)
-        if not key:
+        """Check for duplicate assets using serial plus core asset details."""
+        fingerprint = self._row_duplicate_fingerprint(row)
+        if not fingerprint:
             return None
 
-        if key in self._seen_serial_numbers:
+        if fingerprint in self._seen_asset_fingerprints:
             return Asset()
-        self._seen_serial_numbers.add(key)
+        self._seen_asset_fingerprints.add(fingerprint)
 
-        existing = self.db.execute(
-            select(Asset).where(
-                Asset.organization_id == self.config.organization_id,
-                func.lower(func.btrim(Asset.serial_number)) == key,
+        existing_assets = (
+            self.db.execute(
+                select(Asset).where(
+                    Asset.organization_id == self.config.organization_id,
+                    func.lower(func.btrim(Asset.serial_number)) == fingerprint[0],
+                )
             )
-        ).scalar_one_or_none()
+            .scalars()
+            .all()
+        )
 
-        return existing
+        for existing in existing_assets:
+            if self._asset_duplicate_fingerprint(existing) == fingerprint:
+                return existing
+
+        return None
 
     def create_entity(self, row: dict[str, Any]) -> Asset:
         """Create a new asset from transformed row data."""

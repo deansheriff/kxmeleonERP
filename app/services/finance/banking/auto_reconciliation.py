@@ -15,7 +15,7 @@ from app.services.finance.banking.auto_reconciliation_parts import (
 from app.services.finance.banking.auto_reconciliation_parts.base import (
     AMOUNT_TOLERANCE,
     SYSTEM_USER_ID,
-    AutoMatchConfig,
+    AutoMatchDefaults,
     AutoMatchResult,
     logger,
 )
@@ -35,7 +35,7 @@ class AutoReconciliationService(  # type: ignore[misc]
 
 __all__ = [
     "AMOUNT_TOLERANCE",
-    "AutoMatchConfig",
+    "AutoMatchDefaults",
     "AutoMatchResult",
     "AutoReconciliationService",
     "SYSTEM_USER_ID",

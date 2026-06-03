@@ -79,8 +79,9 @@ def get_db_with_org(
     Yields a Session with the request's organization_id pinned in *both*
     Python-side (``session.info["organization_id"]``, read by the
     ``do_orm_execute`` listener at ``app/db/org_listener.py`` when
-    ``settings.enforce_org_filter`` is on — currently False; the
-    listener is shipped but gated) and PostgreSQL-side
+    ``settings.enforce_org_filter`` is on — enabled by default, with
+    ``ENFORCE_ORG_FILTER=false`` available as an emergency opt-out) and
+    PostgreSQL-side
     (``app.current_organization_id`` GUC, consumed by RLS policies on
     every org-scoped table — active today).
 

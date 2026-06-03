@@ -224,6 +224,11 @@ class SupplierInvoice(Base, VersionedMixin):
         default=0,
     )
 
+    # Inventory auto-receipt
+    auto_create_inventory_receipt: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+
     # Intercompany
     is_intercompany: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False

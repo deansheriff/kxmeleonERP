@@ -1621,6 +1621,22 @@ GLOSSARY: list[dict[str, Any]] = [
 
 RELEASE_NOTES: list[dict[str, Any]] = [
     {
+        "version": "1.4.0",
+        "date": "3 June 2026",
+        "type": "minor",
+        "summary": "Release with fixed asset GL reconciliation packages, corrected variance approvals, employee invite email editing, and inventory serial entry refinements.",
+        "features": [
+            "Added fixed asset GL reconciliation packages with approval routing and draft correction journal creation.",
+            "Added editable employee invite email content for HR settings.",
+        ],
+        "improvements": [
+            "Adjusted missing serial entry modal behavior for single serial entry.",
+        ],
+        "fixes": [
+            "Fixed FA reconciliation package approval amounts so derived NBV variance is not double-counted.",
+        ],
+    },
+    {
         "version": "1.1.4",
         "date": "20 May 2026",
         "type": "patch",

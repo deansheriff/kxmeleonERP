@@ -67,7 +67,7 @@ After 5 failed login attempts, the account is locked for 15 minutes.
         },
         401: {
             "model": ErrorResponse,
-            "description": "Invalid credentials",
+            "description": "Wrong username or wrong password",
         },
         403: {
             "model": ErrorResponse,

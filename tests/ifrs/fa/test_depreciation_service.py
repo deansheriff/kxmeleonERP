@@ -440,6 +440,47 @@ class TestDepreciationRunService:
         assert result["status"] == "calculated"
         assert result["reason"] == "no_assets_to_post"
 
+    def test_post_run_rejects_stale_calculated_schedule(self, mock_db, org_id, user_id):
+        """Posting must fail if asset values changed after run calculation."""
+        from fastapi import HTTPException
+
+        from app.services.fixed_assets.depreciation import DepreciationService
+        from app.models.fixed_assets.depreciation_run import DepreciationRunStatus
+
+        run_id = uuid.uuid4()
+        creator_id = uuid.uuid4()
+        asset_id = uuid.uuid4()
+        run = SimpleNamespace(
+            run_id=run_id,
+            organization_id=org_id,
+            status=DepreciationRunStatus.CALCULATED,
+            created_by_user_id=creator_id,
+        )
+        schedule = SimpleNamespace(
+            asset_id=asset_id,
+            accumulated_depreciation_opening=Decimal("100.00"),
+            net_book_value_opening=Decimal("900.00"),
+            remaining_life_months_opening=9,
+        )
+        asset = SimpleNamespace(
+            asset_id=asset_id,
+            organization_id=org_id,
+            asset_number="FA-STALE",
+            accumulated_depreciation=Decimal("200.00"),
+            net_book_value=Decimal("800.00"),
+            remaining_life_months=8,
+        )
+
+        mock_db.get.side_effect = [run, asset]
+        mock_db.scalars.return_value = [schedule]
+
+        with pytest.raises(HTTPException) as exc:
+            DepreciationService.post_run(mock_db, org_id, run_id, user_id)
+
+        assert exc.value.status_code == 400
+        assert "recalculate the run before posting" in exc.value.detail
+        mock_db.flush.assert_not_called()
+
 
 class TestAssetDepreciationCalculation:
     """Tests for per-asset depreciation calculation."""

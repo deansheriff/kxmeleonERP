@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
+from app.db.session_context import allow_cross_org
 from app.models.domain_settings import SettingValueType
 from app.services.domain_settings import (
     audit_settings,
@@ -30,96 +31,97 @@ def _csv_list(raw: str | None, upper: bool = True) -> list[str] | None:
 
 
 def seed_auth_settings(db: Session) -> None:
-    auth_settings.ensure_by_key(
-        db,
-        key="jwt_algorithm",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("JWT_ALGORITHM", "HS256"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="jwt_access_ttl_minutes",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("JWT_ACCESS_TTL_MINUTES", "15"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="jwt_refresh_ttl_days",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("JWT_REFRESH_TTL_DAYS", "30"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="refresh_cookie_name",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("REFRESH_COOKIE_NAME", "refresh_token"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="refresh_cookie_secure",
-        value_type=SettingValueType.boolean,
-        value_text=os.getenv("REFRESH_COOKIE_SECURE", "false"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="refresh_cookie_samesite",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("REFRESH_COOKIE_SAMESITE", "lax"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="refresh_cookie_domain",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("REFRESH_COOKIE_DOMAIN"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="refresh_cookie_path",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("REFRESH_COOKIE_PATH", "/auth"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="totp_issuer",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("TOTP_ISSUER", "dotmac_erp"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="api_key_rate_window_seconds",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("API_KEY_RATE_WINDOW_SECONDS", "60"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="api_key_rate_max",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("API_KEY_RATE_MAX", "5"),
-    )
-    auth_settings.ensure_by_key(
-        db,
-        key="default_auth_provider",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("AUTH_DEFAULT_AUTH_PROVIDER", "local"),
-    )
-    jwt_secret = os.getenv("JWT_SECRET")
-    if jwt_secret and is_openbao_ref(jwt_secret):
+    with allow_cross_org(db):
         auth_settings.ensure_by_key(
             db,
-            key="jwt_secret",
+            key="jwt_algorithm",
             value_type=SettingValueType.string,
-            value_text=jwt_secret,
-            is_secret=True,
+            value_text=os.getenv("JWT_ALGORITHM", "HS256"),
         )
-    totp_key = os.getenv("TOTP_ENCRYPTION_KEY")
-    if totp_key and is_openbao_ref(totp_key):
         auth_settings.ensure_by_key(
             db,
-            key="totp_encryption_key",
-            value_type=SettingValueType.string,
-            value_text=totp_key,
-            is_secret=True,
+            key="jwt_access_ttl_minutes",
+            value_type=SettingValueType.integer,
+            value_text=os.getenv("JWT_ACCESS_TTL_MINUTES", "15"),
         )
+        auth_settings.ensure_by_key(
+            db,
+            key="jwt_refresh_ttl_days",
+            value_type=SettingValueType.integer,
+            value_text=os.getenv("JWT_REFRESH_TTL_DAYS", "30"),
+        )
+        auth_settings.ensure_by_key(
+            db,
+            key="refresh_cookie_name",
+            value_type=SettingValueType.string,
+            value_text=os.getenv("REFRESH_COOKIE_NAME", "refresh_token"),
+        )
+        auth_settings.ensure_by_key(
+            db,
+            key="refresh_cookie_secure",
+            value_type=SettingValueType.boolean,
+            value_text=os.getenv("REFRESH_COOKIE_SECURE", "false"),
+        )
+        auth_settings.ensure_by_key(
+            db,
+            key="refresh_cookie_samesite",
+            value_type=SettingValueType.string,
+            value_text=os.getenv("REFRESH_COOKIE_SAMESITE", "lax"),
+        )
+        auth_settings.ensure_by_key(
+            db,
+            key="refresh_cookie_domain",
+            value_type=SettingValueType.string,
+            value_text=os.getenv("REFRESH_COOKIE_DOMAIN"),
+        )
+        auth_settings.ensure_by_key(
+            db,
+            key="refresh_cookie_path",
+            value_type=SettingValueType.string,
+            value_text=os.getenv("REFRESH_COOKIE_PATH", "/auth"),
+        )
+        auth_settings.ensure_by_key(
+            db,
+            key="totp_issuer",
+            value_type=SettingValueType.string,
+            value_text=os.getenv("TOTP_ISSUER", "dotmac_erp"),
+        )
+        auth_settings.ensure_by_key(
+            db,
+            key="api_key_rate_window_seconds",
+            value_type=SettingValueType.integer,
+            value_text=os.getenv("API_KEY_RATE_WINDOW_SECONDS", "60"),
+        )
+        auth_settings.ensure_by_key(
+            db,
+            key="api_key_rate_max",
+            value_type=SettingValueType.integer,
+            value_text=os.getenv("API_KEY_RATE_MAX", "5"),
+        )
+        auth_settings.ensure_by_key(
+            db,
+            key="default_auth_provider",
+            value_type=SettingValueType.string,
+            value_text=os.getenv("AUTH_DEFAULT_AUTH_PROVIDER", "local"),
+        )
+        jwt_secret = os.getenv("JWT_SECRET")
+        if jwt_secret and is_openbao_ref(jwt_secret):
+            auth_settings.ensure_by_key(
+                db,
+                key="jwt_secret",
+                value_type=SettingValueType.string,
+                value_text=jwt_secret,
+                is_secret=True,
+            )
+        totp_key = os.getenv("TOTP_ENCRYPTION_KEY")
+        if totp_key and is_openbao_ref(totp_key):
+            auth_settings.ensure_by_key(
+                db,
+                key="totp_encryption_key",
+                value_type=SettingValueType.string,
+                value_text=totp_key,
+                is_secret=True,
+            )
 
 
 def seed_audit_settings(db: Session) -> None:
@@ -595,6 +597,37 @@ def seed_scheduled_tasks(db: Session) -> None:
             "schedule_type": ScheduleType.crontab,
             "cron_minute": "15",
             "cron_hour": "1",  # 1:15 AM daily
+            "cron_day_of_week": "*",
+            "cron_day_of_month": "*",
+            "cron_month_of_year": "*",
+            "enabled": True,
+            "args_json": [],
+            "kwargs_json": {},
+        },
+        {
+            "name": "Fixed Assets: GL Reconciliation Package",
+            "task_name": (
+                "app.tasks.finance.process_fixed_asset_gl_reconciliation_package"
+            ),
+            "schedule_type": ScheduleType.crontab,
+            "cron_minute": "45",
+            "cron_hour": "1",  # 1:45 AM daily, after depreciation automation
+            "cron_day_of_week": "*",
+            "cron_day_of_month": "*",
+            "cron_month_of_year": "*",
+            "enabled": True,
+            "args_json": [],
+            "kwargs_json": {"submit_for_approval": True},
+        },
+        {
+            "name": "Fixed Assets: Approved GL Reconciliation Drafts",
+            "task_name": (
+                "app.tasks.finance."
+                "process_approved_fixed_asset_gl_reconciliation_drafts"
+            ),
+            "schedule_type": ScheduleType.crontab,
+            "cron_minute": "15",
+            "cron_hour": "2",  # 2:15 AM daily, after approval package creation
             "cron_day_of_week": "*",
             "cron_day_of_month": "*",
             "cron_month_of_year": "*",

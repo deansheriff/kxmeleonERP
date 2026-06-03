@@ -6,11 +6,12 @@ HTML template routes for Items and Inventory Transactions.
 
 import logging
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from app.services.inventory.material_request_web import MaterialRequestWebService
+from app.services.inventory.import_web import inventory_import_web_service
 from app.services.inventory.return_web import InventoryReturnWebService
 from app.services.inventory.web import inv_web_service
 from app.services.operations.inv_web import operations_inv_web_service
@@ -50,6 +51,67 @@ def inventory_quick_entry(
     """Inventory quick entry landing page."""
     context = base_context(request, auth, "Quick Entry", "quick-entry", db=db)
     return templates.TemplateResponse(request, "inventory/quick_entry.html", context)
+
+
+@router.get("/import", response_class=HTMLResponse)
+def inventory_import_dashboard(
+    request: Request,
+    auth: WebAuthContext = Depends(require_inventory_access),
+):
+    """Inventory import dashboard page."""
+    return inventory_import_web_service.dashboard_response(request, auth)
+
+
+@router.get("/import/{entity_type}", response_class=HTMLResponse)
+def inventory_import_form(
+    request: Request,
+    entity_type: str,
+    auth: WebAuthContext = Depends(require_inventory_access),
+):
+    """Inventory import form for a supported entity type."""
+    return inventory_import_web_service.import_form_response(request, auth, entity_type)
+
+
+@router.post("/import/{entity_type}/preview", response_class=JSONResponse)
+async def inventory_import_preview(
+    request: Request,
+    entity_type: str,
+    file: UploadFile = File(...),
+    auth: WebAuthContext = Depends(require_inventory_access),
+    db: Session = Depends(get_db_for_org),
+):
+    """Preview inventory import with validation and column mapping."""
+    return await inventory_import_web_service.preview_response(
+        request=request,
+        auth=auth,
+        db=db,
+        entity_type=entity_type,
+        file=file,
+    )
+
+
+@router.post("/import/{entity_type}", response_class=JSONResponse)
+async def inventory_execute_import(
+    request: Request,
+    entity_type: str,
+    file: UploadFile = File(...),
+    skip_duplicates: str | None = Form(default=None),
+    dry_run: str | None = Form(default=None),
+    column_mapping: str | None = Form(default=None),
+    auth: WebAuthContext = Depends(require_inventory_access),
+    db: Session = Depends(get_db_for_org),
+):
+    """Execute inventory import operation."""
+    return await inventory_import_web_service.execute_response(
+        request=request,
+        auth=auth,
+        db=db,
+        entity_type=entity_type,
+        file=file,
+        skip_duplicates=skip_duplicates,
+        dry_run=dry_run,
+        column_mapping=column_mapping,
+    )
 
 
 @router.get("/items", response_class=HTMLResponse)
@@ -1584,6 +1646,26 @@ def list_serials(
         item=item,
         lot=lot,
         page=page,
+    )
+
+
+@router.post("/serials/missing/add")
+async def add_missing_serials(
+    request: Request,
+    auth: WebAuthContext = Depends(require_inventory_access),
+    db: Session = Depends(get_db_for_org),
+):
+    """Add serial records for stock already on hand."""
+    form = getattr(request.state, "csrf_form", None)
+    if form is None or isinstance(form, str) or not hasattr(form, "get"):
+        form = await request.form()
+    return operations_inv_web_service.add_missing_serials_response(
+        request=request,
+        auth=auth,
+        db=db,
+        item_id=str(form.get("item_id") or ""),
+        warehouse_id=str(form.get("warehouse_id") or ""),
+        serial_numbers=str(form.get("serial_numbers") or ""),
     )
 
 

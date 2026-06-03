@@ -12,12 +12,13 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    String,
     Text,
     UniqueConstraint,
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -109,6 +110,25 @@ class SupplierInvoiceLine(Base):
     created_asset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("fa.asset.asset_id"),
+        nullable=True,
+    )
+
+    # Inventory auto-receipt metadata
+    receipt_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("inv.warehouse.warehouse_id"),
+        nullable=True,
+    )
+    receipt_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    receipt_serial_numbers: Mapped[list[str] | None] = mapped_column(
+        ARRAY(Text), nullable=True
+    )
+    receipt_auto_generate_serials: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    auto_receipt_transaction_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("inv.inventory_transaction.transaction_id"),
         nullable=True,
     )
 

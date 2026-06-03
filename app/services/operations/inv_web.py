@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from datetime import date as date_type
 from io import StringIO
 from typing import Any, cast
+from urllib.parse import urlencode
 
 try:
     from datetime import UTC  # type: ignore
@@ -20,6 +21,7 @@ from math import ceil
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.datastructures import UploadFile
 
@@ -69,6 +71,18 @@ def _form_value(form_data: object, key: str) -> object:
     if isinstance(value, (list, tuple)):
         return value[-1] if value else None
     return value
+
+
+def _serials_url(**params: object) -> str:
+    """Build inventory serials URLs with encoded query parameters."""
+    query = {
+        key: str(value)
+        for key, value in params.items()
+        if value is not None and str(value) != ""
+    }
+    if not query:
+        return "/inventory/serials"
+    return f"/inventory/serials?{urlencode(query)}"
 
 
 class OperationsInventoryWebService:
@@ -1240,6 +1254,10 @@ class OperationsInventoryWebService:
 
         from app.models.inventory.inventory_lot import InventoryLot
         from app.models.inventory.inventory_serial import InventorySerial
+        from app.models.inventory.inventory_transaction import (
+            InventoryTransaction,
+            TransactionType,
+        )
         from app.models.inventory.item import Item
         from app.models.inventory.warehouse import Warehouse
 
@@ -1307,6 +1325,89 @@ class OperationsInventoryWebService:
             )
             or 0
         )
+        quantity_delta = case(
+            (
+                InventoryTransaction.transaction_type.in_(
+                    [
+                        TransactionType.RECEIPT,
+                        TransactionType.RETURN,
+                        TransactionType.ASSEMBLY,
+                    ]
+                ),
+                InventoryTransaction.quantity,
+            ),
+            (
+                InventoryTransaction.transaction_type.in_(
+                    [
+                        TransactionType.ISSUE,
+                        TransactionType.SALE,
+                        TransactionType.SCRAP,
+                        TransactionType.DISASSEMBLY,
+                    ]
+                ),
+                -InventoryTransaction.quantity,
+            ),
+            else_=InventoryTransaction.quantity,
+        )
+        item_warehouse_balances = (
+            select(
+                InventoryTransaction.item_id.label("item_id"),
+                InventoryTransaction.warehouse_id.label("warehouse_id"),
+                func.sum(quantity_delta).label("quantity_on_hand"),
+            )
+            .where(InventoryTransaction.organization_id == org_id)
+            .group_by(InventoryTransaction.item_id, InventoryTransaction.warehouse_id)
+            .subquery()
+        )
+        item_warehouse_serial_counts = (
+            select(
+                InventorySerial.item_id.label("item_id"),
+                InventorySerial.warehouse_id.label("warehouse_id"),
+                func.count(InventorySerial.serial_id).label("serial_count"),
+            )
+            .where(
+                InventorySerial.organization_id == org_id,
+                InventorySerial.is_active.is_(True),
+                InventorySerial.warehouse_id.is_not(None),
+                InventorySerial.status.in_(["AVAILABLE", "RESERVED", "DAMAGED"]),
+            )
+            .group_by(InventorySerial.item_id, InventorySerial.warehouse_id)
+            .subquery()
+        )
+        serial_count = func.coalesce(item_warehouse_serial_counts.c.serial_count, 0)
+        missing_serial_warehouse_stmt = (
+            select(
+                Item.item_id.label("item_id"),
+                item_warehouse_balances.c.warehouse_id.label("warehouse_id"),
+                Warehouse.warehouse_code.label("warehouse_code"),
+                Warehouse.warehouse_name.label("warehouse_name"),
+                item_warehouse_balances.c.quantity_on_hand.label("quantity_on_hand"),
+                serial_count.label("serial_count"),
+                (item_warehouse_balances.c.quantity_on_hand - serial_count).label(
+                    "missing_count"
+                ),
+            )
+            .join(Item, item_warehouse_balances.c.item_id == Item.item_id)
+            .outerjoin(
+                Warehouse,
+                item_warehouse_balances.c.warehouse_id == Warehouse.warehouse_id,
+            )
+            .outerjoin(
+                item_warehouse_serial_counts,
+                (item_warehouse_serial_counts.c.item_id == Item.item_id)
+                & (
+                    item_warehouse_serial_counts.c.warehouse_id
+                    == item_warehouse_balances.c.warehouse_id
+                ),
+            )
+            .where(
+                Item.organization_id == org_id,
+                Item.is_active.is_(True),
+                Item.track_serial_numbers.is_(True),
+                item_warehouse_balances.c.warehouse_id.is_not(None),
+                item_warehouse_balances.c.quantity_on_hand > serial_count,
+            )
+        )
 
         serial_ids_stmt = (
             select(InventorySerial.serial_id)
@@ -1359,12 +1460,51 @@ class OperationsInventoryWebService:
             except ValueError:
                 pass
 
+        missing_serials_base_stmt = missing_serial_warehouse_stmt
+        if warehouse:
+            try:
+                wh_id = UUID_Type(warehouse)
+                missing_serials_base_stmt = missing_serials_base_stmt.where(
+                    item_warehouse_balances.c.warehouse_id == wh_id
+                )
+            except ValueError:
+                pass
+
+        missing_serials_base = missing_serials_base_stmt.subquery()
+        missing_serials_stmt = (
+            select(
+                Item.item_id,
+                Item.item_code,
+                Item.item_name,
+                missing_serials_base.c.warehouse_id,
+                missing_serials_base.c.warehouse_code,
+                missing_serials_base.c.warehouse_name,
+                func.sum(missing_serials_base.c.quantity_on_hand).label(
+                    "quantity_on_hand"
+                ),
+                func.sum(missing_serials_base.c.serial_count).label("serial_count"),
+                func.sum(missing_serials_base.c.missing_count).label("missing_count"),
+            )
+            .join(Item, missing_serials_base.c.item_id == Item.item_id)
+            .group_by(
+                Item.item_id,
+                Item.item_code,
+                Item.item_name,
+                missing_serials_base.c.warehouse_id,
+                missing_serials_base.c.warehouse_code,
+                missing_serials_base.c.warehouse_name,
+            )
+        )
+
         selected_item = None
         if item:
             try:
                 item_id = UUID_Type(item)
                 serial_ids_stmt = serial_ids_stmt.where(
                     InventorySerial.item_id == item_id
+                )
+                missing_serials_stmt = missing_serials_stmt.where(
+                    missing_serials_base.c.item_id == item_id
                 )
                 selected_item = db.get(Item, item_id)
                 if selected_item and selected_item.organization_id != org_id:
@@ -1395,52 +1535,103 @@ class OperationsInventoryWebService:
                     InventoryLot.lot_number.ilike(term),
                 )
             )
+            missing_serials_stmt = missing_serials_stmt.where(
+                or_(Item.item_code.ilike(term), Item.item_name.ilike(term))
+            )
 
-        filtered_total = (
-            db.scalar(select(func.count()).select_from(serial_ids_stmt.subquery())) or 0
-        )
-        total_pages = max(1, ceil(filtered_total / per_page))
-        serial_id_rows = list(
+        missing_serials_summary = missing_serials_stmt.subquery()
+        missing_serials_row_count, missing_serials_quantity = (
             db.execute(
-                serial_ids_stmt.order_by(
-                    InventorySerial.created_at.desc(),
-                    InventorySerial.serial_number,
-                )
-                .offset((page - 1) * per_page)
-                .limit(per_page)
-            ).all()
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(missing_serials_summary.c.missing_count), 0),
+                ).select_from(missing_serials_summary)
+            ).one()
         )
-        serial_ids = [row.serial_id for row in serial_id_rows]
+        missing_serials_count = missing_serials_quantity or 0
+        if (
+            hasattr(missing_serials_count, "to_integral_value")
+            and missing_serials_count == missing_serials_count.to_integral_value()
+        ):
+            missing_serials_count = int(missing_serials_count)
 
         serial_rows = []
-        if serial_ids:
-            rows = list(
+        if normalized_status == "MISSING_SERIALS":
+            filtered_total = missing_serials_row_count
+            total_pages = max(1, ceil(filtered_total / per_page))
+            missing_rows = list(
                 db.execute(
-                    select(InventorySerial, Item, InventoryLot, Warehouse)
-                    .join(Item, InventorySerial.item_id == Item.item_id)
-                    .outerjoin(
-                        InventoryLot, InventorySerial.lot_id == InventoryLot.lot_id
-                    )
-                    .outerjoin(
-                        Warehouse,
-                        InventorySerial.warehouse_id == Warehouse.warehouse_id,
-                    )
-                    .where(InventorySerial.serial_id.in_(serial_ids))
+                    missing_serials_stmt.order_by(Item.item_code)
+                    .offset((page - 1) * per_page)
+                    .limit(per_page)
                 ).all()
             )
-            row_by_id = {row.InventorySerial.serial_id: row for row in rows}
-            for serial_id in serial_ids:
-                row = row_by_id.get(serial_id)
-                if not row:
-                    continue
+            for row in missing_rows:
                 serial_rows.append(
                     {
-                        "serial": row.InventorySerial,
-                        "item": row.Item,
-                        "lot": row.InventoryLot,
-                        "warehouse": row.Warehouse,
+                        "row_type": "missing_serials",
+                        "item": {
+                            "item_id": row.item_id,
+                            "item_code": row.item_code,
+                            "item_name": row.item_name,
+                        },
+                        "warehouse": {
+                            "warehouse_id": row.warehouse_id,
+                            "warehouse_code": row.warehouse_code,
+                            "warehouse_name": row.warehouse_name,
+                        },
+                        "quantity_on_hand": row.quantity_on_hand,
+                        "serial_count": row.serial_count,
+                        "missing_count": row.missing_count,
                     }
                 )
+        else:
+            filtered_total = (
+                db.scalar(select(func.count()).select_from(serial_ids_stmt.subquery()))
+                or 0
+            )
+            total_pages = max(1, ceil(filtered_total / per_page))
+            serial_id_rows = list(
+                db.execute(
+                    serial_ids_stmt.order_by(
+                        InventorySerial.created_at.desc(),
+                        InventorySerial.serial_number,
+                    )
+                    .offset((page - 1) * per_page)
+                    .limit(per_page)
+                ).all()
+            )
+            serial_ids = [row.serial_id for row in serial_id_rows]
+
+            if serial_ids:
+                rows = list(
+                    db.execute(
+                        select(InventorySerial, Item, InventoryLot, Warehouse)
+                        .join(Item, InventorySerial.item_id == Item.item_id)
+                        .outerjoin(
+                            InventoryLot, InventorySerial.lot_id == InventoryLot.lot_id
+                        )
+                        .outerjoin(
+                            Warehouse,
+                            InventorySerial.warehouse_id == Warehouse.warehouse_id,
+                        )
+                        .where(InventorySerial.serial_id.in_(serial_ids))
+                    ).all()
+                )
+                row_by_id = {row.InventorySerial.serial_id: row for row in rows}
+                for serial_id in serial_ids:
+                    serial_row = row_by_id.get(serial_id)
+                    if not serial_row:
+                        continue
+                    serial_rows.append(
+                        {
+                            "row_type": "serial",
+                            "serial": serial_row.InventorySerial,
+                            "item": serial_row.Item,
+                            "lot": serial_row.InventoryLot,
+                            "warehouse": serial_row.Warehouse,
+                        }
+                    )
 
         warehouses = list(
             db.scalars(
@@ -1489,6 +1680,7 @@ class OperationsInventoryWebService:
                     "transferred": "Transferred",
                     "inactive": "Inactive",
                     "blocked": "Not usable",
+                    "missing_serials": "Missing Serials",
                 },
                 "warehouse": {
                     str(wh.warehouse_id): wh.warehouse_name for wh in warehouses
@@ -1517,6 +1709,7 @@ class OperationsInventoryWebService:
                 "damaged_count": status_counts["DAMAGED"],
                 "transferred_count": status_counts["TRANSFERRED"],
                 "blocked_count": blocked_count,
+                "missing_serials_count": missing_serials_count,
                 "serial_rows": serial_rows,
                 "warehouses": warehouses,
                 "items": items,
@@ -1526,6 +1719,7 @@ class OperationsInventoryWebService:
                 "warehouse": warehouse or "",
                 "item": item or "",
                 "lot": lot or "",
+                "error": request.query_params.get("error") or "",
                 "page": page,
                 "total_pages": total_pages,
                 "filtered_total": filtered_total,
@@ -1533,6 +1727,219 @@ class OperationsInventoryWebService:
             }
         )
         return templates.TemplateResponse(request, "inventory/serials.html", context)
+
+    def add_missing_serials_response(
+        self,
+        request: Request,
+        auth: WebAuthContext,
+        db: Session,
+        *,
+        item_id: str,
+        warehouse_id: str,
+        serial_numbers: str | None,
+    ) -> RedirectResponse:
+        """Attach serial records to existing on-hand stock missing serials."""
+        from uuid import UUID as UUID_Type
+
+        from app.models.inventory.inventory_serial import InventorySerial
+        from app.models.inventory.inventory_transaction import (
+            InventoryTransaction,
+            TransactionType,
+        )
+        from app.models.inventory.item import Item
+        from app.models.inventory.warehouse import Warehouse
+        from app.services.inventory.serial import InventorySerialService
+
+        org_id = auth.organization_id
+        user_id = auth.user_id
+        if org_id is None or user_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        try:
+            item_uuid = UUID_Type(item_id)
+            warehouse_uuid = UUID_Type(warehouse_id)
+        except ValueError:
+            return RedirectResponse(
+                url=_serials_url(
+                    status="missing_serials",
+                    error="Invalid item or warehouse",
+                ),
+                status_code=303,
+            )
+
+        item = db.scalars(
+            select(Item).where(
+                Item.organization_id == org_id,
+                Item.item_id == item_uuid,
+                Item.is_active.is_(True),
+            )
+            .with_for_update()
+        ).first()
+        warehouse = db.scalars(
+            select(Warehouse).where(
+                Warehouse.organization_id == org_id,
+                Warehouse.warehouse_id == warehouse_uuid,
+                Warehouse.is_active.is_(True),
+            )
+            .with_for_update()
+        ).first()
+        if not item or not warehouse or not item.track_serial_numbers:
+            return RedirectResponse(
+                url=_serials_url(
+                    status="missing_serials",
+                    error="Item or warehouse not found",
+                ),
+                status_code=303,
+            )
+
+        normalized_input = (serial_numbers or "").replace(",", "\n")
+        parsed_serials = [
+            serial.strip()
+            for serial in normalized_input.splitlines()
+            if serial.strip()
+        ]
+        try:
+            parsed_serials = InventorySerialService.normalize_serial_numbers(
+                parsed_serials
+            )
+        except HTTPException:
+            return RedirectResponse(
+                url=_serials_url(
+                    status="missing_serials",
+                    item=item_uuid,
+                    warehouse=warehouse_uuid,
+                    error="Duplicate serial number",
+                ),
+                status_code=303,
+            )
+
+        quantity_delta = case(
+            (
+                InventoryTransaction.transaction_type.in_(
+                    [
+                        TransactionType.RECEIPT,
+                        TransactionType.RETURN,
+                        TransactionType.ASSEMBLY,
+                    ]
+                ),
+                InventoryTransaction.quantity,
+            ),
+            (
+                InventoryTransaction.transaction_type.in_(
+                    [
+                        TransactionType.ISSUE,
+                        TransactionType.SALE,
+                        TransactionType.SCRAP,
+                        TransactionType.DISASSEMBLY,
+                    ]
+                ),
+                -InventoryTransaction.quantity,
+            ),
+            else_=InventoryTransaction.quantity,
+        )
+        quantity_on_hand = (
+            db.scalar(
+                select(func.coalesce(func.sum(quantity_delta), 0)).where(
+                    InventoryTransaction.organization_id == org_id,
+                    InventoryTransaction.item_id == item_uuid,
+                    InventoryTransaction.warehouse_id == warehouse_uuid,
+                )
+            )
+            or 0
+        )
+        serial_count = (
+            db.scalar(
+                select(func.count(InventorySerial.serial_id)).where(
+                    InventorySerial.organization_id == org_id,
+                    InventorySerial.item_id == item_uuid,
+                    InventorySerial.warehouse_id == warehouse_uuid,
+                    InventorySerial.is_active.is_(True),
+                    InventorySerial.status.in_(["AVAILABLE", "RESERVED", "DAMAGED"]),
+                )
+            )
+            or 0
+        )
+        missing_quantity = quantity_on_hand - serial_count
+        if (
+            hasattr(missing_quantity, "to_integral_value")
+            and missing_quantity != missing_quantity.to_integral_value()
+        ):
+            return RedirectResponse(
+                url=_serials_url(
+                    status="missing_serials",
+                    item=item_uuid,
+                    warehouse=warehouse_uuid,
+                    error="Serial tracked stock must be whole units",
+                ),
+                status_code=303,
+            )
+        missing_count = int(missing_quantity)
+        if missing_count <= 0:
+            return RedirectResponse(
+                url=_serials_url(
+                    item=item_uuid,
+                    warehouse=warehouse_uuid,
+                    error="Missing serials already completed",
+                ),
+                status_code=303,
+            )
+        if not parsed_serials:
+            return RedirectResponse(
+                url=_serials_url(
+                    status="missing_serials",
+                    item=item_uuid,
+                    warehouse=warehouse_uuid,
+                    error="Enter at least one serial number",
+                ),
+                status_code=303,
+            )
+        if len(parsed_serials) > missing_count:
+            return RedirectResponse(
+                url=_serials_url(
+                    status="missing_serials",
+                    item=item_uuid,
+                    warehouse=warehouse_uuid,
+                    error="Serial count cannot exceed missing quantity",
+                ),
+                status_code=303,
+            )
+
+        try:
+            InventorySerialService.receive_serials(
+                db,
+                organization_id=org_id,
+                item_id=item_uuid,
+                warehouse_id=warehouse_uuid,
+                serial_numbers=parsed_serials,
+                transaction=None,
+                created_by_user_id=user_id,
+            )
+            db.flush()
+            db.commit()
+        except (HTTPException, IntegrityError):
+            db.rollback()
+            return RedirectResponse(
+                url=_serials_url(
+                    status="missing_serials",
+                    item=item_uuid,
+                    warehouse=warehouse_uuid,
+                    error="Serial number already exists",
+                ),
+                status_code=303,
+            )
+
+        redirect_url = _serials_url(item=item_uuid, warehouse=warehouse_uuid, saved=1)
+        if len(parsed_serials) < missing_count:
+            redirect_url = _serials_url(
+                status="missing_serials",
+                item=item_uuid,
+                warehouse=warehouse_uuid,
+                saved=1,
+            )
+        return RedirectResponse(
+            url=redirect_url,
+            status_code=303,
+        )
 
     def list_lots_response(
         self,

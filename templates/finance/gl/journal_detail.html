@@ -159,6 +159,21 @@
 </div>
 {% endif %}
 
+{% if entry.source_module == 'FA' and entry.source_document_type == 'FA_GL_RECONCILIATION' and entry.source_document_id %}
+<div class="mb-6 rounded-xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-900/20">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+            {{ icon_svg("scale", "h-5 w-5 text-teal-600 dark:text-teal-300") }}
+            <p class="text-sm text-teal-800 dark:text-teal-200">Draft created from a fixed asset GL reconciliation approval package.</p>
+        </div>
+        <a href="/fixed-assets/reports/gl-reconciliation/packages/{{ entry.source_document_id }}" class="btn btn-secondary btn-sm">
+            {{ icon_svg("eye", "h-4 w-4 mr-1") }}
+            View Package
+        </a>
+    </div>
+</div>
+{% endif %}
+
 <div class="space-y-6">
     {# Main Journal Document Card #}
     <div class="document-card">

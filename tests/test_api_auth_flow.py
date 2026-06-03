@@ -81,6 +81,8 @@ class TestLoginAPI:
         payload = {"username": "nonexistent", "password": "wrongpassword"}
         response = client.post("/auth/login", json=payload)
         assert response.status_code in [401, 404]
+        if response.status_code == 401:
+            assert response.json()["message"] == "Wrong username"
 
     def test_login_wrong_password(self, client, db_session, person):
         """Test login with wrong password."""
@@ -96,6 +98,30 @@ class TestLoginAPI:
         payload = {"username": credential.username, "password": "wrongpassword"}
         response = client.post("/auth/login", json=payload)
         assert response.status_code == 401
+        assert response.json()["message"] == "Wrong password"
+
+    def test_login_third_wrong_password_attempt_warning(
+        self, client, db_session, person
+    ):
+        """Test login warning after the third wrong password attempt."""
+        credential = UserCredential(
+            person_id=person.id,
+            username=f"thirdattempt_{uuid.uuid4().hex[:8]}",
+            password_hash=hash_password("correctpassword"),
+            failed_login_attempts=2,
+            is_active=True,
+        )
+        db_session.add(credential)
+        db_session.commit()
+
+        payload = {"username": credential.username, "password": "wrongpassword"}
+        response = client.post("/auth/login", json=payload)
+
+        assert response.status_code == 401
+        assert response.json()["message"] == (
+            "Wrong password. This is your third failed attempt. "
+            "You have 2 more attempts before your account is locked."
+        )
 
     def test_login_inactive_credential(self, client, db_session, person):
         """Test login with inactive credential."""

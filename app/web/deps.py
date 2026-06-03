@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import AsyncSessionLocal, SessionLocal, get_auth_db_session
-from app.db.session_context import prime_session
+from app.db.session_context import allow_cross_org, prime_session, prime_tenant_context
 from app.models.auth import Session as AuthSession
 from app.models.auth import SessionStatus
 from app.models.person import Person
@@ -64,14 +64,16 @@ def _set_default_org_context(db: Session) -> UUID | None:
     if not settings.default_organization_id:
         return None
     organization_id = UUID(str(settings.default_organization_id))
-    set_current_organization_sync(db, organization_id)
+    prime_tenant_context(db, organization_id)
     return organization_id
 
 
 def _get_person_for_web_session(db: Session, person_id: UUID) -> Person | None:
     """Load a web-session person with the default org context in single-org mode."""
-    _set_default_org_context(db)
-    return db.get(Person, person_id)
+    if _set_default_org_context(db):
+        return db.get(Person, person_id)
+    with allow_cross_org(db):
+        return db.get(Person, person_id)
 
 
 def _get_auth_db_for_sso() -> Session | None:
@@ -607,7 +609,7 @@ def base_context(
         # Sessions created here are outside FastAPI's get_db dependency,
         # so RLS context hasn't been set yet — tenant-scoped queries below
         # would return None for every row and look like missing data.
-        set_current_organization_sync(effective_db, auth.organization_id)
+        prime_tenant_context(effective_db, auth.organization_id)
 
     try:
         # Load organization object for template conditionals (e.g. IPSAS sidebar toggle)
@@ -883,6 +885,7 @@ def base_context(
             "request": request,
             "title": page_title,
             "page_title": page_title,
+            "app_version": settings.app_version,
             "brand": brand,
             "org_branding": org_branding,
             "active_module": active_module,
@@ -1457,7 +1460,7 @@ def require_web_auth(
 
     # Set RLS context
     if organization_id:
-        set_current_organization_sync(db, organization_id)
+        prime_tenant_context(db, organization_id)
         request.state.organization_id = str(organization_id)
 
     _set_actor_context(request, person_uuid)
@@ -1720,7 +1723,7 @@ def optional_web_auth(
 
     # Set RLS context
     if organization_id:
-        set_current_organization_sync(db, organization_id)
+        prime_tenant_context(db, organization_id)
         request.state.organization_id = str(organization_id)
 
     _set_actor_context(request, person_uuid)
