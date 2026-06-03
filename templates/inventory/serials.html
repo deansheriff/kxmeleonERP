@@ -343,12 +343,12 @@
          x-cloak
          x-trap="serialModalOpen"
          @keydown.escape.window="closeSerialModal()"
-         class="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6"
+         class="fixed inset-0 z-[1000]"
          role="dialog"
          aria-modal="true"
          aria-labelledby="missing-serial-modal-title">
-        <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" @click="closeSerialModal()"></div>
-        <div class="relative z-[71] w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div class="fixed inset-0 bg-transparent" @click="closeSerialModal()"></div>
+        <div class="fixed left-1/2 top-1/2 z-[1010] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
             <form method="post" action="/inventory/serials/missing/add" class="space-y-5 p-5 sm:p-6">
                 {{ request.state.csrf_form | safe }}
                 <input type="hidden" name="item_id" :value="serialModal.itemId">
@@ -373,16 +373,16 @@
                         {{ icon_svg("x", "h-4 w-4") }}
                     </button>
                 </div>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Enter one or more serial numbers for this warehouse. This row stays in Missing Serials until all missing serials are added.</p>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Enter a serial number for this warehouse. This row stays in Missing Serials until all missing serials are added.</p>
                 <div>
                     <label class="form-label" for="missing-serial-numbers">Serial Numbers</label>
-                    <textarea id="missing-serial-numbers"
-                              x-ref="serialNumbersInput"
-                              name="serial_numbers"
-                              rows="6"
-                              required
-                              class="form-input resize-none"
-                              placeholder="One serial number per line"></textarea>
+                    <input id="missing-serial-numbers"
+                           x-ref="serialNumbersInput"
+                           type="text"
+                           name="serial_numbers"
+                           required
+                           class="form-input"
+                           placeholder="Serial number">
                 </div>
                 <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                     <button type="button" class="btn btn-secondary" @click="closeSerialModal()">Cancel</button>
