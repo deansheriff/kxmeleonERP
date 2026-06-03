@@ -37,6 +37,13 @@
             Delete
         </button>
     </form>
+    {% if is_consolidated %}
+    <a href="/finance/ar/customers/{{ customer.customer_id }}/consolidated-payment"
+       class="btn btn-secondary">
+        {{ icon_svg("credit-card", "h-4 w-4") }}
+        Consolidated Payment
+    </a>
+    {% endif %}
     <a href="/finance/ar/receipts/new?customer_id={{ customer.customer_id }}"
        class="btn btn-secondary">
         {{ icon_svg("credit-card", "h-4 w-4") }}

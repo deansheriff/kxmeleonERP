@@ -109,6 +109,34 @@ def customer_statement(
     return ar_web_service.customer_statement_response(request, auth, db, customer_id)
 
 
+@router.get(
+    "/customers/{customer_id}/consolidated-payment", response_class=HTMLResponse
+)
+def consolidated_payment_form(
+    request: Request,
+    customer_id: str,
+    auth: WebAuthContext = Depends(require_finance_access),
+    db: Session = Depends(get_db_for_org),
+):
+    """Form to record a consolidated reseller payment across the family."""
+    return ar_web_service.consolidated_payment_form_response(
+        request, auth, db, customer_id
+    )
+
+
+@router.post("/customers/{customer_id}/consolidated-payment")
+async def create_consolidated_payment(
+    request: Request,
+    customer_id: str,
+    auth: WebAuthContext = Depends(require_finance_access),
+    db: Session = Depends(get_db_for_org),
+):
+    """Record a consolidated reseller payment (FIFO across the family)."""
+    return await ar_web_service.create_consolidated_payment_response(
+        request, auth, db, customer_id
+    )
+
+
 @router.get("/customers/{customer_id}/edit", response_class=HTMLResponse)
 def edit_customer_form(
     request: Request,
