@@ -165,9 +165,7 @@ class IntercompanyService(ListResponseMixin):
         )
 
         db.add(balance)
-        db.commit()
-        db.refresh(balance)
-
+        db.flush()
         return balance
 
     @staticmethod
@@ -320,9 +318,7 @@ class IntercompanyService(ListResponseMixin):
         if balance.difference_amount == Decimal("0"):
             balance.is_matched = True
 
-        db.commit()
-        db.refresh(balance)
-
+        db.flush()
         return balance
 
     @staticmethod

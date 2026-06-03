@@ -573,6 +573,7 @@ class JournalWebService:
         )
 
         if error or entry is None:
+            db.rollback()
             context = base_context(request, auth, "New Journal Entry", "gl")
             context.update(self.journal_form_context(db, str(auth.organization_id)))
             context["error"] = error or "Journal entry creation failed"
@@ -591,8 +592,10 @@ class JournalWebService:
                 request, "finance/gl/journal_form.html", context
             )
 
+        entry_id = entry.journal_entry_id
+        db.commit()
         return RedirectResponse(
-            url=f"/finance/gl/journals/{entry.journal_entry_id}?saved=1",
+            url=f"/finance/gl/journals/{entry_id}?saved=1",
             status_code=303,
         )
 
@@ -638,6 +641,7 @@ class JournalWebService:
         )
 
         if error:
+            db.rollback()
             context = base_context(request, auth, "Edit Journal Entry", "gl")
             context.update(
                 self.journal_form_context(
@@ -651,6 +655,7 @@ class JournalWebService:
                 request, "finance/gl/journal_form.html", context
             )
 
+        db.commit()
         return RedirectResponse(
             url=f"/finance/gl/journals/{entry_id}?saved=1", status_code=303
         )
@@ -666,6 +671,7 @@ class JournalWebService:
         error = self.delete_journal(db, str(auth.organization_id), entry_id)
 
         if error:
+            db.rollback()
             context = base_context(request, auth, "Journal Entry Details", "gl")
             context.update(
                 self.journal_detail_context(
@@ -679,6 +685,7 @@ class JournalWebService:
                 request, "finance/gl/journal_detail.html", context
             )
 
+        db.commit()
         return RedirectResponse(
             url="/finance/gl/journals?success=Record+deleted+successfully",
             status_code=303,
@@ -699,11 +706,13 @@ class JournalWebService:
                 journal_entry_id=coerce_uuid(entry_id),
                 posted_by_user_id=coerce_uuid(auth.user_id),
             )
+            db.commit()
             return RedirectResponse(
                 url=f"/finance/gl/journals/{entry_id}?success=Journal+entry+posted+to+ledger",
                 status_code=303,
             )
         except Exception as e:
+            db.rollback()
             return RedirectResponse(
                 url=f"/finance/gl/journals/{entry_id}?error={str(e)}",
                 status_code=303,
@@ -725,11 +734,14 @@ class JournalWebService:
                 reversal_date=date.today(),
                 reversed_by_user_id=coerce_uuid(auth.user_id),
             )
+            reversal_id = reversal.journal_entry_id
+            db.commit()
             return RedirectResponse(
-                url=f"/finance/gl/journals/{reversal.journal_entry_id}?success=Journal+entry+reversed",
+                url=f"/finance/gl/journals/{reversal_id}?success=Journal+entry+reversed",
                 status_code=303,
             )
         except Exception as e:
+            db.rollback()
             return RedirectResponse(
                 url=f"/finance/gl/journals/{entry_id}?error={str(e)}",
                 status_code=303,

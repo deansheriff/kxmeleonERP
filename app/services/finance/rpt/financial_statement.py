@@ -162,9 +162,7 @@ class FinancialStatementService(ListResponseMixin):
         )
 
         db.add(line)
-        db.commit()
-        db.refresh(line)
-
+        db.flush()
         return line
 
     @staticmethod
@@ -212,9 +210,7 @@ class FinancialStatementService(ListResponseMixin):
         if formatting is not None:
             line.formatting = formatting
 
-        db.commit()
-        db.refresh(line)
-
+        db.flush()
         return line
 
     @staticmethod
@@ -257,9 +253,7 @@ class FinancialStatementService(ListResponseMixin):
         line.account_categories = account_categories
         line.exclude_account_codes = exclude_account_codes
 
-        db.commit()
-        db.refresh(line)
-
+        db.flush()
         return line
 
     @staticmethod
@@ -392,9 +386,7 @@ class FinancialStatementService(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Statement line not found")
 
         line.is_active = False
-        db.commit()
-        db.refresh(line)
-
+        db.flush()
         return line
 
     @staticmethod

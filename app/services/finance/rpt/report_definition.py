@@ -206,9 +206,7 @@ class ReportDefinitionService(ListResponseMixin):
         if supported_formats is not None:
             definition.supported_formats = supported_formats
 
-        db.commit()
-        db.refresh(definition)
-
+        db.flush()
         return definition
 
     @staticmethod
@@ -255,9 +253,7 @@ class ReportDefinitionService(ListResponseMixin):
         # Increment template version
         definition.template_version += 1
 
-        db.commit()
-        db.refresh(definition)
-
+        db.flush()
         return definition
 
     @staticmethod
@@ -291,9 +287,7 @@ class ReportDefinitionService(ListResponseMixin):
         definition.data_source_type = data_source_type
         definition.data_source_config = data_source_config
 
-        db.commit()
-        db.refresh(definition)
-
+        db.flush()
         return definition
 
     @staticmethod
@@ -327,9 +321,7 @@ class ReportDefinitionService(ListResponseMixin):
             )
 
         definition.is_active = False
-        db.commit()
-        db.refresh(definition)
-
+        db.flush()
         return definition
 
     @staticmethod
@@ -401,9 +393,7 @@ class ReportDefinitionService(ListResponseMixin):
         )
 
         db.add(clone)
-        db.commit()
-        db.refresh(clone)
-
+        db.flush()
         return clone
 
     @staticmethod

@@ -148,6 +148,111 @@ def test_create_reconciliation_success_with_prior():
     assert recon.currency_code == "NGN"
 
 
+def test_import_existing_matches_uses_statement_amount_for_total():
+    svc = BankReconciliationService()
+    db = MagicMock()
+    recon = SimpleNamespace(
+        reconciliation_id=uuid4(),
+        bank_account_id=uuid4(),
+        period_start=date(2024, 1, 1),
+        period_end=date(2024, 1, 31),
+        total_matched=Decimal("0"),
+    )
+    statement_line_id = uuid4()
+    journal_line_id = uuid4()
+    db.execute.return_value.all.return_value = [
+        SimpleNamespace(
+            statement_line_id=statement_line_id,
+            transaction_date=date(2024, 1, 15),
+            transaction_type="debit",
+            amount=Decimal("100.00"),
+            description="Supplier payment",
+            reference="PAY-1",
+            journal_line_id=journal_line_id,
+            is_primary=True,
+            match_type="AUTO",
+            debit_amount=Decimal("0"),
+            credit_amount=Decimal("100.00"),
+        )
+    ]
+
+    created = svc._import_existing_matches(
+        db,
+        recon,
+        SimpleNamespace(),
+        uuid4(),
+        created_by=uuid4(),
+    )
+
+    assert created == 1
+    assert recon.total_matched == Decimal("100.00")
+    imported_line = db.add.call_args.args[0]
+    assert imported_line.statement_amount == Decimal("-100.00")
+    assert imported_line.gl_amount == Decimal("-100.00")
+    assert imported_line.difference == Decimal("0.00")
+
+
+def test_import_existing_matches_groups_multiple_gl_lines_per_statement_line():
+    svc = BankReconciliationService()
+    db = MagicMock()
+    recon = SimpleNamespace(
+        reconciliation_id=uuid4(),
+        bank_account_id=uuid4(),
+        period_start=date(2024, 1, 1),
+        period_end=date(2024, 1, 31),
+        total_matched=Decimal("0"),
+    )
+    statement_line_id = uuid4()
+    primary_journal_line_id = uuid4()
+    secondary_journal_line_id = uuid4()
+    db.execute.return_value.all.return_value = [
+        SimpleNamespace(
+            statement_line_id=statement_line_id,
+            transaction_date=date(2024, 1, 15),
+            transaction_type="debit",
+            amount=Decimal("100.00"),
+            description="Supplier payment",
+            reference="PAY-1",
+            journal_line_id=secondary_journal_line_id,
+            is_primary=False,
+            match_type="MANUAL",
+            debit_amount=Decimal("0"),
+            credit_amount=Decimal("40.00"),
+        ),
+        SimpleNamespace(
+            statement_line_id=statement_line_id,
+            transaction_date=date(2024, 1, 15),
+            transaction_type="debit",
+            amount=Decimal("100.00"),
+            description="Supplier payment",
+            reference="PAY-1",
+            journal_line_id=primary_journal_line_id,
+            is_primary=True,
+            match_type="MANUAL",
+            debit_amount=Decimal("0"),
+            credit_amount=Decimal("60.00"),
+        ),
+    ]
+
+    created = svc._import_existing_matches(
+        db,
+        recon,
+        SimpleNamespace(),
+        uuid4(),
+        created_by=uuid4(),
+    )
+
+    assert created == 1
+    assert recon.total_matched == Decimal("100.00")
+    imported_line = db.add.call_args.args[0]
+    assert imported_line.match_type == ReconciliationMatchType.split
+    assert imported_line.statement_line_id == statement_line_id
+    assert imported_line.journal_line_id == primary_journal_line_id
+    assert imported_line.statement_amount == Decimal("-100.00")
+    assert imported_line.gl_amount == Decimal("-100.00")
+    assert imported_line.difference == Decimal("0.00")
+
+
 def test_list_and_count_filters():
     svc = BankReconciliationService()
     db = MagicMock()

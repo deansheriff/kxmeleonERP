@@ -301,9 +301,7 @@ class InventoryCountService(ListResponseMixin):
 
         InventoryCountService._build_count_snapshot(db, count)
         count.status = CountStatus.IN_PROGRESS
-        db.commit()
-        db.refresh(count)
-
+        db.flush()
         return count
 
     @staticmethod
@@ -366,9 +364,7 @@ class InventoryCountService(ListResponseMixin):
 
         db.add(count)
         db.flush()
-        db.commit()
-        db.refresh(count)
-
+        db.flush()
         return count
 
     @staticmethod
@@ -457,9 +453,7 @@ class InventoryCountService(ListResponseMixin):
 
         InventoryCountService._recalculate_count_stats(db, count)
 
-        db.commit()
-        db.refresh(line)
-
+        db.flush()
         return line
 
     @staticmethod
@@ -546,9 +540,7 @@ class InventoryCountService(ListResponseMixin):
             )
 
         count.status = CountStatus.COMPLETED
-        db.commit()
-        db.refresh(count)
-
+        db.flush()
         return count
 
     @staticmethod
@@ -587,9 +579,7 @@ class InventoryCountService(ListResponseMixin):
         count.approved_by_user_id = user_id
         count.approved_at = datetime.now(UTC)
 
-        db.commit()
-        db.refresh(count)
-
+        db.flush()
         return count
 
     @staticmethod
@@ -687,9 +677,7 @@ class InventoryCountService(ListResponseMixin):
         count.posted_by_user_id = user_id
         count.posted_at = datetime.now(UTC)
 
-        db.commit()
-        db.refresh(count)
-
+        db.flush()
         return count
 
     @staticmethod

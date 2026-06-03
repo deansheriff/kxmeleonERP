@@ -172,9 +172,7 @@ class OwnershipService(ListResponseMixin):
         )
 
         db.add(ownership)
-        db.commit()
-        db.refresh(ownership)
-
+        db.flush()
         # Update investee consolidation method based on control
         OwnershipService._update_consolidation_method(db, investee, ownership)
 

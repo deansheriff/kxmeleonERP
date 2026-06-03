@@ -654,10 +654,11 @@ class CustomerWebService:
                 organization_id=org_id,
                 input=input_data,
             )
+            customer_id = customer.customer_id
             db.commit()
 
             return RedirectResponse(
-                url=f"/finance/ar/customers/{customer.customer_id}?success=Customer+created+successfully",
+                url=f"/finance/ar/customers/{customer_id}?success=Customer+created+successfully",
                 status_code=303,
             )
 
