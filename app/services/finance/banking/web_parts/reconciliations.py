@@ -49,8 +49,9 @@ from app.services.finance.banking.web_parts.base import (
     templates,
 )
 
-# Page size for the Matched Items table on the reconciliation detail page.
+# Page sizes for the reconciliation detail page tables.
 _MATCHED_PAGE_SIZE = 100
+_UNMATCHED_PAGE_SIZE = 100
 
 
 class BankingReconciliationWebService:
@@ -182,6 +183,8 @@ class BankingReconciliationWebService:
         organization_id: str,
         reconciliation_id: str,
         matched_page: int = 1,
+        stmt_page: int = 1,
+        gl_page: int = 1,
     ) -> dict:
         from app.services.finance.banking.bank_reconciliation import (
             bank_reconciliation_service as recon_svc,
@@ -200,7 +203,9 @@ class BankingReconciliationWebService:
 
         bank_account = reconciliation.bank_account
 
-        statement_lines = db.scalars(
+        # Unmatched statement lines — paginated (a busy account/period can have
+        # thousands; rendering them all bloats/times out the page).
+        _stmt_base = (
             select(BankStatementLine)
             .join(
                 BankStatement,
@@ -213,28 +218,57 @@ class BankingReconciliationWebService:
                 BankStatementLine.transaction_date >= reconciliation.period_start,
                 BankStatementLine.transaction_date <= reconciliation.period_end,
             )
-            .order_by(BankStatementLine.transaction_date, BankStatementLine.line_number)
+        )
+        stmt_total = (
+            db.scalar(select(func.count()).select_from(_stmt_base.subquery())) or 0
+        )
+        stmt_pages = max(
+            1, (stmt_total + _UNMATCHED_PAGE_SIZE - 1) // _UNMATCHED_PAGE_SIZE
+        )
+        stmt_page = min(max(1, stmt_page), stmt_pages)
+        statement_lines = db.scalars(
+            _stmt_base.order_by(
+                BankStatementLine.transaction_date, BankStatementLine.line_number
+            )
+            .limit(_UNMATCHED_PAGE_SIZE)
+            .offset((stmt_page - 1) * _UNMATCHED_PAGE_SIZE)
         ).all()
 
+        # Unmatched GL entries — paginated for the same reason.
         gl_lines: list[tuple[JournalEntryLine, JournalEntry]] = []
+        gl_total = 0
+        gl_pages = 1
+        gl_page = max(1, gl_page)
         if bank_account:
+            _gl_base = (
+                select(JournalEntryLine, JournalEntry)
+                .join(
+                    JournalEntry,
+                    JournalEntryLine.journal_entry_id == JournalEntry.journal_entry_id,
+                )
+                .where(
+                    JournalEntry.organization_id == org_id,
+                    JournalEntryLine.account_id == bank_account.gl_account_id,
+                    JournalEntry.status == JournalStatus.POSTED,
+                    JournalEntry.entry_date >= reconciliation.period_start,
+                    JournalEntry.entry_date <= reconciliation.period_end,
+                )
+            )
+            gl_total = (
+                db.scalar(select(func.count()).select_from(_gl_base.subquery())) or 0
+            )
+            gl_pages = max(
+                1, (gl_total + _UNMATCHED_PAGE_SIZE - 1) // _UNMATCHED_PAGE_SIZE
+            )
+            gl_page = min(gl_page, gl_pages)
             gl_lines = cast(
                 list[tuple[JournalEntryLine, JournalEntry]],
                 db.execute(
-                    select(JournalEntryLine, JournalEntry)
-                    .join(
-                        JournalEntry,
-                        JournalEntryLine.journal_entry_id
-                        == JournalEntry.journal_entry_id,
+                    _gl_base.order_by(
+                        JournalEntry.entry_date, JournalEntryLine.line_number
                     )
-                    .where(
-                        JournalEntry.organization_id == org_id,
-                        JournalEntryLine.account_id == bank_account.gl_account_id,
-                        JournalEntry.status == JournalStatus.POSTED,
-                        JournalEntry.entry_date >= reconciliation.period_start,
-                        JournalEntry.entry_date <= reconciliation.period_end,
-                    )
-                    .order_by(JournalEntry.entry_date, JournalEntryLine.line_number)
+                    .limit(_UNMATCHED_PAGE_SIZE)
+                    .offset((gl_page - 1) * _UNMATCHED_PAGE_SIZE)
                 ).all(),
             )
 
@@ -377,6 +411,13 @@ class BankingReconciliationWebService:
             "matched_page": matched_page,
             "matched_pages": matched_pages,
             "matched_page_size": _MATCHED_PAGE_SIZE,
+            "stmt_total": stmt_total,
+            "stmt_page": stmt_page,
+            "stmt_pages": stmt_pages,
+            "gl_total": gl_total,
+            "gl_page": gl_page,
+            "gl_pages": gl_pages,
+            "unmatched_page_size": _UNMATCHED_PAGE_SIZE,
         }
 
     @staticmethod
@@ -536,6 +577,8 @@ class BankingReconciliationWebService:
         db: Session,
         reconciliation_id: str,
         matched_page: int = 1,
+        stmt_page: int = 1,
+        gl_page: int = 1,
     ) -> HTMLResponse:
         context = base_context(request, auth, "Bank Reconciliation", "banking", db=db)
         context.update(
@@ -544,6 +587,8 @@ class BankingReconciliationWebService:
                 str(auth.organization_id),
                 reconciliation_id,
                 matched_page=matched_page,
+                stmt_page=stmt_page,
+                gl_page=gl_page,
             )
         )
         return templates.TemplateResponse(
