@@ -86,6 +86,11 @@ async def hr_settings(
             sync_db, auth.organization_id
         )
     )
+    result["employee_invite_email"] = (
+        people_settings_web_service.get_employee_invite_email_context(
+            sync_db, auth.organization_id
+        )
+    )
 
     context = base_context(request, auth, "HR Settings", "settings", db=sync_db)
     context.update(result)
@@ -108,6 +113,12 @@ async def update_hr_settings(
         db, auth.organization_id, data
     )
     if success:
+        success, error = people_settings_web_service.update_employee_invite_email_template(
+            sync_db,
+            auth.organization_id,
+            data,
+        )
+    if success:
         success, error = await people_settings_web_service.update_default_invite_attachment(
             sync_db,
             auth.organization_id,
@@ -121,6 +132,11 @@ async def update_hr_settings(
         )
         result["default_invite_attachment"] = (
             people_settings_web_service.get_default_invite_attachment_context(
+                sync_db, auth.organization_id
+            )
+        )
+        result["employee_invite_email"] = (
+            people_settings_web_service.get_employee_invite_email_context(
                 sync_db, auth.organization_id
             )
         )

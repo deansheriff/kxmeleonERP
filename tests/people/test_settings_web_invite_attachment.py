@@ -15,6 +15,48 @@ from app.web.people.settings import download_default_invite_attachment
 from app.services.people.settings_web import people_settings_web_service
 
 
+def test_employee_invite_email_context_matches_invite_flow(db_session, person):
+    preview = people_settings_web_service.get_employee_invite_email_context(
+        db_session,
+        person.organization_id,
+    )
+
+    assert preview["subject"] == "Reset your password"
+    assert "Hi {name}" in preview["body_html"]
+    assert "Reset password" in preview["body_html"]
+    assert preview["next_url"] == "/people/self/tax-info"
+    assert preview["link_pattern"] == (
+        "{app_url}/reset-password?token=<secure-token>"
+        "&next=/people/self/tax-info"
+    )
+    assert "Work email first" in preview["recipients"]
+    assert preview["email_module"] == "ADMIN"
+    assert "welcome pack" in preview["attachment"]
+
+
+def test_update_employee_invite_email_template_stores_org_setting(db_session, person):
+    success, error = people_settings_web_service.update_employee_invite_email_template(
+        db_session,
+        person.organization_id,
+        {
+            "employee_invite_subject": "Welcome to Dotmac",
+            "employee_invite_body_html": "<p>Hello {name}</p><p>{reset_link}</p>",
+            "employee_invite_body_text": "Hello {name}: {reset_link}",
+        },
+    )
+
+    assert success is True
+    assert error is None
+
+    preview = people_settings_web_service.get_employee_invite_email_context(
+        db_session,
+        person.organization_id,
+    )
+    assert preview["subject"] == "Welcome to Dotmac"
+    assert preview["body_html"] == "<p>Hello {name}</p><p>{reset_link}</p>"
+    assert preview["body_text"] == "Hello {name}: {reset_link}"
+
+
 @pytest.mark.asyncio
 async def test_update_default_invite_attachment_stores_org_setting(
     db_session, person, monkeypatch
