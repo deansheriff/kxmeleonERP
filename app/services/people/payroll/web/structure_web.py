@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 from starlette.datastructures import UploadFile
 
@@ -623,9 +623,7 @@ class StructureWebService:
         """Render salary assignments list page."""
         org_id = coerce_uuid(auth.organization_id)
         per_page = limit if limit in {25, 50, 100, 200} else DEFAULT_PAGE_SIZE
-        offset = (page - 1) * per_page
 
-        conditions: list[Any] = [SalaryStructureAssignment.organization_id == org_id]
         stmt = (
             select(SalaryStructureAssignment)
             .options(
@@ -639,42 +637,21 @@ class StructureWebService:
                 SalaryStructure,
                 SalaryStructureAssignment.structure_id == SalaryStructure.structure_id,
             )
-            .where(*conditions)
+            .where(SalaryStructureAssignment.organization_id == org_id)
+        )
+        stmt = apply_search(
+            stmt,
+            search,
+            Employee.employee_code,
+            SalaryStructure.structure_name,
         )
 
-        if search:
-            conditions.append(
-                Employee.employee_code.ilike(f"%{search}%")
-                | SalaryStructure.structure_name.ilike(f"%{search}%")
-            )
-            stmt = stmt.where(
-                Employee.employee_code.ilike(f"%{search}%")
-                | SalaryStructure.structure_name.ilike(f"%{search}%")
-            )
-
-        total = (
-            db.scalar(
-                select(func.count(SalaryStructureAssignment.assignment_id))
-                .select_from(SalaryStructureAssignment)
-                .join(
-                    Employee,
-                    SalaryStructureAssignment.employee_id == Employee.employee_id,
-                )
-                .join(
-                    SalaryStructure,
-                    SalaryStructureAssignment.structure_id
-                    == SalaryStructure.structure_id,
-                )
-                .where(*conditions)
-            )
-            or 0
+        result = paginate(
+            db,
+            stmt.order_by(SalaryStructureAssignment.from_date.desc()),
+            PaginationParams.from_page(page, per_page),
         )
-        assignments = db.scalars(
-            stmt.order_by(SalaryStructureAssignment.from_date.desc())
-            .offset(offset)
-            .limit(per_page)
-        ).all()
-        total_pages = (total + per_page - 1) // per_page
+        assignments = result.items
 
         context = base_context(request, auth, "Salary Assignments", "payroll", db=db)
         context["request"] = request
@@ -682,15 +659,12 @@ class StructureWebService:
             {
                 "assignments": assignments,
                 "search": search or "",
-                "page": page,
-                "total_pages": total_pages,
-                "total_count": total,
-                "total": total,
-                "limit": per_page,
-                "has_prev": page > 1,
-                "has_next": page < total_pages,
+                "total": result.total,
+                "has_prev": result.has_prev,
+                "has_next": result.has_next,
                 "bulk_created": bulk_created,
                 "bulk_skipped": bulk_skipped,
+                **pagination_context(result),
             }
         )
         return templates.TemplateResponse(
