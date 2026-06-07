@@ -210,6 +210,10 @@ def main(
     db = (session_factory or SessionLocal)()
 
     try:
+        # Prime the session with the target org so the multi-tenant listener
+        # allows queries against org-scoped models (e.g. Person).
+        db.info["organization_id"] = organization_id
+
         credential = db.scalar(
             select(UserCredential)
             .where(UserCredential.provider == AuthProvider.local)
