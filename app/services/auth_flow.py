@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings as app_settings
-from app.db.multi_tenant import allow_cross_org
+from app.db.session_context import allow_cross_org
 from app.models.auth import (
     AuthProvider,
     MFAMethod,
