@@ -51,6 +51,46 @@ logger = logging.getLogger(__name__)
 
 _SESSION_TOUCH_INTERVAL = timedelta(seconds=60)
 
+_EMPLOYEE_SELF_SERVICE_SCOPES = frozenset(
+    {
+        "coach:insights:read",
+        "coach:insights:feedback",
+        "coach:reports:read",
+        "coach:chat:access",
+        "self:access",
+        "selfservice:profile:read",
+        "selfservice:profile:update",
+        "selfservice:documents:read",
+        "selfservice:documents:upload",
+        "leave:applications:read_own",
+        "leave:applications:create",
+        "leave:balance:read_own",
+        "attendance:records:read_own",
+        "attendance:requests:read_own",
+        "attendance:requests:create",
+        "perf:appraisals:read_own",
+        "perf:appraisals:self_review",
+        "perf:goals:read",
+        "perf:goals:update",
+        "expense:claims:read_own",
+        "expense:claims:create",
+        "expense:claims:update",
+        "expense:claims:delete",
+        "expense:claims:submit",
+        "expense:advances:read_own",
+        "expense:advances:create",
+        "payroll:slips:read_own",
+        "training:events:read",
+        "training:enrollments:self_enroll",
+        "training:feedback:submit",
+        "support:tickets:read_own",
+        "support:tickets:create",
+        "tasks:read_own",
+        "tasks:update",
+        "tasks:complete",
+    }
+)
+
 
 def _set_actor_context(request: Request, actor_id: UUID | str) -> None:
     """Keep request state and observability context in sync for auditing."""
@@ -1328,6 +1368,16 @@ def _load_web_permission_scopes(
     return list({*existing_scopes, *(str(key) for key in permission_rows if key)})
 
 
+def _restrict_employee_only_scopes(
+    roles: list[str], scopes: list[str]
+) -> list[str]:
+    """Fail closed when the shared employee role contains stale DB grants."""
+    normalized_roles = {role.strip().lower() for role in roles if role.strip()}
+    if normalized_roles != {"employee"}:
+        return scopes
+    return [scope for scope in scopes if scope in _EMPLOYEE_SELF_SERVICE_SCOPES]
+
+
 def require_web_auth(
     request: Request,
     authorization: str | None = Header(default=None),
@@ -1456,6 +1506,8 @@ def require_web_auth(
         roles, scopes = _normalize_roles_scopes(roles, scopes)
         roles = _ensure_admin_role(db, person_uuid, roles)
         scopes = _load_web_permission_scopes(db, person_uuid, scopes)
+
+    scopes = _restrict_employee_only_scopes(roles, scopes)
 
     # Get person details
     person = _get_person_for_web_session(db, person_uuid)

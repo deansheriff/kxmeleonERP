@@ -37,6 +37,30 @@ def _employee_permissions() -> set[str]:
     raise AssertionError("employee role permission mapping not found")
 
 
+def _employee_runtime_scopes() -> set[str]:
+    tree = ast.parse(_source("app/web/deps.py"))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name)
+            and target.id == "_EMPLOYEE_SELF_SERVICE_SCOPES"
+            for target in node.targets
+        ):
+            continue
+        if not isinstance(node.value, ast.Call) or not node.value.args:
+            break
+        values = node.value.args[0]
+        if not isinstance(values, ast.Set):
+            break
+        return {
+            item.value
+            for item in values.elts
+            if isinstance(item, ast.Constant) and isinstance(item.value, str)
+        }
+    raise AssertionError("employee runtime scope baseline not found")
+
+
 def _role_permissions(role_name: str) -> set[str]:
     tree = ast.parse(_source("scripts/seed_rbac.py"))
     for node in ast.walk(tree):
@@ -75,6 +99,9 @@ class EmployeeRoleBoundaryTests(unittest.TestCase):
         self.assertIn("RolePermission.permission_id.notin_", source)
         self.assertNotIn("legacy_employee_grants", source)
 
+    def test_runtime_employee_scope_baseline_matches_seed(self) -> None:
+        self.assertEqual(_employee_permissions(), _employee_runtime_scopes())
+
     def test_tighter_routes_keep_expected_manager_access(self) -> None:
         operations_permissions = _role_permissions("operations_manager")
         finance_permissions = _role_permissions("finance_manager")
@@ -110,6 +137,14 @@ class RouteBoundaryTests(unittest.TestCase):
         self.assertIn("def _has_non_employee_hr_access", source)
         self.assertIn('Role.name != "employee"', source)
         self.assertIn("not has_valid_hr_role", source)
+
+    def test_employee_only_sessions_are_restricted_on_every_request(self) -> None:
+        source = _source("app/web/deps.py")
+        self.assertIn("def _restrict_employee_only_scopes", source)
+        self.assertIn('normalized_roles != {"employee"}', source)
+        self.assertIn(
+            "scopes = _restrict_employee_only_scopes(roles, scopes)", source
+        )
 
     def test_support_and_project_routes_do_not_use_module_wide_guards(self) -> None:
         self.assertNotIn("require_support_access", _source("app/web/support.py"))
